@@ -48,7 +48,7 @@ pub struct IdentityKeyPair {
 /// struct is used because we have no need to ever serialize the private key
 /// from a session, and this provides auto-safeguards against doing so.
 pub struct SessionKeyPair {
-    private: ReusableSecret,
+    private: StaticSecret,
     public: PublicKey,
     representative: Option<Representative>,
 }
@@ -66,8 +66,9 @@ impl SessionKeyPair {
     /// Generates a new Curve25519 keypair, and optionally also generates
     /// an Elligator representative of the public key.
     pub fn new(elligator: bool) -> Self {
-        let mut private = ReusableSecret::random();
-        let public = PublicKey::from(&private);
+        let mut private = StaticSecret::random();
+        let mut public = PublicKey::from(&private);
+        let mut representative: Representative;
         let mut rp = Self {
             private,
             public,
@@ -76,30 +77,26 @@ impl SessionKeyPair {
 
         if elligator {
             loop {
-                let rp = match rp.try_add_elligator2() {
-                    Some(s) => s,
+                match Representative::new(rp.private.as_bytes()) {
+                    Some(s) => {
+                        (public, representative) = s; 
+                        rp.representative = Some(representative);
+                        rp.public = public;
+                    },
                     None => {
                         // Elligator representatives only exist for 50% of points
                         // iterate until we find one that works.
                         //
                         // failed to get representative - try again
-                        private = ReusableSecret::random();
-                        rp.public = PublicKey::from(&private);
-                        rp.private = private;
+                        rp.private = StaticSecret::random();
                         continue;
                     }
-                };
+                }
                 break;
             }
         }
 
         rp
-    }
-
-    pub fn try_add_elligator2(&mut self) -> Option<&Self> {
-        self.representative = Representative::from_public(&self.public);
-        // TODO: generate representative
-        Some(self)
     }
 
     pub fn get_representative(&self) -> Option<Representative> {

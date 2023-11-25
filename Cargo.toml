@@ -17,7 +17,9 @@ hkdf = "0.12.3"
 curve25519-dalek = { version="4", features=["group"]}
 x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reusable_secrets"] }
 group = "0.13.0"
-
+rand = "0.8.5"
+rand_core = "0.6.4"
+lazy_static = "0.1.4"
 
 hex = "0.4.3"
 tracing = "0.1.40"
@@ -28,3 +30,4 @@ tokio = { version = "1.33", features = ["io-util", "rt-multi-thread", "net", "rt
 tokio-util = { version = "0.7.10" }
 
 [dev-dependencies]
+tracing-subscriber = "0.3.18"

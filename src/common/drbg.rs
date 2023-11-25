@@ -5,12 +5,14 @@
 /// algorithm in order to match the golang implementation of obfs4.
 use crate::{Error, Result};
 
-use siphasher::{prelude::*, sip::SipHasher24};
 use std::fmt;
 use std::str::FromStr;
 
 use getrandom::getrandom;
 use hex::{self, FromHex};
+use rand_core::{RngCore, Error as RandError, impls};
+use siphasher::{prelude::*, sip::SipHasher24};
+
 
 const SIZE: usize = 8;
 const SEED_LENGTH: usize = 16 + SIZE;
@@ -165,6 +167,25 @@ impl Drbg {
     pub fn next_block(&mut self) -> [u8; SIZE] {
         let h = self.uint64();
         h.to_be_bytes()
+    }
+}
+
+
+impl RngCore for Drbg {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u64() as u32
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.uint64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        impls::fill_bytes_via_next(self, dest)
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), RandError> {
+        Ok(self.fill_bytes(dest))
     }
 }
 
