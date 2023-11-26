@@ -14,6 +14,5 @@ pub mod traits;
 mod error;
 pub use error::{Error, Result};
 
-
 #[cfg(test)]
 pub(crate) mod test_utils;

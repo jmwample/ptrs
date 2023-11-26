@@ -20,9 +20,7 @@ pub fn init_subscriber() {
         let level = env::var("RUST_LOG_LEVEL").unwrap_or("error".into());
         let lf = LevelFilter::from_str(&level).unwrap();
 
-        tracing_subscriber::fmt()
-            .with_max_level(lf)
-            .init();
+        tracing_subscriber::fmt().with_max_level(lf).init();
     });
 }
 

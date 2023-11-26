@@ -4,11 +4,11 @@
 
 use crate::common::drbg;
 
+use std::cmp::{max, min};
 use std::fmt;
-use std::sync::{Arc,Mutex};
-use std::cmp::{min, max};
+use std::sync::{Arc, Mutex};
 
-use rand::{Rng, seq::SliceRandom};
+use rand::{seq::SliceRandom, Rng};
 
 const MIN_VALUES: i32 = 1;
 const MAX_VALUES: i32 = 100;
@@ -16,7 +16,6 @@ const MAX_VALUES: i32 = 100;
 /// A weighted distribution of integer values.
 #[derive(Clone)]
 pub struct WeightedDist(Arc<Mutex<InnerWeightedDist>>);
-
 
 struct InnerWeightedDist {
     min_value: i32,
@@ -27,9 +26,8 @@ struct InnerWeightedDist {
     weights: Vec<f64>,
 
     alias: Vec<usize>,
-    prob:  Vec<f64>,
+    prob: Vec<f64>,
 }
-
 
 impl WeightedDist {
     /// New creates a weighted distribution of values ranging from min to max
@@ -37,9 +35,15 @@ impl WeightedDist {
     /// generation to match the ScrambleSuit non-uniform distribution from
     /// obfsproxy.
     pub fn new(seed: drbg::Seed, min: i32, max: i32, biased: bool) -> Self {
-        let w = WeightedDist (
-            Arc::new(Mutex::new(InnerWeightedDist{ min_value: min, max_value: max, biased, 
-            values: vec![], weights: vec![], alias: vec![], prob: vec![] })));
+        let w = WeightedDist(Arc::new(Mutex::new(InnerWeightedDist {
+            min_value: min,
+            max_value: max,
+            biased,
+            values: vec![],
+            weights: vec![],
+            alias: vec![],
+            prob: vec![],
+        })));
         let _ = &w.reseed(seed);
 
         w
@@ -49,7 +53,7 @@ impl WeightedDist {
     pub fn sample(&self) -> i32 {
         let dist = self.0.lock().unwrap();
 
-        let mut buf = [0_u8;8];
+        let mut buf = [0_u8; 8];
         // Generate a fair die roll fro a $n$-sided die; call the side $i$.
         getrandom::getrandom(&mut buf).unwrap();
         let i = usize::from_ne_bytes(buf) % dist.values.len();
@@ -67,8 +71,7 @@ impl WeightedDist {
     }
 
     /// Generates a new distribution with the same min/max based on a new seed.
-    pub fn reseed (&self, seed: drbg::Seed) {
-
+    pub fn reseed(&self, seed: drbg::Seed) {
         let mut drbg = drbg::Drbg::new(Some(seed)).unwrap();
 
         let mut dist = self.0.lock().unwrap();
@@ -83,11 +86,10 @@ impl WeightedDist {
 }
 
 impl InnerWeightedDist {
-
     // Creates a slice containing a random number of random values that, when
     // scaled by adding self.min_value, will fall into [min, max].
     fn gen_values<R: Rng + ?Sized>(&mut self, rng: &mut R) {
-        let mut n_values = self.max_value+1 - self.min_value;
+        let mut n_values = self.max_value + 1 - self.min_value;
 
         let mut values: Vec<i32> = (0..=n_values).collect();
         values.shuffle(rng);
@@ -95,7 +97,7 @@ impl InnerWeightedDist {
         n_values = min(n_values, MAX_VALUES);
 
         let n_values = rng.gen_range(1..=n_values) as usize;
-        self.values =  values[..n_values].to_vec();
+        self.values = values[..n_values].to_vec();
     }
 
     // generates a non-uniform weight list, similar to the scramblesuit
@@ -119,7 +121,6 @@ impl InnerWeightedDist {
         }
     }
 
-
     // Calculates the alias and prob tables use for Vose's alias Method.
     // Algorithm taken from http://www.keithschwarz.com/darts-dice-coins/
     fn gen_tables(&mut self) {
@@ -130,11 +131,21 @@ impl InnerWeightedDist {
         let mut prob = vec![0_f64; n];
 
         // multiply each probability by $n$.
-        let mut scaled: Vec<f64> = self.weights.iter().map(|f| f * (n as f64) / sum ).collect();
+        let mut scaled: Vec<f64> = self.weights.iter().map(|f| f * (n as f64) / sum).collect();
         // if $p$ < 1$ add $i$ to $small$.
-        let mut small: Vec<usize> = scaled.iter().enumerate().filter(|(_,f)| **f < 1.0).map(|(i,_)| i).collect();
+        let mut small: Vec<usize> = scaled
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f < 1.0)
+            .map(|(i, _)| i)
+            .collect();
         // if $p$ >= 1$ add $i& to $large$.
-        let mut large: Vec<usize> = scaled.iter().enumerate().filter(|(_,f)| **f >= 1.0).map(|(i,_)| i).collect();
+        let mut large: Vec<usize> = scaled
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f >= 1.0)
+            .map(|(i, _)| i)
+            .collect();
 
         // While $small$ and $large$ are not empty: ($large$ might be emptied first)
         // remove the first element from $small$ and call it $l$.
@@ -200,10 +211,10 @@ impl fmt::Display for InnerWeightedDist {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Result;
     use crate::test_utils::init_subscriber;
+    use crate::Result;
 
-    use tracing::{trace, Level, span_enabled};
+    use tracing::{span_enabled, trace, Level};
 
     #[test]
     fn weighted_dist_uniformity() -> Result<()> {
@@ -223,9 +234,10 @@ mod test {
             let min_value = wi.min_value;
             let values = &wi.values;
 
-            for (i, weight) in wi.weights.iter().enumerate(){
+            for (i, weight) in wi.weights.iter().enumerate() {
                 let p = weight / sum;
-                if p > 0.000001 { // filter out tiny values
+                if p > 0.000001 {
+                    // filter out tiny values
                     trace!(" [{}]: {p}", min_value + values[i]);
                 }
             }
@@ -240,7 +252,7 @@ mod test {
             trace!("Generated:");
             for (val, count) in hist.iter().enumerate() {
                 if *count != 0 {
-                    trace!(" {val}: {:} ({count})", *count as f64 / n_trials as f64 );
+                    trace!(" {val}: {:} ({count})", *count as f64 / n_trials as f64);
                 }
             }
         }

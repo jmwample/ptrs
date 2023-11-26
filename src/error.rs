@@ -1,6 +1,6 @@
+use std::array::TryFromSliceError;
 use std::string::FromUtf8Error;
 use std::{fmt::Display, str::FromStr};
-use std::array::TryFromSliceError;
 
 use hex::FromHexError;
 use sha2::digest::InvalidLength;

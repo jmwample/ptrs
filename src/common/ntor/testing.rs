@@ -1,10 +1,10 @@
 use super::*;
-use crate::Result;
 use crate::common::elligator2;
+use crate::Result;
 
-use hex::FromHex;
-use curve25519_dalek::{Scalar, EdwardsPoint, traits::Identity};
+use curve25519_dalek::{traits::Identity, EdwardsPoint, Scalar};
 use group::GroupEncoding;
+use hex::FromHex;
 
 #[test]
 fn demo_handshake() -> Result<()> {
@@ -34,7 +34,6 @@ fn demo_handshake() -> Result<()> {
 
 #[test]
 fn dh_equivalence() -> Result<()> {
-
     let a_keys = IdentityKeyPair::new();
     let b_keys = IdentityKeyPair::new();
 
@@ -44,11 +43,13 @@ fn dh_equivalence() -> Result<()> {
     let x = Scalar::from_bytes_mod_order(b_keys.private.to_bytes());
     let b_secret = y * x;
 
-    assert_eq!(hex::encode(a_secret.to_bytes()), hex::encode(b_secret.to_bytes()));
+    assert_eq!(
+        hex::encode(a_secret.to_bytes()),
+        hex::encode(b_secret.to_bytes())
+    );
 
     Ok(())
 }
-
 
 #[test]
 fn handshake() -> Result<()> {
@@ -65,7 +66,8 @@ fn handshake() -> Result<()> {
         &server_kp,
         &server_id_kp,
         &node_id.clone(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Client Handshake
     let client_result = process_server_handshake(
@@ -73,7 +75,8 @@ fn handshake() -> Result<()> {
         &server_kp.public,
         &server_id_kp.public,
         &node_id,
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("\n{}\n{}", client_result, server_result);
 
@@ -83,8 +86,6 @@ fn handshake() -> Result<()> {
     Ok(())
 }
 
-
-
 // Test that Elligator representatives produced by
 // NewKeypair map to public keys that are not always on the prime-order subgroup
 // of Curve25519. (And incidentally that Elligator representatives agree with
@@ -92,7 +93,7 @@ fn handshake() -> Result<()> {
 //
 // See discussion under "Step 2" at https://elligator.org/key-exchange.
 #[test]
-fn publickey_subgroup() ->Result<()> {
+fn publickey_subgroup() -> Result<()> {
     // We will test the public keys that comes out of NewKeypair by
     // multiplying each one by L, the order of the prime-order subgroup of
     // Curve25519, then checking the order of the resulting point. The error
@@ -112,19 +113,50 @@ fn publickey_subgroup() ->Result<()> {
     // work around this by multiplying the point by L - 1, then adding the
     // point once to the product.
 
-
     // These are all the points of low order that may result from
     // multiplying an Elligator-mapped point by L. We will test that all of
     // them are covered.
     let low_order_points = vec![
-        /*order1*/vec![1_u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        /*order2*/vec![236,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,127],
-        /*order4*/vec![0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        /*order4*/vec![0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128],
-        /*order8*/vec![38,232,149,143,194,178,39,176,69,195,244,137,242,239,152,240,213,223,172,5,211,198,51,57,177,56,2,136,109,83,252,5],
-        /*order8*/vec![38,232,149,143,194,178,39,176,69,195,244,137,242,239,152,240,213,223,172,5,211,198,51,57,177,56,2,136,109,83,252,133],
-        /*order8*/vec![199,23,106,112,61,77,216,79,186,60,11,118,13,16,103,15,42,32,83,250,44,57,204,198,78,199,253,119,146,172,3,122],
-        /*order8*/vec![199,23,106,112,61,77,216,79,186,60,11,118,13,16,103,15,42,32,83,250,44,57,204,198,78,199,253,119,146,172,3,250],
+        /*order1*/
+        vec![
+            1_u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
+        ],
+        /*order2*/
+        vec![
+            236, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127,
+        ],
+        /*order4*/
+        vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ],
+        /*order4*/
+        vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 128,
+        ],
+        /*order8*/
+        vec![
+            38, 232, 149, 143, 194, 178, 39, 176, 69, 195, 244, 137, 242, 239, 152, 240, 213, 223,
+            172, 5, 211, 198, 51, 57, 177, 56, 2, 136, 109, 83, 252, 5,
+        ],
+        /*order8*/
+        vec![
+            38, 232, 149, 143, 194, 178, 39, 176, 69, 195, 244, 137, 242, 239, 152, 240, 213, 223,
+            172, 5, 211, 198, 51, 57, 177, 56, 2, 136, 109, 83, 252, 133,
+        ],
+        /*order8*/
+        vec![
+            199, 23, 106, 112, 61, 77, 216, 79, 186, 60, 11, 118, 13, 16, 103, 15, 42, 32, 83, 250,
+            44, 57, 204, 198, 78, 199, 253, 119, 146, 172, 3, 122,
+        ],
+        /*order8*/
+        vec![
+            199, 23, 106, 112, 61, 77, 216, 79, 186, 60, 11, 118, 13, 16, 103, 15, 42, 32, 83, 250,
+            44, 57, 204, 198, 78, 199, 253, 119, 146, 172, 3, 250,
+        ],
     ];
 
     let mut counts = vec![0; low_order_points.len()];
@@ -150,7 +182,7 @@ fn publickey_subgroup() ->Result<()> {
                 counts[j] += 1;
                 if counts[j] == 1 {
                     // We just covered a new point for the first time.
-                    num_covered +=1;
+                    num_covered += 1;
                 }
                 if num_covered == low_order_points.len() {
                     break 'outer;
@@ -160,20 +192,24 @@ fn publickey_subgroup() ->Result<()> {
             j += 1;
         }
         if !found {
-            panic!("map {} *order yielded unexpected point {}",
-                hex::encode(kp.get_representative().unwrap().as_bytes()), hex::encode(v.to_bytes()));
+            panic!(
+                "map {} *order yielded unexpected point {}",
+                hex::encode(kp.get_representative().unwrap().as_bytes()),
+                hex::encode(v.to_bytes())
+            );
         }
     }
 
     Ok(())
 }
 
-
 fn scalar_mult_order(v: &EdwardsPoint) -> EdwardsPoint {
     // v * (L - 1) + v => v * L
-    let scalar_order_minus_one = Scalar::from_canonical_bytes(
-        [236,211,245,92,26,99,18,88,214,156,247,162,222,249,222,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16]
-        ).unwrap();
+    let scalar_order_minus_one = Scalar::from_canonical_bytes([
+        236, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 16,
+    ])
+    .unwrap();
 
     let p = v * scalar_order_minus_one;
     p + v
@@ -191,9 +227,10 @@ fn generate() -> (SessionKeyPair, EdwardsPoint) {
     // stored public key.
     let repr = kp.get_representative().unwrap();
     if repr.to_public() != *kp.get_public() {
-        panic!("representative doesnt generate expected public key\n{}\n{}",
-           hex::encode(repr.to_public().to_bytes()),
-           hex::encode(kp.get_public())
+        panic!(
+            "representative doesnt generate expected public key\n{}\n{}",
+            hex::encode(repr.to_public().to_bytes()),
+            hex::encode(kp.get_public())
         );
     }
 
@@ -205,20 +242,20 @@ fn generate() -> (SessionKeyPair, EdwardsPoint) {
     let edw = elligator2::edwards_flavor(representative).unwrap();
 
     if hex::encode(edw.to_montgomery().to_bytes()) != hex::encode(kp.get_public().to_bytes()) {
-        panic!("Failed to derive an equivalent public key in Edwards coordinates\n{}\n{}",
+        panic!(
+            "Failed to derive an equivalent public key in Edwards coordinates\n{}\n{}",
             hex::encode(edw.to_montgomery().to_bytes()),
             hex::encode(kp.get_public().to_bytes())
-            );
+        );
     }
 
     (kp, edw)
 }
 
 #[test]
-fn ntor_derive_shared_compat() ->Result<()> {
+fn ntor_derive_shared_compat() -> Result<()> {
     Ok(())
 }
-
 
 /*
 

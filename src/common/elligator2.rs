@@ -3,18 +3,19 @@ use crate::{Error, Result};
 use std::fmt;
 use std::str::FromStr;
 
-use curve25519_dalek::{edwards::EdwardsPoint, montgomery::MontgomeryPoint, traits::Identity, Scalar};
-use group::{GroupEncoding, ff::Field};
+use curve25519_dalek::{
+    edwards::EdwardsPoint, montgomery::MontgomeryPoint, traits::Identity, Scalar,
+};
+use group::{ff::Field, GroupEncoding};
 use hex::FromHex;
-use x25519_dalek::PublicKey;
-use subtle::{CtOption, Choice, ConditionallyNegatable, ConditionallySelectable};
 use lazy_static::lazy_static;
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, CtOption};
+use x25519_dalek::PublicKey;
 
 /// The length of an Elligator representative.
 const REPRESENTATIVE_LENGTH: usize = 32;
 
 pub fn edwards_flavor(s: Scalar) -> CtOption<EdwardsPoint> {
-
     let edw = s * EdwardsPoint::identity();
     CtOption::new(edw, Choice::from(1))
 }
@@ -31,7 +32,7 @@ impl Representative {
     // fail and return false for about half of private keys.
     //
     // See http://elligator.cr.yp.to/elligator-20130828.pdf.
-    pub fn new(priv_key: &[u8;32]) -> Option<(PublicKey, Self)> {
+    pub fn new(priv_key: &[u8; 32]) -> Option<(PublicKey, Self)> {
         let p = EdwardsPoint::mul_base_clamped(*priv_key);
         if p.is_small_order() {
             None
@@ -40,13 +41,12 @@ impl Representative {
                 PublicKey::from(&x25519_dalek::StaticSecret::from(*priv_key)),
                 Self {
                     bytes: p.to_bytes(),
-                }
+                },
             ))
         }
     }
 
     pub fn edwards_flavor(&self) -> CtOption<EdwardsPoint> {
-
         <EdwardsPoint as GroupEncoding>::from_bytes(&self.bytes)
     }
 
@@ -62,8 +62,8 @@ impl Representative {
         // that have given the most thought regarding how to implement
         // this correctly, with a readable implementation that I can
         // wrap my brain around.
-        let e =  <EdwardsPoint as GroupEncoding>::from_bytes(&self.bytes);
-        let edw =  {
+        let e = <EdwardsPoint as GroupEncoding>::from_bytes(&self.bytes);
+        let edw = {
             if e.is_some().into() {
                 ok &= ok;
                 e.unwrap()
@@ -95,14 +95,14 @@ impl Representative {
 
         let _rr2 = rr2.invert();
         let mut v = Scalar::ZERO; //let mut v = -(A * rr2);
-        let v2 = v.square();    // edwards25519.FeSquare(&v2, &v)
-        let v3 = v * v2;        // edwards25519.FeMul(&v3, &v, &v2)
-        let e = v3 + v;         // edwards25519.FeAdd(&e, &v3, &v)
-        let v2 = v2 * Scalar::ZERO;        // edwards25519.FeMul(&v2, &v2, &edwards25519.A)
-        let e = v2 + e;         // edwards25519.FeAdd(&e, &v2, &e)
-        let e = chi(e);         // chi(&e, &e)
+        let v2 = v.square(); // edwards25519.FeSquare(&v2, &v)
+        let v3 = v * v2; // edwards25519.FeMul(&v3, &v, &v2)
+        let e = v3 + v; // edwards25519.FeAdd(&e, &v3, &v)
+        let v2 = v2 * Scalar::ZERO; // edwards25519.FeMul(&v2, &v2, &edwards25519.A)
+        let e = v2 + e; // edwards25519.FeAdd(&e, &v2, &e)
+        let e = chi(e); // chi(&e, &e)
 
-        let e_bytes = e.to_bytes();     // edwards25519.FeToBytes(&eBytes, &e)
+        let e_bytes = e.to_bytes(); // edwards25519.FeToBytes(&eBytes, &e)
 
         // eBytes[1] is either 0 (for e = 1) or 0xff (for e = -1)
         let e_is_minus_1 = e_bytes[1] & 1;
@@ -117,8 +117,8 @@ impl Representative {
         PublicKey::from(v.to_bytes()) // edwards25519.FeToBytes(publicKey, &v)
     }
 
-    pub fn to_bytes(&self) -> [u8;REPRESENTATIVE_LENGTH] {
-         self.bytes.clone()
+    pub fn to_bytes(&self) -> [u8; REPRESENTATIVE_LENGTH] {
+        self.bytes.clone()
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -226,57 +226,64 @@ fn chi(z: Scalar) -> Scalar {
     let mut t2: Scalar;
     let mut t3: Scalar;
 
-    t0 = z.square();      // edwards25519.FeSquare(&t0, z)     // 2^1
-    t1 = t0 * z;          // edwards25519.FeMul(&t1, &t0, z)   // 2^1 + 2^0
-    t0 = t1.square();     // edwards25519.FeSquare(&t0, &t1)   // 2^2 + 2^1
-    t2 = t0.square();     // edwards25519.FeSquare(&t2, &t0)   // 2^3 + 2^2
-    t2 = t2.square();     // edwards25519.FeSquare(&t2, &t2)   // 4,3
-    t2 = t2 * t0;         // edwards25519.FeMul(&t2, &t2, &t0) // 4,3,2,1
-    t1 = t2 * z;          // edwards25519.FeMul(&t1, &t2, z)   // 4..0
-    t2 = t1.square();     // edwards25519.FeSquare(&t2, &t1)   // 5..1
-    for _ in 1..5 {       // for i = 1; i < 5; i++ {           // 9,8,7,6,5
+    t0 = z.square(); // edwards25519.FeSquare(&t0, z)     // 2^1
+    t1 = t0 * z; // edwards25519.FeMul(&t1, &t0, z)   // 2^1 + 2^0
+    t0 = t1.square(); // edwards25519.FeSquare(&t0, &t1)   // 2^2 + 2^1
+    t2 = t0.square(); // edwards25519.FeSquare(&t2, &t0)   // 2^3 + 2^2
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 4,3
+    t2 = t2 * t0; // edwards25519.FeMul(&t2, &t2, &t0) // 4,3,2,1
+    t1 = t2 * z; // edwards25519.FeMul(&t1, &t2, z)   // 4..0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 5..1
+    for _ in 1..5 {
+        // for i = 1; i < 5; i++ {           // 9,8,7,6,5
         t2 = t2.square(); //    edwards25519.FeSquare(&t2, &t2)
-    }                     // }
-    t1 = t2 * t1;         // edwards25519.FeMul(&t1, &t2, &t1) // 9,8,7,6,5,4,3,2,1,0
-    t2 = t1.square();     // edwards25519.FeSquare(&t2, &t1)   // 10..1
-    for _ in 1..10 {      // for i = 1; i < 10; i++ {          // 19..10
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 9,8,7,6,5,4,3,2,1,0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 10..1
+    for _ in 1..10 {
+        // for i = 1; i < 10; i++ {          // 19..10
         t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
-    }                     // }
-    t2 = t2 * t1;         // edwards25519.FeMul(&t2, &t2, &t1) // 19..0
-    t3 = t2.square();     // edwards25519.FeSquare(&t3, &t2)   // 20..1
-    for _ in 1..20 {      // for i = 1; i < 20; i++ {          // 39..20
+    } // }
+    t2 = t2 * t1; // edwards25519.FeMul(&t2, &t2, &t1) // 19..0
+    t3 = t2.square(); // edwards25519.FeSquare(&t3, &t2)   // 20..1
+    for _ in 1..20 {
+        // for i = 1; i < 20; i++ {          // 39..20
         t3 = t3.square(); //     edwards25519.FeSquare(&t3, &t3)
-    }                     // }
-    t2 = t3*t2;           // edwards25519.FeMul(&t2, &t3, &t2) // 39..0
-    t2 = t2.square();     // edwards25519.FeSquare(&t2, &t2)   // 40..1
-    for _ in 1..10 {      //for i = 1; i < 10; i++ {          // 49..10
+    } // }
+    t2 = t3 * t2; // edwards25519.FeMul(&t2, &t3, &t2) // 39..0
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 40..1
+    for _ in 1..10 {
+        //for i = 1; i < 10; i++ {          // 49..10
         t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
-    }                     // } 
-    t1 = t2 * t1;         // edwards25519.FeMul(&t1, &t2, &t1) // 49..0
-    t2 = t1.square();     // edwards25519.FeSquare(&t2, &t1)   // 50..1
-    for _ in 1..50 {      //for i = 1; i < 50; i++ {          // 99..50
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 49..0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 50..1
+    for _ in 1..50 {
+        //for i = 1; i < 50; i++ {          // 99..50
         t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)
-    }                     // }
-    t2 = t2 * t1;         // edwards25519.FeMul(&t2, &t2, &t1) // 99..0
-    t3 = t2.square();     // edwards25519.FeSquare(&t3, &t2)   // 100..1
-    for _ in 1..100 {     // for i = 1; i < 100; i++ {         // 199..100
+    } // }
+    t2 = t2 * t1; // edwards25519.FeMul(&t2, &t2, &t1) // 99..0
+    t3 = t2.square(); // edwards25519.FeSquare(&t3, &t2)   // 100..1
+    for _ in 1..100 {
+        // for i = 1; i < 100; i++ {         // 199..100
         t3 = t3.square(); //     edwards25519.FeSquare(&t3, &t3)
-    }                     // }
-    t2 = t3 * t2;         // edwards25519.FeMul(&t2, &t3, &t2) // 199..0
-    t2 = t2.square();     // edwards25519.FeSquare(&t2, &t2)   // 200..1
-    for _ in 1..50 {      // for i = 1; i < 50; i++ {          // 249..50
+    } // }
+    t2 = t3 * t2; // edwards25519.FeMul(&t2, &t3, &t2) // 199..0
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 200..1
+    for _ in 1..50 {
+        // for i = 1; i < 50; i++ {          // 249..50
         t2 = t2.square(); //    edwards25519.FeSquare(&t2, &t2)
-    }                     // }
-    t1 = t2 * t1;         // edwards25519.FeMul(&t1, &t2, &t1) // 249..0
-    t1 = t1.square();     // edwards25519.FeSquare(&t1, &t1)   // 250..1
-    for _ in 1..4 {       // for i = 1; i < 4; i++ {           // 253..4
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 249..0
+    t1 = t1.square(); // edwards25519.FeSquare(&t1, &t1)   // 250..1
+    for _ in 1..4 {
+        // for i = 1; i < 4; i++ {           // 253..4
         t1 = t1.square(); //    edwards25519.FeSquare(&t1, &t1)
-    }                     // }
-    t1 * t0               // edwards25519.FeMul(out, &t1, &t0) // 253..4,2,1
-
+    } // }
+    t1 * t0 // edwards25519.FeMul(out, &t1, &t0) // 253..4,2,1
 }
 
-lazy_static!{
+lazy_static! {
 static ref SQRT_M1: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
 // -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482,
 
@@ -298,7 +305,7 @@ static ref HALF_Q_MINUS1_BYTES: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f];
 }
 
-pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative)> {
+pub fn scalar_base_mult(priv_key: &[u8; 32]) -> Option<(PublicKey, Representative)> {
     let mut masked_private_key = priv_key.clone();
 
     masked_private_key[0] &= 248;
@@ -312,13 +319,13 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // let A edwards25519.ExtendedGroupElement
     // edwards25519.GeScalarMultBase(&A, &masked_private_key)
 
-    let mut inv1 = Scalar::ONE;  // (a.z - a.y) * a.x;
+    let mut inv1 = Scalar::ONE; // (a.z - a.y) * a.x;
     inv1 = inv1.invert();
     // edwards25519.FeSub(&inv1, &A.Z, &A.Y)
     // edwards25519.FeMul(&inv1, &inv1, &A.X)
     // edwards25519.FeInvert(&inv1, &inv1)
 
-    let mut u =Scalar::ONE; //let mut u = inv1 * a.x;
+    let mut u = Scalar::ONE; //let mut u = inv1 * a.x;
     let mut t0 = Scalar::ONE; //let mut t0 = a.y + a.z;
     u = u * t0;
     // edwards25519.FeMul(&u, &inv1, &A.X)
@@ -326,21 +333,21 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // edwards25519.FeMul(&u, &u, &t0)
 
     let v = t0 * inv1; // * a.z  * SQRT_MINUS_A_PLUS_2;
-    // edwards25519.FeMul(&v, &t0, &inv1)
-    // edwards25519.FeMul(&v, &v, &A.Z)
-    // edwards25519.FeMul(&v, &v, &sqrtMinusAPlus2)
+                       // edwards25519.FeMul(&v, &t0, &inv1)
+                       // edwards25519.FeMul(&v, &v, &A.Z)
+                       // edwards25519.FeMul(&v, &v, &sqrtMinusAPlus2)
 
     let b = u * a;
     // edwards25519.FeAdd(&b, &u, &edwards25519.A)
 
     // let c, b3, b7, b8 edwards25519.FieldElement
-    let b3 = b.square()* b;
+    let b3 = b.square() * b;
     // edwards25519.FeSquare(&b3, &b)   // 2
     // edwards25519.FeMul(&b3, &b3, &b) // 3
     let b7 = b3.square() * b;
     // edwards25519.FeSquare(&c, &b3)   // 6
     // edwards25519.FeMul(&b7, &c, &b)  // 7
-    let b8 = b7 * b; 
+    let b8 = b7 * b;
     // edwards25519.FeMul(&b8, &b7, &b) // 8
     let mut c = b7 * u;
     // edwards25519.FeMul(&c, &b7, &u)
@@ -356,7 +363,7 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // edwards25519.FeSquare(&t0, &u)
     // edwards25519.FeMul(&chi, &chi, &t0)
 
-    chi = -( b7.square() + chi);
+    chi = -(b7.square() + chi);
     // edwards25519.FeSquare(&t0, &b7) // 14
     // edwards25519.FeMul(&chi, &chi, &t0)
     // edwards25519.FeNeg(&chi, &chi)
@@ -365,7 +372,7 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // edwards25519.FeToBytes(&chiBytes, &chi)
     // chi[1] is either 0 or 0xff
     if chi_bytes[1] == 0xff {
-        return None
+        return None;
     }
 
     // Calculate r1 = sqrt(-u/(2*(u+A)))
@@ -381,7 +388,7 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
 
     let mut maybe_sqrt_m1 = Scalar::ONE;
     maybe_sqrt_m1.conditional_assign(&SQRT_M1, maybe_sqrt_m1.is_zero());
-    r1 = r1 * maybe_sqrt_m1; 
+    r1 = r1 * maybe_sqrt_m1;
     // edwards25519.FeOne(&maybe_sqrt_m1)
     // edwards25519.FeCMove(&maybe_sqrt_m1, &edwards25519.SqrtM1, edwards25519.FeIsNonZero(&t0))
     // edwards25519.FeMul(&r1, &r1, &maybe_sqrt_m1)
@@ -393,17 +400,17 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // edwards25519.FeSquare(&t0, &t0)  // 6
     // edwards25519.FeMul(&r, &t0, &c)  // 7
 
-    r = u.square() * u * r ;
+    r = u.square() * u * r;
     // edwards25519.FeSquare(&t0, &u)   // 2
     // edwards25519.FeMul(&t0, &t0, &u) // 3
     // edwards25519.FeMul(&r, &r, &t0)
 
     r = b8.square() * &b8 * &b * &r; // * &SQRT_MINUS_HALF;
-    // edwards25519.FeSquare(&t0, &b8)   // 16
-    // edwards25519.FeMul(&t0, &t0, &b8) // 24
-    // edwards25519.FeMul(&t0, &t0, &b)  // 25
-    // edwards25519.FeMul(&r, &r, &t0)
-    // edwards25519.FeMul(&r, &r, &sqrtMinusHalf)
+                                     // edwards25519.FeSquare(&t0, &b8)   // 16
+                                     // edwards25519.FeMul(&t0, &t0, &b8) // 24
+                                     // edwards25519.FeMul(&t0, &t0, &b)  // 25
+                                     // edwards25519.FeMul(&r, &r, &t0)
+                                     // edwards25519.FeMul(&r, &r, &sqrtMinusHalf)
 
     t0 = r.square() * u;
     // edwards25519.FeSquare(&t0, &r)
@@ -426,19 +433,25 @@ pub fn scalar_base_mult(priv_key: &[u8;32]) -> Option<(PublicKey, Representative
     // edwards25519.FeCMove(&r, &r1, vInSquareRootImage)
 
     // // 5.5: Here |b| means b if b in {0, 1, ..., (q - 1)/2}, otherwise -b.
-    r.conditional_assign(&(-r1), Choice::from(1_u8) & !fe_bytes_le(r.as_bytes(), &HALF_Q_MINUS1_BYTES));
+    r.conditional_assign(
+        &(-r1),
+        Choice::from(1_u8) & !fe_bytes_le(r.as_bytes(), &HALF_Q_MINUS1_BYTES),
+    );
     // edwards25519.FeToBytes(&rBytes, &r)
     // negateB := 1 & (^feBytesLE(&rBytes, &halfQMinus1Bytes))
     // edwards25519.FeNeg(&r1, &r)
     // edwards25519.FeCMove(&r, &r1, negateB)
 
-    Some(( PublicKey::from(u.to_bytes()), Representative::try_from(r.to_bytes()).unwrap() ))
+    Some((
+        PublicKey::from(u.to_bytes()),
+        Representative::try_from(r.to_bytes()).unwrap(),
+    ))
     // edwards25519.FeToBytes(publicKey, &u)
     // edwards25519.FeToBytes(representative, &r)
     // return true
 }
 
-fn fe_bytes_le(a: &[u8;32], b: &[u8; 32]) -> Choice {
+fn fe_bytes_le(a: &[u8; 32], b: &[u8; 32]) -> Choice {
     let mut equal_so_far = -1;
     let mut greater = 0;
 
@@ -446,7 +459,7 @@ fn fe_bytes_le(a: &[u8;32], b: &[u8; 32]) -> Choice {
         let x = i32::from(a[i]);
         let y = i32::from(b[i]);
 
-        greater = (!equal_so_far & greater) | (equal_so_far & (x-y) >> 31);
+        greater = (!equal_so_far & greater) | (equal_so_far & (x - y) >> 31);
         equal_so_far = equal_so_far & (((x ^ y) - 1) >> 31);
     }
 
@@ -455,60 +468,65 @@ fn fe_bytes_le(a: &[u8;32], b: &[u8; 32]) -> Choice {
     Choice::from(res)
 }
 
-
 // q58 calculates out = z^((p-5)/8).
 fn q58(z: Scalar) -> Scalar {
-    let mut t1: Scalar;         //  var t1, t2, t3 edwards25519.FieldElement
+    let mut t1: Scalar; //  var t1, t2, t3 edwards25519.FieldElement
     let mut t2: Scalar;
     let mut t3: Scalar;
 
-    t1 = z.square();        // edwards25519.FeSquare(&t1, z)     // 2^1
-    t1 = t1 * z;            // edwards25519.FeMul(&t1, &t1, z)   // 2^1 + 2^0
-    t1 = t1.square();       // edwards25519.FeSquare(&t1, &t1)   // 2^2 + 2^1
-    t2 = t1.square();       // edwards25519.FeSquare(&t2, &t1)   // 2^3 + 2^2
-    t2 = t2.square();       // edwards25519.FeSquare(&t2, &t2)   // 2^4 + 2^3
-    t2 = t2 * t1;           // edwards25519.FeMul(&t2, &t2, &t1) // 4,3,2,1
-    t1 = t2 * z;            // edwards25519.FeMul(&t1, &t2, z)   // 4..0
-    t2 = t1.square();       // edwards25519.FeSquare(&t2, &t1)   // 5..1
-    for _ in 1..5 {         // for i = 1; i < 5; i++ {           // 9,8,7,6,5
-        t2 = t2.square();   //     edwards25519.FeSquare(&t2, &t2)
-    }                       // }
-    t1 = t2 * t1;           // edwards25519.FeMul(&t1, &t2, &t1) // 9,8,7,6,5,4,3,2,1,0
-    t2 = t1.square();       // edwards25519.FeSquare(&t2, &t1)   // 10..1
-    for _ in 1..10 {        // for i = 1; i < 10; i++ {          // 19..10
-        t2 = t2.square();   //     edwards25519.FeSquare(&t2, &t2)
-    }                       // }
-    t2 = t2 * t1;           // edwards25519.FeMul(&t2, &t2, &t1) // 19..0
-    t3 = t2.square();       // edwards25519.FeSquare(&t3, &t2)   // 20..1
-    for _ in 1..20 {        // for i = 1; i < 20; i++ {          // 39..20
-        t3 = t3.square();   //     edwards25519.FeSquare(&t3, &t3)
-    }                       // }
-    t2 = t3 * t2;           // edwards25519.FeMul(&t2, &t3, &t2) // 39..0
-    t2 = t2.square();       // edwards25519.FeSquare(&t2, &t2)   // 40..1
-    for _ in 1..10 {        // for i = 1; i < 10; i++ {          // 49..10
-        t2 = t2.square();   //     edwards25519.FeSquare(&t2, &t2)
-    }                       // }
-    t1 = t2 * t1;           // edwards25519.FeMul(&t1, &t2, &t1) // 49..0
-    t2 = t1.square();       // edwards25519.FeSquare(&t2, &t1)   // 50..1
-    for _ in 1..50 {        // for i = 1; i < 50; i++ {          // 99..50
-        t2 = t2.square();   //     edwards25519.FeSquare(&t2, &t2)
-    }                       // }
-    t2 = t2 * t1;           // edwards25519.FeMul(&t2, &t2, &t1) // 99..0
-    t3 = t2.square();       // edwards25519.FeSquare(&t3, &t2)   // 100..1
-    for _ in 1..100 {       // for i = 1; i < 100; i++ {         // 199..100
-        t3 = t3.square();   //     edwards25519.FeSquare(&t3, &t3)
-    }                       // }
-    t2 = t3 * t2;           // edwards25519.FeMul(&t2, &t3, &t2) // 199..0
-    t2 = t2.square();       // edwards25519.FeSquare(&t2, &t2)   // 200..1
-    for _ in 1..50 {        // for i = 1; i < 50; i++ {          // 249..50
-        t2 = t2.square();   //     edwards25519.FeSquare(&t2, &t2)
-    }                       // }
-    t1 = t2 * t1;           // edwards25519.FeMul(&t1, &t2, &t1) // 249..0
-    t1 = t1.square();       // edwards25519.FeSquare(&t1, &t1)   // 250..1
-    t1 = t1.square();       // edwards25519.FeSquare(&t1, &t1)   // 251..2
-    t1 * z                  // edwards25519.FeMul(out, &t1, z)   // 251..2,0
+    t1 = z.square(); // edwards25519.FeSquare(&t1, z)     // 2^1
+    t1 = t1 * z; // edwards25519.FeMul(&t1, &t1, z)   // 2^1 + 2^0
+    t1 = t1.square(); // edwards25519.FeSquare(&t1, &t1)   // 2^2 + 2^1
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 2^3 + 2^2
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 2^4 + 2^3
+    t2 = t2 * t1; // edwards25519.FeMul(&t2, &t2, &t1) // 4,3,2,1
+    t1 = t2 * z; // edwards25519.FeMul(&t1, &t2, z)   // 4..0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 5..1
+    for _ in 1..5 {
+        // for i = 1; i < 5; i++ {           // 9,8,7,6,5
+        t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 9,8,7,6,5,4,3,2,1,0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 10..1
+    for _ in 1..10 {
+        // for i = 1; i < 10; i++ {          // 19..10
+        t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
+    } // }
+    t2 = t2 * t1; // edwards25519.FeMul(&t2, &t2, &t1) // 19..0
+    t3 = t2.square(); // edwards25519.FeSquare(&t3, &t2)   // 20..1
+    for _ in 1..20 {
+        // for i = 1; i < 20; i++ {          // 39..20
+        t3 = t3.square(); //     edwards25519.FeSquare(&t3, &t3)
+    } // }
+    t2 = t3 * t2; // edwards25519.FeMul(&t2, &t3, &t2) // 39..0
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 40..1
+    for _ in 1..10 {
+        // for i = 1; i < 10; i++ {          // 49..10
+        t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 49..0
+    t2 = t1.square(); // edwards25519.FeSquare(&t2, &t1)   // 50..1
+    for _ in 1..50 {
+        // for i = 1; i < 50; i++ {          // 99..50
+        t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
+    } // }
+    t2 = t2 * t1; // edwards25519.FeMul(&t2, &t2, &t1) // 99..0
+    t3 = t2.square(); // edwards25519.FeSquare(&t3, &t2)   // 100..1
+    for _ in 1..100 {
+        // for i = 1; i < 100; i++ {         // 199..100
+        t3 = t3.square(); //     edwards25519.FeSquare(&t3, &t3)
+    } // }
+    t2 = t3 * t2; // edwards25519.FeMul(&t2, &t3, &t2) // 199..0
+    t2 = t2.square(); // edwards25519.FeSquare(&t2, &t2)   // 200..1
+    for _ in 1..50 {
+        // for i = 1; i < 50; i++ {          // 249..50
+        t2 = t2.square(); //     edwards25519.FeSquare(&t2, &t2)
+    } // }
+    t1 = t2 * t1; // edwards25519.FeMul(&t1, &t2, &t1) // 249..0
+    t1 = t1.square(); // edwards25519.FeSquare(&t1, &t1)   // 250..1
+    t1 = t1.square(); // edwards25519.FeSquare(&t1, &t1)   // 251..2
+    t1 * z // edwards25519.FeMul(out, &t1, z)   // 251..2,0
 }
-
 
 #[cfg(test)]
 mod test {
@@ -548,7 +566,6 @@ mod test {
 
         Ok(())
     }
-
 
     #[test]
     fn generate_rep_and_pubkey() -> Result<()> {

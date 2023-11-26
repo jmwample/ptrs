@@ -10,9 +10,8 @@ use std::str::FromStr;
 
 use getrandom::getrandom;
 use hex::{self, FromHex};
-use rand_core::{RngCore, Error as RandError, impls};
+use rand_core::{impls, Error as RandError, RngCore};
 use siphasher::{prelude::*, sip::SipHasher24};
-
 
 const SIZE: usize = 8;
 const SEED_LENGTH: usize = 16 + SIZE;
@@ -169,7 +168,6 @@ impl Drbg {
         h.to_be_bytes()
     }
 }
-
 
 impl RngCore for Drbg {
     fn next_u32(&mut self) -> u32 {

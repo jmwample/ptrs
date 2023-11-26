@@ -1,15 +1,15 @@
 #![allow(unused)]
 
-use crate::{Result, common::elligator2::Representative};
+use crate::{common::elligator2::Representative, Result};
 
 mod id;
 pub use id::{ID, NODE_ID_LENGTH};
 
-use sha2::Sha256;
-use hmac::{Hmac, Mac};
 use curve25519_dalek::Scalar;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use x25519_dalek::{ReusableSecret, PublicKey, SharedSecret, StaticSecret};
+use x25519_dalek::{PublicKey, ReusableSecret, SharedSecret, StaticSecret};
 
 use std::fmt;
 
@@ -28,7 +28,6 @@ const AUTH_LENGTH: usize = 32; //sha256.Size;
 /// The key material that results from a handshake (KEY_SEED).
 #[derive(Default, Debug, Clone)]
 pub(crate) struct KeySeed([u8; KEY_SEED_LENGTH]);
-
 
 /// The verifier that results from a handshake (AUTH).
 #[derive(Default, Debug, Clone)]
@@ -79,10 +78,10 @@ impl SessionKeyPair {
             loop {
                 match Representative::new(rp.private.as_bytes()) {
                     Some(s) => {
-                        (public, representative) = s; 
+                        (public, representative) = s;
                         rp.representative = Some(representative);
                         rp.public = public;
-                    },
+                    }
                     None => {
                         // Elligator representatives only exist for 50% of points
                         // iterate until we find one that works.
@@ -108,13 +107,11 @@ impl SessionKeyPair {
     }
 }
 
-
 /// Constant time compare of a Auth and a byte slice
 /// (presumably received over a network).
 pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> u8 {
     auth1.0[..].ct_eq(&auth2.as_ref()[..]).unwrap_u8()
 }
-
 
 // Provides a Key Derivation Function (KDF) that extracts and expands KEY_SEED
 // via HKDF-SHA256 and returns `okm_len` bytes of key material.
@@ -137,11 +134,16 @@ pub struct HandShakeResult {
 impl fmt::Display for HandShakeResult {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"{} {}", hex::encode(self.key_seed.0), hex::encode(self.auth.0))
+        write!(
+            f,
+            "{} {}",
+            hex::encode(self.key_seed.0),
+            hex::encode(self.auth.0)
+        )
     }
 }
 
-const _ZERO_EXP: [u8; 32] = [0_u8;32];
+const _ZERO_EXP: [u8; 32] = [0_u8; 32];
 
 impl HandShakeResult {
     fn new() -> Self {
@@ -177,7 +179,7 @@ impl HandShakeResult {
             server_public,
         );
 
-        // failed if not_ok != 0 
+        // failed if not_ok != 0
         // if not_ok != 0 then scalar operations failed
         subtle::CtOption::new(Self { key_seed, auth }, not_ok.ct_eq(&0_u8))
     }
@@ -208,22 +210,21 @@ impl HandShakeResult {
             &server_keys.public,
         );
 
-        // failed if not_ok != 0 
+        // failed if not_ok != 0
         // if not_ok != 0 then scalar operations failed
         subtle::CtOption::new(Self { key_seed, auth }, not_ok.ct_eq(&0_u8))
     }
 }
 
-
 type HmacSha256 = Hmac<Sha256>;
 
 fn derive_ntor_shared(
-        secret_input: impl AsRef<[u8]>,
-        id: &ID,
-        b: &PublicKey,
-        x: &PublicKey,
-        y: &PublicKey,
-    ) -> (KeySeed, Auth) {
+    secret_input: impl AsRef<[u8]>,
+    id: &ID,
+    b: &PublicKey,
+    x: &PublicKey,
+    y: &PublicKey,
+) -> (KeySeed, Auth) {
     let mut key_seed = KeySeed::default();
     let mut auth = Auth::default();
 
@@ -236,9 +237,8 @@ fn derive_ntor_shared(
 
     let mut h = HmacSha256::new_from_slice(&T_KEY[..]).unwrap();
     h.update(message.as_ref());
-    let tmp : &[u8]= &h.finalize().into_bytes()[..];
+    let tmp: &[u8] = &h.finalize().into_bytes()[..];
     key_seed.0 = tmp.try_into().expect("unable to write key_seed");
-
 
     let mut h = HmacSha256::new_from_slice(&T_VERIFY[..]).unwrap();
     h.update(message.as_ref());
