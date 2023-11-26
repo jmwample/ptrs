@@ -3,6 +3,7 @@ use crate::{traits::*, Result};
 pub mod client;
 pub mod proto;
 pub mod server;
+pub mod framing;
 
 const NAME: &str = "obfs4";
 

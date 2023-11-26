@@ -13,8 +13,8 @@ use hex::{self, FromHex};
 use rand_core::{impls, Error as RandError, RngCore};
 use siphasher::{prelude::*, sip::SipHasher24};
 
-const SIZE: usize = 8;
-const SEED_LENGTH: usize = 16 + SIZE;
+pub(crate) const SIZE: usize = 8;
+pub(crate) const SEED_LENGTH: usize = 16 + SIZE;
 
 /// Hash-DRBG seed
 #[derive(Debug, PartialEq)]

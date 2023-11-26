@@ -1,6 +1,7 @@
 #![doc = include_str!("../doc/crate.md")]
 #![feature(trait_alias)]
 #![allow(dead_code)]
+#![allow(warnings)]
 
 pub mod ident;
 // pub mod o5;
