@@ -35,6 +35,7 @@
 
 use crate::common::drbg::{self, Drbg, Seed};
 
+use tracing::trace;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Encoder,Decoder};
 use bytes::{BytesMut, Buf};
@@ -49,7 +50,7 @@ use crypto_secretbox::{
 const MAXIMUM_SEGMENT_LENGTH: usize = 1500 - (40 + 12);
 
 /// secret box overhead is fixed length prefix and counter
-const SECRET_BOX_OVERHEAD: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
+const SECRET_BOX_OVERHEAD: usize = TAG_SIZE;
 
 /// FrameOverhead is the length of the framing overhead.
 const FRAME_OVERHEAD: usize = LENGTH_LENGTH + SECRET_BOX_OVERHEAD;
@@ -69,6 +70,8 @@ const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
 const LENGTH_LENGTH: usize = 2;
 
 const KEY_LENGTH: usize = 32;
+
+const TAG_SIZE: usize = 16;
 
 /// KeyLength is the length of the Encoder/Decoder secret key.
 const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
@@ -121,6 +124,7 @@ impl Obfs4Codec {
     }
 }
 
+#[derive(Debug)]
 enum Obfs4Message {
     ClientHandshake,
     ServerHandshake,
@@ -138,6 +142,7 @@ impl Decoder for Obfs4Codec {
         &mut self,
         src: &mut BytesMut
     ) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        trace!("decoding");
         // A length of 0 indicates that we do not know the expected size of
         // the next frame.
         if self.decoder.next_length == 0 {
@@ -168,9 +173,11 @@ impl Decoder for Obfs4Codec {
                 // the countermeasure suggested by Denis Bider in section 6 of the
                 // paper.
 
+                let invalid_length = length;
                 self.decoder.next_length_inalid = true;
                 getrandom::getrandom(&mut len_buf);
                 length = u16::from_be_bytes(len_buf) % (MAX_FRAME_LENGTH-MIN_FRAME_LENGTH)as u16 + MIN_FRAME_LENGTH as u16;
+                trace!("invalid length {invalid_length} {length} {}", self.decoder.next_length_inalid);
             }
 
             self.decoder.next_length = length;
@@ -233,19 +240,22 @@ impl Obfs4Encoder {
 }
 
 
-impl Encoder<String> for Obfs4Codec {
+impl Encoder<Obfs4Message> for Obfs4Codec {
     type Error = FrameError;
 
-    /// Encode encodes a single frame worth of payload and returns the encoded
-    /// length.  InvalidPayloadLengthError is recoverable, all other errors MUST be
+    /// Encode encodes a single frame worth of payload and returns
+    /// [`InvalidPayloadLength`] is recoverable, all other errors MUST be
     /// treated as fatal and the session aborted.
-    fn encode(&mut self, item: String, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+    fn encode(&mut self, item: Obfs4Message, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+        trace!("encoding");
+        let item = match item {
+            Obfs4Message::ProxyPayload(m) => m,
+            _ => return Err(FrameError::InvalidMessage)
+        };
+
         // Don't send a string if it is longer than the other end will accept.
-        if MAXIMUM_SEGMENT_LENGTH < item.len() {
+        if MAXIMUM_FRAME_PAYLOAD_LENGTH < item.len() {
             return Err(FrameError::InvalidPayloadLength(item.len()));
-        }
-        if dst.len() < item.len() + FRAME_OVERHEAD {
-            return Err(FrameError::ShortBuffer);
         }
 
         // Generate a new nonce
@@ -256,7 +266,9 @@ impl Encoder<String> for Obfs4Codec {
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        let ciphertext = cipher.encrypt(&nonce, item.into_bytes().as_ref())?;
+        trace!("encode: all things generated");
+        let ciphertext = cipher.encrypt(&nonce, item.as_ref())?;
+        trace!("encode: encrypted");
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
@@ -282,7 +294,7 @@ struct NonceBox {
 
 impl NonceBox {
     pub fn new(prefix: impl AsRef<[u8]>) -> Self {
-        assert!(prefix.as_ref().len() > NONCE_PREFIX_LENGTH);
+        assert!(prefix.as_ref().len() >= NONCE_PREFIX_LENGTH, "prefix too short: {} < {NONCE_PREFIX_LENGTH}", prefix.as_ref().len());
         Self {
             prefix: prefix.as_ref()[..NONCE_PREFIX_LENGTH].try_into().unwrap(),
             counter: 1,
@@ -295,7 +307,7 @@ impl NonceBox {
         // we start each counter at 1.  If it ever happens that more than 2^64 - 1
         // frames are transmitted over a given connection, support for rekeying
         // will be neccecary, but that's unlikely to happen.
-        if self.counter == 0 {
+        if self.counter == u64::MAX {
             return Err(FrameError::NonceCounterWrapped);
         }
         let mut nonce = self.prefix.clone().to_vec();
@@ -315,7 +327,7 @@ impl NonceBox {
 
 impl std::error::Error for FrameError {}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum FrameError {
     /// is the error returned when [`encode`] rejects the payload length.
     InvalidPayloadLength(usize),
@@ -324,7 +336,7 @@ enum FrameError {
     Crypto(crypto_secretbox::Error),
 
     /// An error occured with the I/O processing
-    IO(std::io::Error),
+    IO(String),
 
     /// Returned when [`decode`] requires more data to continue.
     EAgain,
@@ -337,6 +349,10 @@ enum FrameError {
 
     /// Returned when the buffer provided for writing a frame is too small.
     ShortBuffer,
+
+    /// Error indicating that a message decoded, or a message provided for
+    /// encoding is of an innapropriate type for the context.
+    InvalidMessage,
 }
 
 impl std::fmt::Display for FrameError {
@@ -344,11 +360,12 @@ impl std::fmt::Display for FrameError {
         match self {
             FrameError::InvalidPayloadLength(s) => write!(f, "framing: Invalid payload length: {s}"),
             FrameError::Crypto(e) => write!(f, "framing: Secretbox encrypt/decrypt error: {e}"),
+            FrameError::IO(e) => write!(f, "framing: i/o error occured while processing frame: {e}"),
             FrameError::EAgain => write!(f, "framing: More data needed to decode"),
             FrameError::TagMismatch => write!(f, "framing: Poly1305 tag mismatch"),
             FrameError::NonceCounterWrapped => write!(f, "framing: Nonce counter wrapped"),
             FrameError::ShortBuffer => write!(f, "framing: provided bytes buffer was too short for payload"),
-            FrameError::IO(e) => write!(f, "framing: i/o error occured while processing frame: {e}"),
+            FrameError::InvalidMessage => write!(f, "framing: incorrect message for context"),
         }
     }
 }
@@ -361,7 +378,7 @@ impl From<crypto_secretbox::Error> for FrameError {
 
 impl From<std::io::Error> for FrameError {
     fn from(value: std::io::Error) -> Self {
-        FrameError::IO(value)
+        FrameError::IO(value.to_string())
     }
 }
 

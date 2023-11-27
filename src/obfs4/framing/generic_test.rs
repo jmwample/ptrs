@@ -125,7 +125,7 @@ async fn framing_flow() -> Result<()> {
         let (mut sink, mut input) = codec.framed(s).split();
 
         while let Some(Ok(event)) = input.next().await {
-            println!("Event {:?}", event);
+            // println!("Event {:?}", event);
             sink.send(event).await.expect("server response failed");
         }
     });
