@@ -1,4 +1,5 @@
 use crate::{Error, Result};
+use super::{REPRESENTATIVE_LENGTH, Representative};
 
 use std::fmt;
 use std::str::FromStr;
@@ -12,209 +13,27 @@ use lazy_static::lazy_static;
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, CtOption};
 use x25519_dalek::PublicKey;
 
-/// The length of an Elligator representative.
-const REPRESENTATIVE_LENGTH: usize = 32;
 
-pub fn edwards_flavor(s: Scalar) -> CtOption<EdwardsPoint> {
-    let edw = s * EdwardsPoint::identity();
-    CtOption::new(edw, Choice::from(1))
-}
+lazy_static! {
+static ref SQRT_M1: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
+// -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482,
 
-/// Elligator Representative of a public key value
-#[derive(Debug, Clone, PartialEq)]
-pub struct Representative {
-    bytes: [u8; 32],
-}
+static ref A: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
+//486662, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 
-impl Representative {
-    // Computes a curve25519 public key from a private key and also
-    // a uniform representative for that public key. Note that this function will
-    // fail and return false for about half of private keys.
-    //
-    // See http://elligator.cr.yp.to/elligator-20130828.pdf.
-    pub fn new(priv_key: &[u8; 32]) -> Option<(PublicKey, Self)> {
-        let p = EdwardsPoint::mul_base_clamped(*priv_key);
-        if p.is_small_order() {
-            None
-        } else {
-            Some((
-                PublicKey::from(&x25519_dalek::StaticSecret::from(*priv_key)),
-                Self {
-                    bytes: p.to_bytes(),
-                },
-            ))
-        }
-    }
 
-    pub fn edwards_flavor(&self) -> CtOption<EdwardsPoint> {
-        <EdwardsPoint as GroupEncoding>::from_bytes(&self.bytes)
-    }
+// sqrtMinusAPlus2 is sqrt(-(486662+2))
+static ref SQRT_MINUS_A_PLUS_2: Scalar = Scalar::from_bytes_mod_order( [0_u8;32] );
+//   -12222970, -8312128, -11511410, 9067497, -15300785, -241793, 25456130, 14121551, -12187136, 3972024,
 
-    pub fn montgomery_flavor(&self) -> CtOption<MontgomeryPoint> {
-        let mut ok: Choice = Choice::from(1_u8);
-        let not_ok: Choice = Choice::from(0_u8);
-        // This is based off the public domain python implementation by
-        // Loup Vaillant, taken from the Monocypher package
-        // (tests/gen/elligator.py).
-        //
-        // The choice of base implementation is primarily because it was
-        // convenient, and because they appear to be one of the people
-        // that have given the most thought regarding how to implement
-        // this correctly, with a readable implementation that I can
-        // wrap my brain around.
-        let e = <EdwardsPoint as GroupEncoding>::from_bytes(&self.bytes);
-        let edw = {
-            if e.is_some().into() {
-                ok &= ok;
-                e.unwrap()
-            } else {
-                ok &= not_ok;
-                EdwardsPoint::identity()
-            }
-        };
-        let m = edw.to_montgomery();
+// sqrtMinusHalf is sqrt(-1/2)
+static ref SQRT_MINUS_HALF: Scalar = Scalar::from_bytes_mod_order( [0_u8; 32] );
+//-17256545, 3971863, 28865457, -1750208, 27359696, -16640980, 12573105, 1002827, -163343, 11073975,
 
-        CtOption::new(m, ok)
-    }
-
-    pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
-        Self::try_from(bytes.as_ref())
-    }
-
-    /// Converts a uniform representative value for a curve25519 public key, as
-    /// produced by [`to_public`] / [`Keypair::new`], to a curve25519 public key.
-    #[allow(non_snake_case)]
-    pub fn to_public(&self) -> PublicKey {
-        // let A: [u8; 32] = hex::decode("00076d0600000000000000000000000000000000000000000000000000000000").unwrap().try_into().unwrap();
-        // let A = Scalar::from_bytes_mod_order(A);
-
-        let rr2 = Scalar::from_bytes_mod_order(self.bytes);
-        let mut rr2 = rr2.square().to_bytes();
-        rr2[0] += 1;
-        let rr2 = Scalar::from_bytes_mod_order(rr2);
-
-        let _rr2 = rr2.invert();
-        let mut v = Scalar::ZERO; //let mut v = -(A * rr2);
-        let v2 = v.square(); // edwards25519.FeSquare(&v2, &v)
-        let v3 = v * v2; // edwards25519.FeMul(&v3, &v, &v2)
-        let e = v3 + v; // edwards25519.FeAdd(&e, &v3, &v)
-        let v2 = v2 * Scalar::ZERO; // edwards25519.FeMul(&v2, &v2, &edwards25519.A)
-        let e = v2 + e; // edwards25519.FeAdd(&e, &v2, &e)
-        let e = chi(e); // chi(&e, &e)
-
-        let e_bytes = e.to_bytes(); // edwards25519.FeToBytes(&eBytes, &e)
-
-        // eBytes[1] is either 0 (for e = 1) or 0xff (for e = -1)
-        let e_is_minus_1 = e_bytes[1] & 1;
-        Scalar::conditional_negate(&mut v, Choice::from(e_is_minus_1)); // edwards25519.FeCMove(&v, &negV, eIsMinus1)
-
-        let v2 = Scalar::conditional_select(&Scalar::ZERO, &A, Choice::from(e_is_minus_1));
-        let v = v - v2;
-        // edwards25519.FeZero(&v2)
-        // edwards25519.FeCMove(&v2, &edwards25519.A, eIsMinus1)
-        // edwards25519.FeSub(&v, &v, &v2)
-
-        PublicKey::from(v.to_bytes()) // edwards25519.FeToBytes(publicKey, &v)
-    }
-
-    pub fn to_bytes(&self) -> [u8; REPRESENTATIVE_LENGTH] {
-        self.bytes.clone()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-
-impl From<&Representative> for PublicKey {
-    fn from(representative: &Representative) -> PublicKey {
-        representative.to_public()
-    }
-}
-
-impl FromHex for Representative {
-    type Error = Error;
-
-    fn from_hex<T: AsRef<[u8]>>(msg: T) -> Result<Self> {
-        let buffer = <[u8; REPRESENTATIVE_LENGTH]>::from_hex(msg)?;
-        Ok(Representative { bytes: buffer })
-    }
-}
-
-impl TryFrom<String> for Representative {
-    type Error = Error;
-
-    fn try_from(msg: String) -> Result<Self> {
-        let buffer = <[u8; REPRESENTATIVE_LENGTH]>::from_hex(msg)?;
-        Ok(Representative { bytes: buffer })
-    }
-}
-
-impl TryFrom<&String> for Representative {
-    type Error = Error;
-
-    fn try_from(msg: &String) -> Result<Self> {
-        let buffer = <[u8; REPRESENTATIVE_LENGTH]>::from_hex(msg)?;
-        Ok(Representative { bytes: buffer })
-    }
-}
-
-impl TryFrom<&str> for Representative {
-    type Error = Error;
-
-    fn try_from(msg: &str) -> Result<Self> {
-        let buffer = <[u8; REPRESENTATIVE_LENGTH]>::from_hex(msg)?;
-        Ok(Representative { bytes: buffer })
-    }
-}
-
-impl FromStr for Representative {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self> {
-        Representative::from_hex(s)
-    }
-}
-
-impl TryFrom<&[u8]> for Representative {
-    type Error = Error;
-
-    fn try_from(arr: &[u8]) -> Result<Self> {
-        if arr.len() != REPRESENTATIVE_LENGTH {
-            let e = format!(
-                "incorrect drbg seed length {}!={REPRESENTATIVE_LENGTH}",
-                arr.len()
-            );
-            return Err(Error::Other(e.into()));
-        }
-
-        Ok(Representative {
-            bytes: (&arr[..])
-                .try_into()
-                .map_err(|e| Error::Other(format!("{e}").into()))?,
-        })
-    }
-}
-
-impl TryFrom<[u8; REPRESENTATIVE_LENGTH]> for Representative {
-    type Error = Error;
-
-    fn try_from(arr: [u8; REPRESENTATIVE_LENGTH]) -> Result<Self> {
-        Ok(Representative { bytes: arr })
-    }
-}
-
-impl TryFrom<Vec<u8>> for Representative {
-    type Error = Error;
-
-    fn try_from(arr: Vec<u8>) -> Result<Self> {
-        Representative::try_from(arr.as_slice())
-    }
-}
-
-impl fmt::Display for Representative {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", hex::encode(&self.bytes[..]))
-    }
+// halfQMinus1Bytes is (2^255-20)/2 expressed in little endian form.
+static ref HALF_Q_MINUS1_BYTES: [u8; 32] = [
+    0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f];
 }
 
 // chi calculates out = z^((p-1)/2). The result is either 1, 0, or -1 depending
@@ -283,27 +102,39 @@ fn chi(z: Scalar) -> Scalar {
     t1 * t0 // edwards25519.FeMul(out, &t1, &t0) // 253..4,2,1
 }
 
-lazy_static! {
-static ref SQRT_M1: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
-// -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482,
-
-static ref A: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
-//486662, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 
 
-// sqrtMinusAPlus2 is sqrt(-(486662+2))
-static ref SQRT_MINUS_A_PLUS_2: Scalar = Scalar::from_bytes_mod_order( [0_u8;32] );
-//   -12222970, -8312128, -11511410, 9067497, -15300785, -241793, 25456130, 14121551, -12187136, 3972024,
 
-// sqrtMinusHalf is sqrt(-1/2)
-static ref SQRT_MINUS_HALF: Scalar = Scalar::from_bytes_mod_order( [0_u8; 32] );
-//-17256545, 3971863, 28865457, -1750208, 27359696, -16640980, 12573105, 1002827, -163343, 11073975,
+pub(crate) fn repres_to_public(pubkey: [u8; 32]) -> PublicKey {
+    let rr2 = Scalar::from_bytes_mod_order(pubkey);
+    let mut rr2 = rr2.square().to_bytes();
+    rr2[0] += 1;
+    let rr2 = Scalar::from_bytes_mod_order(rr2);
 
-// halfQMinus1Bytes is (2^255-20)/2 expressed in little endian form.
-static ref HALF_Q_MINUS1_BYTES: [u8; 32] = [
-    0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f];
+    let _rr2 = rr2.invert();
+    let mut v = Scalar::ZERO; //let mut v = -(A * rr2);
+    let v2 = v.square(); // edwards25519.FeSquare(&v2, &v)
+    let v3 = v * v2; // edwards25519.FeMul(&v3, &v, &v2)
+    let e = v3 + v; // edwards25519.FeAdd(&e, &v3, &v)
+    let v2 = v2 * Scalar::ZERO; // edwards25519.FeMul(&v2, &v2, &edwards25519.A)
+    let e = v2 + e; // edwards25519.FeAdd(&e, &v2, &e)
+    let e = chi(e); // chi(&e, &e)
+
+    let e_bytes = e.to_bytes(); // edwards25519.FeToBytes(&eBytes, &e)
+
+    // eBytes[1] is either 0 (for e = 1) or 0xff (for e = -1)
+    let e_is_minus_1 = e_bytes[1] & 1;
+    Scalar::conditional_negate(&mut v, Choice::from(e_is_minus_1)); // edwards25519.FeCMove(&v, &negV, eIsMinus1)
+
+    let v2 = Scalar::conditional_select(&Scalar::ZERO, &A, Choice::from(e_is_minus_1));
+    let v = v - v2;
+    // edwards25519.FeZero(&v2)
+    // edwards25519.FeCMove(&v2, &edwards25519.A, eIsMinus1)
+    // edwards25519.FeSub(&v, &v, &v2)
+
+    PublicKey::from(v.to_bytes()) // edwards25519.FeToBytes(publicKey, &v)
 }
+
 
 pub fn scalar_base_mult(priv_key: &[u8; 32]) -> Option<(PublicKey, Representative)> {
     let mut masked_private_key = priv_key.clone();

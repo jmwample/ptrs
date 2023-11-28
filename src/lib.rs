@@ -8,7 +8,7 @@ pub mod ident;
 // pub mod o7;
 pub mod obfs4;
 
-pub(crate) mod common;
+pub mod common;
 pub mod stream;
 pub mod traits;
 

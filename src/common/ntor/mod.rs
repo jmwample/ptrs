@@ -47,7 +47,7 @@ pub struct IdentityKeyPair {
 /// struct is used because we have no need to ever serialize the private key
 /// from a session, and this provides auto-safeguards against doing so.
 pub struct SessionKeyPair {
-    private: StaticSecret,
+    private: ReusableSecret,
     public: PublicKey,
     representative: Option<Representative>,
 }
@@ -65,7 +65,7 @@ impl SessionKeyPair {
     /// Generates a new Curve25519 keypair, and optionally also generates
     /// an Elligator representative of the public key.
     pub fn new(elligator: bool) -> Self {
-        let mut private = StaticSecret::random();
+        let mut private = ReusableSecret::random();
         let mut public = PublicKey::from(&private);
         let mut representative: Representative;
         let mut rp = Self {
@@ -76,18 +76,17 @@ impl SessionKeyPair {
 
         if elligator {
             loop {
-                match Representative::new(rp.private.as_bytes()) {
-                    Some(s) => {
-                        (public, representative) = s;
+                match Representative::new(rp.public) {
+                    Some(representative) => {
                         rp.representative = Some(representative);
-                        rp.public = public;
                     }
                     None => {
                         // Elligator representatives only exist for 50% of points
                         // iterate until we find one that works.
                         //
                         // failed to get representative - try again
-                        rp.private = StaticSecret::random();
+                        rp.private = ReusableSecret::random();
+                        rp.public = PublicKey::from(&rp.private);
                         continue;
                     }
                 }
