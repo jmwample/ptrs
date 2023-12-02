@@ -27,7 +27,7 @@ struct Entry {
 pub struct ReplayFilter(Arc<Mutex<InnerReplayFilter>>);
 
 impl ReplayFilter {
-    fn new(ttl: Duration) -> Self {
+    pub fn new(ttl: Duration) -> Self {
         Self(Arc::new(Mutex::new(InnerReplayFilter::new(
             ttl,
             MAX_FILTER_SIZE,
@@ -36,7 +36,7 @@ impl ReplayFilter {
 
     // Queries the filter for a given byte sequence, inserts the
     // sequence, and returns if it was present before the insertion operation.
-    fn test_and_set(&mut self, now: Instant, buf: impl AsRef<[u8]>) -> bool {
+    pub fn test_and_set(&mut self, now: Instant, buf: impl AsRef<[u8]>) -> bool {
         let mut inner = self.0.lock().unwrap();
         inner.test_and_set(now, buf)
     }

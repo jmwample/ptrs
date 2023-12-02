@@ -42,6 +42,10 @@ impl Seed {
             ofb,
         }
     }
+
+    pub fn to_bytes(self) -> [u8; SEED_LENGTH] {
+        self.0
+    }
 }
 
 impl FromHex for Seed {

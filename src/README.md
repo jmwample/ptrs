@@ -18,3 +18,14 @@ Dialer
 Listener
 
 Peer?
+
+---
+
+TODO:
+
+- crate feature for `c_impl` vs `dalek` elligator2.
+- double check the bit randomization and clearing for high two bits in the `c_impl`
+- ntor interface & handshake implementation
+- end-to-end socks proxy
+- server / client compatibility test go-to-rust and rust-to-go.
+

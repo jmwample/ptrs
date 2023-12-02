@@ -4,6 +4,7 @@ pub mod client;
 pub mod proto;
 pub mod server;
 pub mod framing;
+pub mod packet;
 
 const NAME: &str = "obfs4";
 

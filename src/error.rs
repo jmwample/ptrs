@@ -22,6 +22,7 @@ pub enum Error {
     NotImplemented,
     NotSupported,
     Cancelled,
+    HandshakeTimeout,
 }
 
 impl Display for Error {
@@ -37,6 +38,7 @@ impl Display for Error {
             Error::NotImplemented => write!(f, "NotImplemented"),
             Error::NotSupported => write!(f, "NotSupported"),
             Error::NullTransport => write!(f, "NullTransport"),
+            Error::HandshakeTimeout => write!(f, "handshake timed out"),
         }
     }
 }

@@ -9,7 +9,7 @@ use curve25519_dalek::Scalar;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use x25519_dalek::{PublicKey, ReusableSecret, SharedSecret, StaticSecret};
+use x25519_dalek::{PublicKey as DalekPubKey, ReusableSecret, SharedSecret, StaticSecret};
 
 use std::fmt;
 
@@ -40,6 +40,9 @@ pub struct IdentityKeyPair {
     private: StaticSecret,
     public: PublicKey,
 }
+
+/// Re-Export the public key type for consistency in usage.
+pub type PublicKey = DalekPubKey;
 
 /// Curve25519 keypair with an optional Elligator representative.
 /// As only certain Curve25519 keys can be obfuscated with Elligator, the

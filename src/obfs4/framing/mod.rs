@@ -47,38 +47,67 @@ use crypto_secretbox::{
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
-const MAXIMUM_SEGMENT_LENGTH: usize = 1500 - (40 + 12);
+pub(crate) const MAX_SEGMENT_LENGTH: usize = 1500 - (40 + 12);
 
 /// secret box overhead is fixed length prefix and counter
 const SECRET_BOX_OVERHEAD: usize = TAG_SIZE;
 
 /// FrameOverhead is the length of the framing overhead.
-const FRAME_OVERHEAD: usize = LENGTH_LENGTH + SECRET_BOX_OVERHEAD;
+pub(crate) const FRAME_OVERHEAD: usize = LENGTH_LENGTH + SECRET_BOX_OVERHEAD;
 
 /// MaximumFramePayloadLength is the length of the maximum allowed payload
 /// per frame.
-const MAXIMUM_FRAME_PAYLOAD_LENGTH: usize = MAXIMUM_SEGMENT_LENGTH - FRAME_OVERHEAD;
+pub(crate) const MAX_FRAME_PAYLOAD_LENGTH: usize = MAX_SEGMENT_LENGTH - FRAME_OVERHEAD;
 
 
-const MAX_FRAME_LENGTH: usize = MAXIMUM_SEGMENT_LENGTH - LENGTH_LENGTH;
-const MIN_FRAME_LENGTH: usize = FRAME_OVERHEAD - LENGTH_LENGTH;
+pub(crate) const MAX_FRAME_LENGTH: usize = MAX_SEGMENT_LENGTH - LENGTH_LENGTH;
+pub(crate) const MIN_FRAME_LENGTH: usize = FRAME_OVERHEAD - LENGTH_LENGTH;
 
-const NONCE_PREFIX_LENGTH: usize  = 16;
-const NONCE_COUNTER_LENGTH: usize = 8;
-const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
+pub(crate) const NONCE_PREFIX_LENGTH: usize  = 16;
+pub(crate) const NONCE_COUNTER_LENGTH: usize = 8;
+pub(crate) const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
 
-const LENGTH_LENGTH: usize = 2;
+pub(crate) const LENGTH_LENGTH: usize = 2;
 
-const KEY_LENGTH: usize = 32;
+/// KEY_LENGTH is the length of the Encoder/Decoder secret key.
+pub(crate) const KEY_LENGTH: usize = 32;
 
-const TAG_SIZE: usize = 16;
+pub(crate) const TAG_SIZE: usize = 16;
 
-/// KeyLength is the length of the Encoder/Decoder secret key.
-const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
+pub(crate) const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
+
+
+pub struct Obfs4Codec {
+    // key: [u8; KEY_LENGTH],
+    encoder: Obfs4Encoder,
+    decoder: Obfs4Decoder,
+}
+
+impl Obfs4Codec {
+    pub fn new(
+        encoder_key_material: [u8; KEY_MATERIAL_LENGTH],
+        decoder_key_material: [u8; KEY_MATERIAL_LENGTH],
+    ) -> Self {
+        // let mut key: [u8; KEY_LENGTH] =  key_material[..KEY_LENGTH].try_into().unwrap();
+        Self {
+            // key,
+            encoder: Obfs4Encoder::new(encoder_key_material),
+            decoder: Obfs4Decoder::new(decoder_key_material),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Obfs4Message {
+    ClientHandshake,
+    ServerHandshake,
+    ProxyPayload(Vec<u8>),
+}
 
 
 ///Decoder is a frame decoder instance.
 struct Obfs4Decoder {
+    key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg,
 
@@ -97,6 +126,7 @@ impl Obfs4Decoder {
         let d = Drbg::new(Some(seed)).unwrap();
 
         Self {
+            key,
             drbg: d,
             nonce,
 
@@ -105,30 +135,6 @@ impl Obfs4Decoder {
             next_length_inalid: false,
         }
     }
-}
-
-struct Obfs4Codec {
-    key: [u8; KEY_LENGTH],
-    encoder: Obfs4Encoder,
-    decoder: Obfs4Decoder,
-}
-
-impl Obfs4Codec {
-    fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        let mut key: [u8; KEY_LENGTH] =  key_material[..KEY_LENGTH].try_into().unwrap();
-        Self {
-            key,
-            encoder: Obfs4Encoder::new(key_material),
-            decoder: Obfs4Decoder::new(key_material),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Obfs4Message {
-    ClientHandshake,
-    ServerHandshake,
-    ProxyPayload(Vec<u8>),
 }
 
 impl Decoder for Obfs4Codec {
@@ -203,7 +209,7 @@ impl Decoder for Obfs4Codec {
 
 
         // Unseal the frame
-        let key = GenericArray::from_slice(&self.key);
+        let key = GenericArray::from_slice(&self.decoder.key);
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
 
@@ -219,6 +225,7 @@ impl Decoder for Obfs4Codec {
 
 /// Encoder is a frame encoder instance.
 struct Obfs4Encoder {
+    key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg
 }
@@ -233,6 +240,7 @@ impl Obfs4Encoder {
         let d = Drbg::new(Some(seed)).unwrap();
 
         Self {
+            key,
             nonce,
             drbg: d,
         }
@@ -254,7 +262,7 @@ impl Encoder<Obfs4Message> for Obfs4Codec {
         };
 
         // Don't send a string if it is longer than the other end will accept.
-        if MAXIMUM_FRAME_PAYLOAD_LENGTH < item.len() {
+        if MAX_FRAME_PAYLOAD_LENGTH < item.len() {
             return Err(FrameError::InvalidPayloadLength(item.len()));
         }
 
@@ -262,7 +270,7 @@ impl Encoder<Obfs4Message> for Obfs4Codec {
         let nonce_bytes = self.encoder.nonce.next()?;
 
         // Encrypt and MAC payload
-        let key = GenericArray::from_slice(&self.key);
+        let key = GenericArray::from_slice(&self.encoder.key);
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
