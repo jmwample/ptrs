@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::{
-    common::ntor,
+    common::{elligator2::Representative, ntor},
     obfs4::{
         framing::{Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         packet::{self, Packet, ServerHandshakeMessage},
@@ -10,10 +10,7 @@ use crate::{
     Error, Result,
 };
 
-use super::{
-    O4Stream, Obfs4Stream, ServerHandshake, Session, IAT, MAX_HANDSHAKE_LENGTH, SEED_LENGTH,
-    SESSION_ID_LEN,
-};
+use super::*;
 
 use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -32,9 +29,10 @@ impl Client {
     }
 
     pub async fn wrap<'a>(&self, stream: &'a mut impl Stream<'a>) -> Result<Obfs4Stream<'a>> {
-        ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode)
-            .complete(stream)
-            .await
+        tokio::select! {
+            r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
+            e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
+        }
     }
 
     pub fn from_params(params: ClientParams) -> Self {
@@ -87,8 +85,16 @@ impl ClientHandshake {
     }
 
     pub async fn complete<'a>(self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream> {
+        if self.session.session_keys.representative.is_none() {
+            return Err(Error::Other("Bad session keys".into()));
+        }
+
         // build client handshake message
-        let mut ch_msg = packet::ClientHandshakeMessage {};
+        let mut ch_msg = packet::ClientHandshakeMessage::new(
+            self.session.session_keys.representative.clone().unwrap(),
+            self.session.node_pubkey,
+            self.session.node_id.clone(),
+        );
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         ch_msg.marshall(&mut buf)?;
 

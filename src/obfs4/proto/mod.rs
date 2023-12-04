@@ -36,9 +36,15 @@ const IAT_ARG: &str = "iat-mode";
 const CERT_ARG: &str = "cert";
 
 const BIAS_CMD_ARG: &str = "obfs4-distBias";
-const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
-const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 const REPLAY_TTL: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(not(test))]
+const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
+#[cfg(not(test))]
+const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
 const MAX_IAT_DELAY: usize = 100;
 const MAX_CLOSE_DELAY: usize = 60;
