@@ -5,6 +5,7 @@ use crate::{
     obfs4::{
         framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},
         packet::ClientHandshakeMessage,
+        proto::client::ClientParams,
     },
     stream::Stream,
     Error, Result,
@@ -23,14 +24,54 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn wrap<'a>(&mut self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>> {
-        ServerHandshake::new(&self.node_id, &self.identity_keys, self.iat_mode)
-            .complete(stream)
-            .await
+    pub fn new_from_random() -> Self {
+        Self {
+            identity_keys: ntor::IdentityKeyPair::new(),
+            node_id: ntor::ID::new(),
+            iat_mode: IAT::Off,
+            replay_filter: ReplayFilter::new(REPLAY_TTL),
+        }
+    }
+
+    pub async fn wrap<'a>(&'a self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>> {
+        let session = self.new_session();
+        ServerHandshake::new(session).complete(stream).await
     }
 
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {
         Ok(self)
+    }
+
+    pub fn new_from_statefile() -> Result<Self> {
+        Err(Error::NotImplemented)
+    }
+
+    pub fn write_statefile(f: std::fs::File) -> Result<()> {
+        Err(Error::NotImplemented)
+    }
+
+    pub fn client_params(&self) -> ClientParams {
+        ClientParams {
+            station_pubkey: self.identity_keys.public,
+            node_id: self.node_id.clone(),
+            iat_mode: self.iat_mode.clone(),
+        }
+    }
+
+    pub fn new_session(&self) -> ServerSession {
+        ServerSession {
+            // TODO: generate session id
+            session_id: [0_u8; SESSION_ID_LEN],
+
+            session_keys: ntor::SessionKeyPair::new(true),
+            identity_keys: &self.identity_keys,
+
+            iat_mode: self.iat_mode.clone(),
+            node_id: self.node_id.clone(),
+            len_seed: drbg::Seed::new().unwrap(),
+            iat_seed: drbg::Seed::new().unwrap(),
+            replay_filter: &self.replay_filter,
+        }
     }
 }
 
@@ -49,24 +90,8 @@ pub(crate) struct ServerSession<'a> {
 }
 
 impl<'a> ServerSession<'a> {
-    pub fn new(node_id: ntor::ID, identity_keys: &ntor::IdentityKeyPair, iat_mode: IAT) -> Self {
-        Self {
-            // TODO: generate session id
-            session_id: [0_u8; SESSION_ID_LEN],
-
-            session_keys: ntor::SessionKeyPair::new(true),
-            identity_keys,
-
-            iat_mode,
-            node_id,
-            len_seed: drbg::Seed::new().unwrap(),
-            iat_seed: drbg::Seed::new().unwrap(),
-            replay_filter: ReplayFilter::new(REPLAY_TTL),
-        }
-    }
-
     pub fn session_id(&self) -> String {
-        return hex::encode(self.session_id)
+        return hex::encode(self.session_id);
     }
 }
 
@@ -75,13 +100,14 @@ pub struct ServerHandshake<'a> {
 }
 
 impl<'b> ServerHandshake<'b> {
-    pub fn new(id: &ntor::ID, station_keypair: &ntor::IdentityKeyPair, iat_mode: IAT) -> Self {
-        Self {
-            session: ServerSession::new(id.clone(), station_keypair, iat_mode),
-        }
+    pub fn new(session: ServerSession<'b>) -> Self {
+        Self { session }
     }
 
-    pub async fn complete<'a>(&self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>> {
+    pub async fn complete<'a>(self, mut stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>>
+    where
+        'b: 'a,
+    {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
         let mut seed: [u8; SEED_LENGTH];
@@ -105,7 +131,7 @@ impl<'b> ServerHandshake<'b> {
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
 
         let codec = Obfs4Codec::new(ekm, dkm);
-        let o4 = O4Stream::new(&mut stream, codec, Session::Server(self.session));
+        let o4 = O4Stream::new(stream, codec, Session::Server(self.session));
         Ok(Obfs4Stream::from_o4(o4))
     }
 }

@@ -1,5 +1,5 @@
+use super::{Representative, REPRESENTATIVE_LENGTH};
 use crate::{Error, Result};
-use super::{REPRESENTATIVE_LENGTH, Representative};
 
 use std::fmt;
 use std::str::FromStr;
@@ -12,7 +12,6 @@ use hex::FromHex;
 use lazy_static::lazy_static;
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, CtOption};
 use x25519_dalek::PublicKey;
-
 
 lazy_static! {
 static ref SQRT_M1: Scalar = Scalar::from_bytes_mod_order([0_u8; 32]);
@@ -102,9 +101,6 @@ fn chi(z: Scalar) -> Scalar {
     t1 * t0 // edwards25519.FeMul(out, &t1, &t0) // 253..4,2,1
 }
 
-
-
-
 pub(crate) fn repres_to_public(pubkey: [u8; 32]) -> PublicKey {
     let rr2 = Scalar::from_bytes_mod_order(pubkey);
     let mut rr2 = rr2.square().to_bytes();
@@ -134,7 +130,6 @@ pub(crate) fn repres_to_public(pubkey: [u8; 32]) -> PublicKey {
 
     PublicKey::from(v.to_bytes()) // edwards25519.FeToBytes(publicKey, &v)
 }
-
 
 pub fn scalar_base_mult(priv_key: &[u8; 32]) -> Option<(PublicKey, Representative)> {
     let mut masked_private_key = priv_key.clone();

@@ -8,15 +8,13 @@
 /// - https://docs.rs/tokio-util/latest/tokio_util/codec/index.html
 ///     - tokio_util codec docs
 ///
-
 use super::*;
 use crate::Result;
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-use tokio_util::codec::{Encoder,Decoder};
-use bytes::{BytesMut, Buf};
-use futures::{Sink, Stream, StreamExt, SinkExt};
-
+use bytes::{Buf, BytesMut};
+use futures::{Sink, SinkExt, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::codec::{Decoder, Encoder};
 
 const MAX: usize = 8 * 1024 * 1024;
 
@@ -28,14 +26,13 @@ impl Obfs4Codec {
     }
 }
 
-
 impl Decoder for Obfs4Codec {
     type Item = String;
     type Error = std::io::Error;
 
     fn decode(
         &mut self,
-        src: &mut BytesMut
+        src: &mut BytesMut,
     ) -> std::result::Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 {
             // Not enough data to read length marker.
@@ -52,7 +49,7 @@ impl Decoder for Obfs4Codec {
         if length > MAX {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Frame of length {} is too large.", length)
+                format!("Frame of length {} is too large.", length),
             ));
         }
 
@@ -76,16 +73,13 @@ impl Decoder for Obfs4Codec {
         // Convert the data to a string, or fail if it is not valid utf-8.
         match String::from_utf8(data) {
             Ok(string) => Ok(Some(string)),
-            Err(utf8_error) => {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    utf8_error.utf8_error(),
-                ))
-            },
+            Err(utf8_error) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                utf8_error.utf8_error(),
+            )),
         }
     }
 }
-
 
 impl Encoder<String> for Obfs4Codec {
     type Error = std::io::Error;
@@ -96,7 +90,7 @@ impl Encoder<String> for Obfs4Codec {
         if item.len() > MAX {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Frame of length {} is too large.", item.len())
+                format!("Frame of length {} is too large.", item.len()),
             ));
         }
 
@@ -116,8 +110,7 @@ impl Encoder<String> for Obfs4Codec {
 
 #[tokio::test]
 async fn framing_flow() -> Result<()> {
-
-    let (c,s) = tokio::io::duplex(16*1024);
+    let (c, s) = tokio::io::duplex(16 * 1024);
 
     tokio::spawn(async move {
         let codec = Obfs4Codec::new();
@@ -134,9 +127,14 @@ async fn framing_flow() -> Result<()> {
     let client_codec = Obfs4Codec::new();
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
 
-    c_sink.send(message.into()).await.expect("client send failed");
+    c_sink
+        .send(message.into())
+        .await
+        .expect("client send failed");
 
-    let m: String = c_stream.next().await
+    let m: String = c_stream
+        .next()
+        .await
         .expect("you were supposed to call me back!")
         .expect("an error occured when you called back");
 
@@ -144,4 +142,3 @@ async fn framing_flow() -> Result<()> {
 
     Ok(())
 }
-

@@ -37,8 +37,8 @@ pub(crate) struct Auth([u8; AUTH_LENGTH]);
 /// is intended to be used for the stations long term key, potentially allowing
 /// the key to be (de)serielized to/from a statefile.
 pub struct IdentityKeyPair {
-    private: StaticSecret,
-    public: PublicKey,
+    pub private: StaticSecret,
+    pub public: PublicKey,
 }
 
 /// Re-Export the public key type for consistency in usage.
@@ -50,9 +50,9 @@ pub type PublicKey = DalekPubKey;
 /// struct is used because we have no need to ever serialize the private key
 /// from a session, and this provides auto-safeguards against doing so.
 pub struct SessionKeyPair {
-    private: ReusableSecret,
-    public: PublicKey,
-    representative: Option<Representative>,
+    pub private: ReusableSecret,
+    pub public: PublicKey,
+    pub representative: Option<Representative>,
 }
 
 impl IdentityKeyPair {

@@ -9,15 +9,13 @@ use std::str::FromStr;
 use hex::FromHex;
 use x25519_dalek::PublicKey;
 
-pub use c_impl::{encode, decode};
-
+pub use c_impl::{decode, encode};
 
 /// The length of an Elligator representative.
 const REPRESENTATIVE_LENGTH: usize = 32;
 
 /// The length of an Elligator point public key.
 const PUBLIC_KEY_LENGTH: usize = 32;
-
 
 /// Elligator Representative of a public key value
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +30,7 @@ impl Representative {
     //
     // See http://elligator.cr.yp.to/elligator-20130828.pdf.
     pub fn new(pubkey: PublicKey) -> Option<Self> {
-        Some(Self{
+        Some(Self {
             bytes: c_impl::encode(pubkey.to_bytes())?,
         })
     }
@@ -148,4 +146,3 @@ impl fmt::Display for Representative {
         write!(f, "{}", hex::encode(&self.bytes[..]))
     }
 }
-

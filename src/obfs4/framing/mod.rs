@@ -32,18 +32,18 @@
 /// transmitted over the wire as both sides of the conversation know the prefix
 /// and the initial counter value.  It is imperative that the counter does not
 /// wrap, and sessions MUST terminate before 2^64 frames are sent.
-
 use crate::common::drbg::{self, Drbg, Seed};
+use crate::obfs4::packet::{Message, Payload};
 
-use tracing::trace;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-use tokio_util::codec::{Encoder,Decoder};
-use bytes::{BytesMut, Buf};
-use futures::{Sink, Stream, StreamExt, SinkExt};
+use bytes::{Buf, BytesMut};
 use crypto_secretbox::{
-    aead::{AeadCore, Aead, KeyInit, OsRng, generic_array::GenericArray},
-    XSalsa20Poly1305, Nonce,
+    aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit, OsRng},
+    Nonce, XSalsa20Poly1305,
 };
+use futures::{Sink, SinkExt, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::codec::{Decoder, Encoder};
+use tracing::trace;
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -59,11 +59,10 @@ pub(crate) const FRAME_OVERHEAD: usize = LENGTH_LENGTH + SECRET_BOX_OVERHEAD;
 /// per frame.
 pub(crate) const MAX_FRAME_PAYLOAD_LENGTH: usize = MAX_SEGMENT_LENGTH - FRAME_OVERHEAD;
 
-
 pub(crate) const MAX_FRAME_LENGTH: usize = MAX_SEGMENT_LENGTH - LENGTH_LENGTH;
 pub(crate) const MIN_FRAME_LENGTH: usize = FRAME_OVERHEAD - LENGTH_LENGTH;
 
-pub(crate) const NONCE_PREFIX_LENGTH: usize  = 16;
+pub(crate) const NONCE_PREFIX_LENGTH: usize = 16;
 pub(crate) const NONCE_COUNTER_LENGTH: usize = 8;
 pub(crate) const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
 
@@ -75,7 +74,6 @@ pub(crate) const KEY_LENGTH: usize = 32;
 pub(crate) const TAG_SIZE: usize = 16;
 
 pub(crate) const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
-
 
 pub struct Obfs4Codec {
     // key: [u8; KEY_LENGTH],
@@ -97,13 +95,12 @@ impl Obfs4Codec {
     }
 }
 
-#[derive(Debug)]
-enum Obfs4Message {
-    ClientHandshake,
-    ServerHandshake,
-    ProxyPayload(Vec<u8>),
-}
-
+// #[derive(Debug)]
+// pub enum Obfs4Message {
+//     ClientHandshake,
+//     ServerHandshake,
+//     ProxyPayload(Vec<u8>),
+// }
 
 ///Decoder is a frame decoder instance.
 struct Obfs4Decoder {
@@ -120,9 +117,9 @@ impl Obfs4Decoder {
     // Creates a new Decoder instance.  It must be supplied a slice
     // containing exactly KeyLength bytes of keying material.
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        let mut key: [u8; KEY_LENGTH] =  key_material[..KEY_LENGTH].try_into().unwrap();
-        let nonce = NonceBox::new(&key_material[KEY_LENGTH .. (KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
-        let seed = Seed::try_from(&key_material[(KEY_LENGTH+NONCE_PREFIX_LENGTH)..]).unwrap();
+        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
+        let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
 
         Self {
@@ -138,7 +135,7 @@ impl Obfs4Decoder {
 }
 
 impl Decoder for Obfs4Codec {
-    type Item = Obfs4Message;
+    type Item = Message;
     type Error = FrameError;
 
     // Decode decodes a stream of data and returns the length if any.  ErrAgain is
@@ -146,7 +143,7 @@ impl Decoder for Obfs4Codec {
     // session aborted.
     fn decode(
         &mut self,
-        src: &mut BytesMut
+        src: &mut BytesMut,
     ) -> std::result::Result<Option<Self::Item>, Self::Error> {
         trace!("decoding");
         // A length of 0 indicates that we do not know the expected size of
@@ -154,7 +151,7 @@ impl Decoder for Obfs4Codec {
         if self.decoder.next_length == 0 {
             // Attempt to pull out the next frame length
             if LENGTH_LENGTH > src.len() {
-                return Ok(None)
+                return Ok(None);
             }
 
             // Remove the field length from the buffer
@@ -182,8 +179,12 @@ impl Decoder for Obfs4Codec {
                 let invalid_length = length;
                 self.decoder.next_length_inalid = true;
                 getrandom::getrandom(&mut len_buf);
-                length = u16::from_be_bytes(len_buf) % (MAX_FRAME_LENGTH-MIN_FRAME_LENGTH)as u16 + MIN_FRAME_LENGTH as u16;
-                trace!("invalid length {invalid_length} {length} {}", self.decoder.next_length_inalid);
+                length = u16::from_be_bytes(len_buf) % (MAX_FRAME_LENGTH - MIN_FRAME_LENGTH) as u16
+                    + MIN_FRAME_LENGTH as u16;
+                trace!(
+                    "invalid length {invalid_length} {length} {}",
+                    self.decoder.next_length_inalid
+                );
             }
 
             self.decoder.next_length = length;
@@ -204,9 +205,8 @@ impl Decoder for Obfs4Codec {
         }
 
         // Use advance to modify src such that it no longer contains this frame.
-        let data = src[2..2+next_len].to_vec();
+        let data = src[2..2 + next_len].to_vec();
         src.advance(2 + next_len);
-
 
         // Unseal the frame
         let key = GenericArray::from_slice(&self.decoder.key);
@@ -219,7 +219,7 @@ impl Decoder for Obfs4Codec {
         self.decoder.next_length = 0;
         self.decoder.nonce.counter += 1;
 
-        Ok(Some(Obfs4Message::ProxyPayload(plaintext)))
+        Ok(Some(Message::Payload(Payload::new(plaintext, 0))))
     }
 }
 
@@ -227,15 +227,15 @@ impl Decoder for Obfs4Codec {
 struct Obfs4Encoder {
     key: [u8; KEY_LENGTH],
     nonce: NonceBox,
-    drbg: Drbg
+    drbg: Drbg,
 }
 
 impl Obfs4Encoder {
     /// Creates a new Encoder instance. It must be supplied a slice
     /// containing exactly KeyLength bytes of keying material.  
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        let mut key: [u8; KEY_LENGTH] =  key_material[..KEY_LENGTH].try_into().unwrap();
-        let nonce = NonceBox::new(&key_material[KEY_LENGTH .. (KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
+        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
 
@@ -247,23 +247,26 @@ impl Obfs4Encoder {
     }
 }
 
-
-impl Encoder<Obfs4Message> for Obfs4Codec {
+impl Encoder<Message> for Obfs4Codec {
     type Error = FrameError;
 
     /// Encode encodes a single frame worth of payload and returns
     /// [`InvalidPayloadLength`] is recoverable, all other errors MUST be
     /// treated as fatal and the session aborted.
-    fn encode(&mut self, item: Obfs4Message, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: Message,
+        dst: &mut BytesMut,
+    ) -> std::result::Result<(), Self::Error> {
         trace!("encoding");
         let item = match item {
-            Obfs4Message::ProxyPayload(m) => m,
-            _ => return Err(FrameError::InvalidMessage)
+            Message::Payload(m) => m,
+            _ => return Err(FrameError::InvalidMessage),
         };
 
         // Don't send a string if it is longer than the other end will accept.
-        if MAX_FRAME_PAYLOAD_LENGTH < item.len() {
-            return Err(FrameError::InvalidPayloadLength(item.len()));
+        if MAX_FRAME_PAYLOAD_LENGTH < item.data.len() {
+            return Err(FrameError::InvalidPayloadLength(item.data.len()));
         }
 
         // Generate a new nonce
@@ -275,7 +278,7 @@ impl Encoder<Obfs4Message> for Obfs4Codec {
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
         trace!("encode: all things generated");
-        let ciphertext = cipher.encrypt(&nonce, item.as_ref())?;
+        let ciphertext = cipher.encrypt(&nonce, item.data.as_ref())?;
         trace!("encode: encrypted");
 
         // Obfuscate the length
@@ -293,7 +296,6 @@ impl Encoder<Obfs4Message> for Obfs4Codec {
     }
 }
 
-
 /// internal nonce management for NaCl secret boxes
 struct NonceBox {
     prefix: [u8; NONCE_PREFIX_LENGTH],
@@ -302,7 +304,11 @@ struct NonceBox {
 
 impl NonceBox {
     pub fn new(prefix: impl AsRef<[u8]>) -> Self {
-        assert!(prefix.as_ref().len() >= NONCE_PREFIX_LENGTH, "prefix too short: {} < {NONCE_PREFIX_LENGTH}", prefix.as_ref().len());
+        assert!(
+            prefix.as_ref().len() >= NONCE_PREFIX_LENGTH,
+            "prefix too short: {} < {NONCE_PREFIX_LENGTH}",
+            prefix.as_ref().len()
+        );
         Self {
             prefix: prefix.as_ref()[..NONCE_PREFIX_LENGTH].try_into().unwrap(),
             counter: 1,
@@ -332,11 +338,10 @@ impl NonceBox {
     }
 }
 
-
 impl std::error::Error for FrameError {}
 
 #[derive(Debug, PartialEq, Eq)]
-enum FrameError {
+pub enum FrameError {
     /// is the error returned when [`encode`] rejects the payload length.
     InvalidPayloadLength(usize),
 
@@ -366,13 +371,20 @@ enum FrameError {
 impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            FrameError::InvalidPayloadLength(s) => write!(f, "framing: Invalid payload length: {s}"),
+            FrameError::InvalidPayloadLength(s) => {
+                write!(f, "framing: Invalid payload length: {s}")
+            }
             FrameError::Crypto(e) => write!(f, "framing: Secretbox encrypt/decrypt error: {e}"),
-            FrameError::IO(e) => write!(f, "framing: i/o error occured while processing frame: {e}"),
+            FrameError::IO(e) => {
+                write!(f, "framing: i/o error occured while processing frame: {e}")
+            }
             FrameError::EAgain => write!(f, "framing: More data needed to decode"),
             FrameError::TagMismatch => write!(f, "framing: Poly1305 tag mismatch"),
             FrameError::NonceCounterWrapped => write!(f, "framing: Nonce counter wrapped"),
-            FrameError::ShortBuffer => write!(f, "framing: provided bytes buffer was too short for payload"),
+            FrameError::ShortBuffer => write!(
+                f,
+                "framing: provided bytes buffer was too short for payload"
+            ),
             FrameError::InvalidMessage => write!(f, "framing: incorrect message for context"),
         }
     }
@@ -391,6 +403,6 @@ impl From<std::io::Error> for FrameError {
 }
 
 #[cfg(test)]
-mod testing;
-#[cfg(test)]
 mod generic_test;
+#[cfg(test)]
+mod testing;

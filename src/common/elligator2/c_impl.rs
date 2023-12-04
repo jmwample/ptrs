@@ -1,15 +1,13 @@
+use super::{PUBLIC_KEY_LENGTH, REPRESENTATIVE_LENGTH};
+use crate::{Error, Result};
 
-use crate::{Result, Error};
-use super::{REPRESENTATIVE_LENGTH, PUBLIC_KEY_LENGTH};
-
-use libc::{size_t, int32_t};
 use getrandom::getrandom;
+use libc::{int32_t, size_t};
 
 pub(crate) const DECODE_FAILURE: &'static str = "elligator2 decode failed";
 
 const MASK_UNSET_BYTE: u8 = 0x3f;
 const MASK_SET_BYTE: u8 = 0xC0;
-
 
 #[no_mangle]
 extern "C" {
@@ -29,16 +27,13 @@ extern "C" {
     fn _encode_c(out: *mut u8, input: *const u8) -> int32_t;
 }
 
-
 pub fn encode(pubkey: [u8; PUBLIC_KEY_LENGTH]) -> Option<[u8; REPRESENTATIVE_LENGTH]> {
     let mut out = [0_u8; REPRESENTATIVE_LENGTH];
-    let ret_code = unsafe {
-        _encode_c(out.as_mut_ptr(), pubkey.as_ptr())
-    };
+    let ret_code = unsafe { _encode_c(out.as_mut_ptr(), pubkey.as_ptr()) };
 
     if ret_code == 0 {
         // failed to encode to a point on the curve
-        return None
+        return None;
     }
     let mut mask_byte = [0_u8];
     getrandom(&mut mask_byte);
@@ -52,13 +47,11 @@ pub fn decode(repres: [u8; REPRESENTATIVE_LENGTH]) -> Result<[u8; PUBLIC_KEY_LEN
     let mut out = [0_u8; PUBLIC_KEY_LENGTH];
     let mut r_sign_cleared = repres;
     r_sign_cleared[31] &= MASK_UNSET_BYTE;
-    let ret_code = unsafe {
-        _decode_c(out.as_mut_ptr(), r_sign_cleared.as_ptr())
-    };
+    let ret_code = unsafe { _decode_c(out.as_mut_ptr(), r_sign_cleared.as_ptr()) };
 
     if ret_code == 0 {
         // failed to decode
-        return Err(Error::Crypto(DECODE_FAILURE.into()))
+        return Err(Error::Crypto(DECODE_FAILURE.into()));
     }
 
     Ok(out)
@@ -67,7 +60,7 @@ pub fn decode(repres: [u8; REPRESENTATIVE_LENGTH]) -> Result<[u8; PUBLIC_KEY_LEN
 #[cfg(test)]
 mod test {
     use super::*;
-    use x25519_dalek::{PublicKey,StaticSecret};
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     #[test]
     fn elligator_ntor_test_vectors() -> Result<()> {
@@ -78,15 +71,23 @@ mod test {
 
             let privkey = StaticSecret::from(input_key);
             let pubkey = PublicKey::from(&privkey);
-            assert_eq!(true_pubkey, hex::encode(pubkey.to_bytes()), "({i}) bad pubkey from privkey");
+            assert_eq!(
+                true_pubkey,
+                hex::encode(pubkey.to_bytes()),
+                "({i}) bad pubkey from privkey"
+            );
 
             // let mut repres = encode(pubkey.to_bytes()).unwrap();
             // repres[31] &= MASK_UNSET_BYTE;
             // assert_eq!(true_repres, hex::encode(repres), "({i}) bad representative from pubkey");
-            let repres: [u8; 32] = hex::decode(vector[2]).unwrap().try_into().unwrap(); 
+            let repres: [u8; 32] = hex::decode(vector[2]).unwrap().try_into().unwrap();
 
             let pubkey2 = decode(repres)?;
-            assert_eq!(true_pubkey, hex::encode(pubkey2), "({i}) bad pubkey from true representative");
+            assert_eq!(
+                true_pubkey,
+                hex::encode(pubkey2),
+                "({i}) bad pubkey from true representative"
+            );
         }
 
         for (i, vector) in ntor_invalid_test_vectors().iter().enumerate() {
@@ -96,7 +97,11 @@ mod test {
 
             let privkey = StaticSecret::from(input_key);
             let pubkey = PublicKey::from(&privkey);
-            assert_ne!(true_pubkey, hex::encode(pubkey.to_bytes()), "({i}) [bad_case] somehow generate matching pubkey from bad privkey");
+            assert_ne!(
+                true_pubkey,
+                hex::encode(pubkey.to_bytes()),
+                "({i}) [bad_case] somehow generate matching pubkey from bad privkey"
+            );
             //assert_eq!(None, encode(pubkey_bytes), "({i}) [bad case] expected None - got representative");
             if hex::encode(encode(pubkey_bytes).unwrap()) == vector[2] {
                 println!("({i}) [bad case] !!!` expected None - got representative");
@@ -181,7 +186,6 @@ mod test {
         ]
     }
 
-
     fn ntor_invalid_test_vectors() -> Vec<Vec<&'static str>> {
         vec![
             vec![
@@ -236,6 +240,4 @@ mod test {
             ],
         ]
     }
-
-
 }

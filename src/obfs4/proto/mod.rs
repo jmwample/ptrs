@@ -1,30 +1,30 @@
 use crate::{
-    Result,
-    common::{AsyncDiscard, drbg},
-    stream::Stream,
+    common::{drbg, AsyncDiscard},
     obfs4::{
         framing,
-        packet::{Packet, PacketType, self}
+        packet::{self, Packet, PacketType},
     },
+    stream::Stream,
+    Result,
 };
 
+use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio_util::bytes::Bytes;
 use tracing::{trace, warn};
 
 use std::{
     io::Error as IoError,
     pin::Pin,
     result::Result as StdResult,
-    time::Duration,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
-    sync::{Arc,Mutex},
+    time::Duration,
 };
 
 mod client;
-pub(super) use client::{Client, ClientSession, ClientHandshake};
+pub(super) use client::{Client, ClientHandshake, ClientSession};
 mod server;
-pub(super) use server::{Server, ServerSession, ServerHandshake};
+pub(super) use server::{Server, ServerHandshake, ServerSession};
 
 const TRANSPORT_NAME: &str = "obfs4";
 
@@ -72,14 +72,15 @@ impl<'a> Session<'a> {
     }
 }
 
-
 pub struct Obfs4Stream<'a> {
-    s: Arc<Mutex<O4Stream<'a>>>
+    s: Arc<Mutex<O4Stream<'a>>>,
 }
 
 impl<'a> Obfs4Stream<'a> {
     pub(crate) fn from_o4(o4: O4Stream<'a>) -> Self {
-        Obfs4Stream{ s: Arc::new(Mutex::new(o4)) }
+        Obfs4Stream {
+            s: Arc::new(Mutex::new(o4)),
+        }
     }
 }
 
@@ -90,8 +91,11 @@ struct O4Stream<'a> {
 }
 
 impl<'a> O4Stream<'a> {
-    fn new(stream: &'a mut dyn Stream<'a>, codec: framing::Obfs4Codec, session: Session) -> Self
-    {
+    fn new(
+        stream: &'a mut dyn Stream<'a>,
+        codec: framing::Obfs4Codec,
+        session: Session<'a>,
+    ) -> Self {
         Self {
             inner: stream,
             session,
@@ -116,7 +120,7 @@ impl<'a> O4Stream<'a> {
         };
     }
 
-    fn pad_burst(&self, buf: &mut Bytes, to_pad_to: usize) -> Result<()> {
+    fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
         let tail_len = buf.len();
 
         let mut pad_len = 0;
@@ -128,13 +132,18 @@ impl<'a> O4Stream<'a> {
 
         let data: Option<Vec<u8>> = None;
         if pad_len > HEADER_LENGTH {
-            Packet::build(buf, PacketType::Payload, data, pad_len - HEADER_LENGTH)?;
+            packet::build(buf, PacketType::Payload, data, pad_len - HEADER_LENGTH);
         } else if pad_len > 0 {
             // TODO: I think this double pad might be a mistake and there should be an else in
             // between
-            Packet::build(buf, PacketType::Payload, data.clone(), packet::MAX_PACKET_PAYLOAD_LENGTH)?;
-        // } else {
-            Packet::build(buf, PacketType::Payload, data, pad_len)?;
+            packet::build(
+                buf.clone(),
+                PacketType::Payload,
+                data.clone(),
+                packet::MAX_PACKET_PAYLOAD_LENGTH,
+            );
+            // } else {
+            packet::build(buf, PacketType::Payload, data, pad_len);
         }
 
         Ok(())
@@ -145,32 +154,25 @@ impl<'a> AsyncWrite for Obfs4Stream<'a> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &[u8]
+        buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
         todo!()
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>
-    ) -> Poll<StdResult<(), IoError>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         todo!()
     }
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>
-    ) -> Poll<StdResult<(), IoError>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         todo!()
     }
 }
 
 impl<'a> AsyncRead for Obfs4Stream<'a> {
-
-    fn poll_read (
+    fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>
+        buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
         todo!()
     }

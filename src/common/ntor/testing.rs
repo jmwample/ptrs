@@ -1,6 +1,6 @@
 use super::*;
-use crate::common::elligator2::{encode, decode};
-use crate::{Result, Error};
+use crate::common::elligator2::{decode, encode};
+use crate::{Error, Result};
 
 use curve25519_dalek::{traits::Identity, EdwardsPoint, Scalar};
 use group::GroupEncoding;
@@ -67,7 +67,6 @@ fn handshake() -> Result<()> {
     Ok(())
 }
 
-
 #[test]
 fn about_half() -> Result<()> {
     let mut success = 0;
@@ -110,27 +109,25 @@ fn keypair() -> Result<()> {
     Ok(())
 }
 
-
 // // This doesn't work and I don't understand curve2559 api/abi
 // #[test]
 // fn dh_equivalence() -> Result<()> {
 //     let a_keys = IdentityKeyPair::new();
 //     let b_keys = IdentityKeyPair::new();
-// 
+//
 //     let a_secret = a_keys.private.diffie_hellman(&b_keys.public);
-// 
+//
 //     let y = EdwardsPoint::from_bytes(&a_keys.public.to_bytes()).unwrap();
 //     let x = Scalar::from_bytes_mod_order(b_keys.private.to_bytes());
 //     let b_secret = y * x;
-// 
+//
 //     assert_eq!(
 //         hex::encode(a_secret.to_bytes()),
 //         hex::encode(b_secret.to_bytes())
 //     );
-// 
+//
 //     Ok(())
 // }
-
 
 // Test that Elligator representatives produced by
 // NewKeypair map to public keys that are not always on the prime-order subgroup
@@ -262,7 +259,6 @@ fn scalar_mult_order(v: &EdwardsPoint) -> EdwardsPoint {
     let p = v * scalar_order_minus_one;
     p + v
 }
-
 
 #[test]
 fn ntor_derive_shared_compat() -> Result<()> {

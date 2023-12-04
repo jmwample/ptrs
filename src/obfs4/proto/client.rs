@@ -1,21 +1,24 @@
 #![allow(unused)]
 
 use crate::{
-    Error, Result,
     common::ntor,
-    stream::Stream,
     obfs4::{
         framing::{Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         packet::{self, Packet, ServerHandshakeMessage},
     },
+    stream::Stream,
+    Error, Result,
 };
 
-use super::{Obfs4Stream, O4Stream, Session, IAT, MAX_HANDSHAKE_LENGTH, ServerHandshake, SEED_LENGTH, SESSION_ID_LEN};
+use super::{
+    O4Stream, Obfs4Stream, ServerHandshake, Session, IAT, MAX_HANDSHAKE_LENGTH, SEED_LENGTH,
+    SESSION_ID_LEN,
+};
 
 use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use std::sync::{Arc,Mutex};
+use std::sync::{Arc, Mutex};
 
 pub struct Client {
     pub iat_mode: IAT,
@@ -29,7 +32,17 @@ impl Client {
     }
 
     pub async fn wrap<'a>(&self, stream: &'a mut impl Stream<'a>) -> Result<Obfs4Stream<'a>> {
-        ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream).await
+        ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode)
+            .complete(stream)
+            .await
+    }
+
+    pub fn from_params(params: ClientParams) -> Self {
+        Self {
+            iat_mode: params.iat_mode,
+            station_pubkey: params.station_pubkey,
+            id: params.node_id,
+        }
     }
 }
 
@@ -54,7 +67,7 @@ impl ClientSession {
     }
 
     pub fn session_id(&self) -> String {
-        return hex::encode(self.session_id)
+        return hex::encode(self.session_id);
     }
 }
 
@@ -63,28 +76,19 @@ pub struct ClientHandshake {
 }
 
 impl ClientHandshake {
-    pub fn new(
-        id: &ntor::ID,
-        station_pubkey: &ntor::PublicKey,
-        iat_mode: IAT,
-    ) -> Self {
+    pub fn new(id: &ntor::ID, station_pubkey: &ntor::PublicKey, iat_mode: IAT) -> Self {
         Self {
             session: ClientSession::new(id.clone(), *station_pubkey, iat_mode),
         }
     }
 
     pub fn for_session(session: ClientSession) -> Result<Self> {
-        Ok(Self {
-            session,
-        })
+        Ok(Self { session })
     }
 
-    pub async fn complete<'a>(
-        self,
-        stream: &'a mut dyn Stream<'a>,
-    ) -> Result<Obfs4Stream> {
+    pub async fn complete<'a>(self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream> {
         // build client handshake message
-        let mut ch_msg = packet::ClientHandshakeMessage{};
+        let mut ch_msg = packet::ClientHandshakeMessage {};
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         ch_msg.marshall(&mut buf)?;
 
@@ -103,16 +107,25 @@ impl ClientHandshake {
                 Err(EAgain) => continue,
                 Err(e) => return Err(e)?,
             };
-            break
+            break;
         }
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(seed, KEY_MATERIAL_LENGTH*2);
+        let okm = ntor::kdf(seed, KEY_MATERIAL_LENGTH * 2);
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
 
         let codec = Obfs4Codec::new(ekm, dkm);
-        Ok(Obfs4Stream::from_o4( O4Stream::new(stream, codec, Session::Client(self.session)) ))
+        Ok(Obfs4Stream::from_o4(O4Stream::new(
+            stream,
+            codec,
+            Session::Client(self.session),
+        )))
     }
 }
 
+pub struct ClientParams {
+    pub iat_mode: IAT,
+    pub node_id: ntor::ID,
+    pub station_pubkey: ntor::PublicKey,
+}
