@@ -46,3 +46,8 @@ pkg-config = "0.3.16"
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
+
+# o5 pqc test
+# rand = "^0.8.5"
+# x25519-dalek = {version="2.0.0", features=["getrandom"]}
+pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
