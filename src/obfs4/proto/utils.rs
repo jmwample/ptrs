@@ -1,9 +1,4 @@
-
-
-use crate::{
-    Result,
-    obfs4::constants::*,
-};
+use crate::{obfs4::constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +6,6 @@ use rand_core::{OsRng, RngCore};
 use subtle::ConstantTimeEq;
 use tokio_util::bytes::{Buf, BufMut, Bytes};
 use tracing::trace;
-
 
 pub fn get_epoch_hour() -> u64 {
     SystemTime::now()

@@ -36,7 +36,9 @@ impl Representative {
     }
 
     pub fn zero() -> Self {
-        Self {bytes: [0_u8; REPRESENTATIVE_LENGTH]}
+        Self {
+            bytes: [0_u8; REPRESENTATIVE_LENGTH],
+        }
     }
 
     pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {

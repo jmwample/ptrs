@@ -1,7 +1,10 @@
 #![allow(unused)]
 
 use crate::{
-    common::{elligator2::{Representative, REPRESENTATIVE_LENGTH}, ntor::{self, AUTH_LENGTH}},
+    common::{
+        elligator2::{Representative, REPRESENTATIVE_LENGTH},
+        ntor::{self, AUTH_LENGTH},
+    },
     obfs4::{
         framing::{FrameError, Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         packet::{Marshall, Packet, TryParse},
@@ -151,7 +154,9 @@ impl ClientHandshake {
         }
 
         let server_repres = Representative::try_from_bytes(&buf[0..REPRESENTATIVE_LENGTH])?;
-        let server_auth = ntor::Auth::new(buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH+AUTH_LENGTH].try_into()?);
+        let server_auth = ntor::Auth::new(
+            buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?,
+        );
 
         // derive the server mark
         let mut key = self.session.node_pubkey.as_bytes().to_vec();
@@ -165,7 +170,7 @@ impl ClientHandshake {
         let start_pos = REPRESENTATIVE_LENGTH + AUTH_LENGTH + SERVER_MIN_PAD_LENGTH;
         let pos = match find_mac_mark(server_mark, buf, start_pos, MAX_HANDSHAKE_LENGTH, false) {
             Some(p) => p,
-            None =>  {
+            None => {
                 if buf.len() > MAX_HANDSHAKE_LENGTH {
                     Err(Error::Obfs4Framing(FrameError::InvalidHandshake))?
                 }
@@ -175,16 +180,21 @@ impl ClientHandshake {
 
         // validate the MAC
         Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
-        h.update(&buf[.. pos + MARK_LENGTH]);
+        h.update(&buf[..pos + MARK_LENGTH]);
         h.update(self.client_hs.epoch_hour.as_bytes());
         let mac_calculated = h.finalize_reset().into_bytes()[..].try_into()?;
-        let mac_received = &buf[pos + MARK_LENGTH .. pos + MARK_LENGTH + MAC_LENGTH];
+        let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
         if !mac_calculated.ct_eq(mac_received).into() {
             // received the incorrect mac
             Err(Error::Obfs4Framing(FrameError::TagMismatch))?
         }
 
-        Ok(ServerHandshakeMessage::new(server_repres, server_auth, self.session.session_keys.representative.unwrap(), server_mark))
+        Ok(ServerHandshakeMessage::new(
+            server_repres,
+            server_auth,
+            self.session.session_keys.representative.unwrap(),
+            server_mark,
+        ))
     }
 }
 
@@ -268,4 +278,3 @@ impl ClientHandshakeMessage {
         Ok(())
     }
 }
-

@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::{common::elligator2::Representative, Result, Error};
+use crate::{common::elligator2::Representative, Error, Result};
 
 mod id;
 pub use id::{ID, NODE_ID_LENGTH};

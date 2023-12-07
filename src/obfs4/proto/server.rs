@@ -2,15 +2,16 @@
 
 use crate::{
     common::{
-        drbg, ntor,
+        drbg,
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
-        replay_filter::{ReplayFilter, self},
+        ntor,
+        replay_filter::{self, ReplayFilter},
     },
     obfs4::{
+        constants::*,
         framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
         packet::{Marshall, TryParse},
-        proto::client::{ClientParams, ClientHandshakeMessage},
-        constants::*,
+        proto::client::{ClientHandshakeMessage, ClientParams},
     },
     stream::Stream,
     Error, Result,
@@ -121,7 +122,10 @@ impl<'b> ServerHandshake<'b> {
         HmacSha256::new_from_slice(&key[..]).unwrap()
     }
 
-    pub async fn complete<'a>(mut self, mut stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>>
+    pub async fn complete<'a>(
+        mut self,
+        mut stream: &'a mut dyn Stream<'a>,
+    ) -> Result<Obfs4Stream<'a>>
     where
         'b: 'a,
     {
@@ -200,7 +204,10 @@ impl<'b> ServerHandshake<'b> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    fn try_parse_client_handshake(&mut self, buf: impl AsRef<[u8]>) -> Result<ClientHandshakeMessage> {
+    fn try_parse_client_handshake(
+        &mut self,
+        buf: impl AsRef<[u8]>,
+    ) -> Result<ClientHandshakeMessage> {
         let mut buf = buf.as_ref();
         let mut h = self.get_hmac();
 
@@ -216,9 +223,15 @@ impl<'b> ServerHandshake<'b> {
         let mark = h.finalize_reset().into_bytes()[..].try_into()?;
 
         // find mark + mac position
-        let pos = match  find_mac_mark(mark, buf, REPRESENTATIVE_LENGTH + CLIENT_MIN_PAD_LENGTH, MAX_HANDSHAKE_LENGTH, true) {
+        let pos = match find_mac_mark(
+            mark,
+            buf,
+            REPRESENTATIVE_LENGTH + CLIENT_MIN_PAD_LENGTH,
+            MAX_HANDSHAKE_LENGTH,
+            true,
+        ) {
             Some(p) => p,
-            None =>  {
+            None => {
                 if buf.len() > MAX_HANDSHAKE_LENGTH {
                     Err(Error::Obfs4Framing(FrameError::InvalidHandshake))?
                 }
@@ -228,21 +241,25 @@ impl<'b> ServerHandshake<'b> {
 
         // validate he MAC
         let mut mac_found = false;
-        let mut epoch_hr =  String::new();
+        let mut epoch_hr = String::new();
         for offset in [0_i64, -1, 1] {
             // Allow the epoch to be off by up to one hour in either direction
             println!("{offset}");
             let eh = format!("{}", offset + get_epoch_hour() as i64);
 
             Mac::reset(&mut h);
-            h.update(&buf[.. pos + MARK_LENGTH]);
+            h.update(&buf[..pos + MARK_LENGTH]);
             h.update(eh.as_bytes());
             let mac_calculated = h.finalize_reset().into_bytes();
-            let mac_received = &buf[pos + MARK_LENGTH .. pos + MARK_LENGTH + MAC_LENGTH];
+            let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
             if mac_calculated.ct_eq(mac_received).into() {
                 trace!("correct mac");
                 // Ensure that this handshake has not been seen previously.
-                if self.session.replay_filter.test_and_set(Instant::now(), mac_received) {
+                if self
+                    .session
+                    .replay_filter
+                    .test_and_set(Instant::now(), mac_received)
+                {
                     // The client either happened to generate exactly the same
                     // session key and padding, or someone is replaying a previous
                     // handshake.  In either case, fuck them.
@@ -272,8 +289,6 @@ impl<'b> ServerHandshake<'b> {
             [0_u8; MARK_LENGTH],
         ))
     }
-
-
 }
 
 pub struct ServerHandshakeMessage {
@@ -344,5 +359,3 @@ impl ServerHandshakeMessage {
         Ok(())
     }
 }
-
-

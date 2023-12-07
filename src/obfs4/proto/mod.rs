@@ -1,17 +1,17 @@
 use crate::{
     common::{drbg, AsyncDiscard},
     obfs4::{
+        constants::*,
         framing,
         packet::{self, Packet, PacketType},
-        constants::*,
     },
     stream::Stream,
     Result,
 };
 
+use bytes::BytesMut;
 use hmac::{digest::Reset, Hmac, Mac};
 use sha2::{Sha256, Sha256VarCore};
-use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{trace, warn};
 
@@ -29,10 +29,9 @@ pub(super) use client::{Client, ClientHandshake, ClientSession};
 mod server;
 pub(super) use server::{Server, ServerHandshake, ServerSession};
 mod utils;
-pub (crate) use utils::*;
+pub(crate) use utils::*;
 
 pub(crate) type HmacSha256 = Hmac<Sha256>;
-
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 enum IAT {

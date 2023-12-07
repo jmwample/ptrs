@@ -1,13 +1,14 @@
 use crate::{
-    Error, Result,
     common::{
-        drbg, ntor,
+        drbg,
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
+        ntor,
     },
     obfs4::{
-        framing::{self, FrameError},
         constants::*,
-    }
+        framing::{self, FrameError},
+    },
+    Error, Result,
 };
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +19,6 @@ use tokio_util::bytes::{Buf, BufMut, Bytes};
 use tracing::trace;
 
 use super::proto::{ClientHandshake, HmacSha256, ServerHandshake};
-
 
 pub(crate) const PACKET_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_PACKET_PAYLOAD_LENGTH: usize =
@@ -54,7 +54,7 @@ pub fn build(
     };
 }
 
-pub trait Packet: Marshall + TryParse{}
+pub trait Packet: Marshall + TryParse {}
 
 pub trait Marshall {
     fn marshall(&mut self, buf: &mut impl BufMut) -> Result<()>;
