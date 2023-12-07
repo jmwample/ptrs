@@ -150,7 +150,7 @@ impl<'b> ServerHandshake<'b> {
         // the length obfuscation, this makes the amount of data received from the
         // server inconsistent with the length sent from the client.
         //
-        // Rebalance this by tweaking the client mimimum padding/server maximum
+        // Re-balance this by tweaking the client minimum padding/server maximum
         // padding, and sending the PRNG seed unpadded (As in, treat the PRNG seed
         // as part of the server response).  See inlineSeedFrameLength in
         // handshake_ntor.go.

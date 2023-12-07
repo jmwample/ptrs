@@ -2,6 +2,7 @@
 #![feature(trait_alias)]
 #![allow(dead_code)]
 #![allow(warnings)]
+#![feature(slice_flatten)]
 
 pub mod ident;
 pub mod o5;
