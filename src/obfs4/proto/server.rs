@@ -1,11 +1,7 @@
 #![allow(unused)]
 
 use crate::{
-    common::{
-        drbg, ntor,
-        replay_filter::ReplayFilter,
-        elligator2::Representative,
-    },
+    common::{drbg, elligator2::Representative, ntor, replay_filter::ReplayFilter},
     obfs4::{
         framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
         packet::ClientHandshakeMessage,

@@ -3,7 +3,7 @@
 use crate::{
     common::{elligator2::Representative, ntor},
     obfs4::{
-        framing::{Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH, FrameError},
+        framing::{FrameError, Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         packet::{self, Packet, ServerHandshakeMessage},
     },
     stream::Stream,

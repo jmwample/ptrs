@@ -47,7 +47,9 @@ pub fn build(
     data: Option<impl AsRef<[u8]>>,
     pad_len: usize,
 ) -> impl Packet {
-    return PrngSeedMessage {len_seed: [0_u8; drbg::SEED_LENGTH]};
+    return PrngSeedMessage {
+        len_seed: [0_u8; drbg::SEED_LENGTH],
+    };
 }
 
 pub trait Packet {
@@ -87,8 +89,7 @@ impl ClientHandshakeMessage {
         return drbg::Seed::new();
     }
 
-
-    pub fn get_mark(&self) -> Result<[u8;MARK_LENGTH]> {
+    pub fn get_mark(&self) -> Result<[u8; MARK_LENGTH]> {
         todo!()
     }
 
@@ -177,7 +178,6 @@ impl ServerHandshakeMessage {
         // TODO: Actual derive from messsage
         return drbg::Seed::new();
     }
-
 }
 
 impl Packet for ServerHandshakeMessage {
@@ -292,9 +292,6 @@ pub fn find_mac_mark(
     max_pos: usize,
     from_tait: bool,
 ) -> Option<usize> {
-
-    
-    
     None
 }
 

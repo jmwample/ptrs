@@ -1,37 +1,36 @@
-
-#[derive(Debug)]
-enum Error {
-    PQCError(pqc_kyber::KyberError),
-    Other(Box<dyn std::error::Error>),
-}
-
-impl From<pqc_kyber::KyberError> for Error {
-    fn from(e: pqc_kyber::KyberError) -> Self {
-        return Error::PQCError(e);
-    }
-}
-
-// impl From<&dyn std::error::Error> for Error {
-//     fn from(e: &dyn std::error::Error) -> Self {
-//         Error::Other(Box::new(e))
-//     }
-// }
-
-struct Kyber1024XKeypair {}
-
-impl Kyber1024XKeypair {
-    fn new() -> Result<Self> {
-        todo!()
-    }
-}
-
-type Result<T> = std::result::Result<T, Error>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use pqc_kyber::*;
     use x25519_dalek::{EphemeralSecret, PublicKey};
+
+    type Result<T> = std::result::Result<T, Error>;
+
+    #[derive(Debug)]
+    enum Error {
+        PQCError(pqc_kyber::KyberError),
+        Other(Box<dyn std::error::Error>),
+    }
+
+    impl From<pqc_kyber::KyberError> for Error {
+        fn from(e: pqc_kyber::KyberError) -> Self {
+            return Error::PQCError(e);
+        }
+    }
+
+    // impl From<&dyn std::error::Error> for Error {
+    //     fn from(e: &dyn std::error::Error) -> Self {
+    //         Error::Other(Box::new(e))
+    //     }
+    // }
+
+    struct Kyber1024XKeypair {}
+
+    impl Kyber1024XKeypair {
+        fn new() -> Result<Self> {
+            todo!()
+        }
+    }
 
     #[test]
     fn it_works() -> Result<()> {
