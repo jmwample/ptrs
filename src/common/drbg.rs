@@ -17,7 +17,7 @@ pub(crate) const SIZE: usize = 8;
 pub(crate) const SEED_LENGTH: usize = 16 + SIZE;
 
 /// Hash-DRBG seed
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Seed([u8; SEED_LENGTH]);
 
 impl Seed {

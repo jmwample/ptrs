@@ -1,9 +1,13 @@
 #![allow(unused)]
 
 use crate::{
-    common::{drbg, ntor, replay_filter::ReplayFilter},
+    common::{
+        drbg, ntor,
+        replay_filter::ReplayFilter,
+        elligator2::Representative,
+    },
     obfs4::{
-        framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},
+        framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
         packet::ClientHandshakeMessage,
         proto::client::ClientParams,
     },
@@ -35,7 +39,10 @@ impl Server {
 
     pub async fn wrap<'a>(&'a self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>> {
         let session = self.new_session();
-        ServerHandshake::new(session).complete(stream).await
+        tokio::select! {
+            r = ServerHandshake::new(session).complete(stream) => r,
+            e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
+        }
     }
 
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {
@@ -110,20 +117,67 @@ impl<'b> ServerHandshake<'b> {
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut seed: [u8; SEED_LENGTH];
+        let mut chs: ClientHandshakeMessage;
         loop {
-            tokio::select!(
-                _ = stream.read(&mut buf) => trace!("successfully read for {}", self.session.session_id()),
-                _ = tokio::time::sleep(SERVER_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout)?,
-            );
+            let n = stream.read(&mut buf).await?;
+            trace!("server-{} successful read {n}B", self.session.session_id());
 
-            seed = match ClientHandshakeMessage::try_parse(&mut buf) {
-                Ok(chs) => chs.get_seed()?.to_bytes(),
-                Err(EAgain) => continue,
-                Err(e) => return Err(e)?,
+            chs = match ClientHandshakeMessage::try_parse(&mut buf) {
+                Ok(chs) => chs,
+                Err(Error::Obfs4Framing(FrameError::EAgain)) => {
+                    trace!("server-{} reading more", self.session.session_id());
+                    continue;
+                }
+                Err(e) => {
+                    trace!(
+                        "server-{} failed to parse client handshake: {e}",
+                        self.session.session_id()
+                    );
+                    return Err(e)?;
+                }
             };
+
             break;
         }
+
+        let seed = chs.get_seed()?.to_bytes();
+        let client_mark = chs.get_mark()?;
+        let client_repres = chs.get_representative()?;
+        let server_auth = vec![];
+
+        trace!(
+            "server-{} successfully parsed client handshake",
+            self.session.session_id()
+        );
+
+        // Since the current and only implementation always sends a PRNG seed for
+        // the length obfuscation, this makes the amount of data received from the
+        // server inconsistent with the length sent from the client.
+        //
+        // Rebalance this by tweaking the client mimimum padding/server maximum
+        // padding, and sending the PRNG seed unpadded (As in, treat the PRNG seed
+        // as part of the server response).  See inlineSeedFrameLength in
+        // handshake_ntor.go.
+
+        // Generate/send the response.
+        let mut sh_msg = packet::ServerHandshakeMessage::new(
+            self.session.session_keys.representative.clone().unwrap(),
+            self.session.identity_keys.public,
+            self.session.node_id.clone(),
+            server_auth,
+            client_repres,
+            client_mark,
+        );
+
+        let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
+        sh_msg.marshall(&mut buf)?;
+
+        // Send the PRNG seed as part of the first packet.
+        packet::PrngSeedMessage::new(self.session.len_seed.clone()).marshall(&mut buf)?;
+
+        stream.write(&mut buf).await?;
+
+        // success!
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
         let okm = ntor::kdf(seed, KEY_MATERIAL_LENGTH * 2);

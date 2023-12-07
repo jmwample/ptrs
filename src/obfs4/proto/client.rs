@@ -3,7 +3,7 @@
 use crate::{
     common::{elligator2::Representative, ntor},
     obfs4::{
-        framing::{Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
+        framing::{Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH, FrameError},
         packet::{self, Packet, ServerHandshakeMessage},
     },
     stream::Stream,
@@ -100,6 +100,7 @@ impl ClientHandshake {
 
         // send client Handshake
         stream.write_all(&buf).await?;
+        trace!("client handshake sent, waiting for sever response");
 
         // Wait for and attempt to consume server handshake
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
@@ -110,7 +111,7 @@ impl ClientHandshake {
             // validate sever
             seed = match ServerHandshakeMessage::try_parse(&mut buf) {
                 Ok(shs) => shs.get_seed()?.to_bytes(),
-                Err(EAgain) => continue,
+                Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,
                 Err(e) => return Err(e)?,
             };
             break;

@@ -5,6 +5,8 @@ use std::{fmt::Display, str::FromStr};
 use hex::FromHexError;
 use sha2::digest::InvalidLength;
 
+use crate::obfs4;
+
 /// Result type returning [`Error`] or `T`
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -23,6 +25,8 @@ pub enum Error {
     NotSupported,
     Cancelled,
     HandshakeTimeout,
+
+    Obfs4Framing(obfs4::framing::FrameError),
 }
 
 impl Display for Error {
@@ -39,6 +43,8 @@ impl Display for Error {
             Error::NotSupported => write!(f, "NotSupported"),
             Error::NullTransport => write!(f, "NullTransport"),
             Error::HandshakeTimeout => write!(f, "handshake timed out"),
+
+            Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
     }
 }

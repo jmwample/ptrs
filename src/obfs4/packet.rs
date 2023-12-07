@@ -47,7 +47,7 @@ pub fn build(
     data: Option<impl AsRef<[u8]>>,
     pad_len: usize,
 ) -> impl Packet {
-    return PrngSeedMessage {};
+    return PrngSeedMessage {len_seed: [0_u8; drbg::SEED_LENGTH]};
 }
 
 pub trait Packet {
@@ -85,6 +85,15 @@ impl ClientHandshakeMessage {
     pub fn get_seed(&self) -> Result<drbg::Seed> {
         // TODO: Actual derive from messsage
         return drbg::Seed::new();
+    }
+
+
+    pub fn get_mark(&self) -> Result<[u8;MARK_LENGTH]> {
+        todo!()
+    }
+
+    pub fn get_representative(&self) -> Result<Representative> {
+        todo!()
     }
 }
 
@@ -129,19 +138,83 @@ impl Packet for ClientHandshakeMessage {
     }
 }
 
-pub struct ServerHandshakeMessage {}
+pub struct ServerHandshakeMessage {
+    server_auth: Vec<u8>,
+    pad_len: usize,
+    repres: Representative,
+    epoch_hour: String,
+    mac: HmacSha256,
+
+    client_mark: [u8; MARK_LENGTH],
+    client_repres: Representative,
+}
 
 impl ServerHandshakeMessage {
+    pub fn new(
+        repres: Representative,
+        station_id_pubkey: ntor::PublicKey,
+        node_id: ntor::ID,
+        server_auth: Vec<u8>,
+        client_repres: Representative,
+        client_mark: [u8; MARK_LENGTH],
+    ) -> Self {
+        let mut key = station_id_pubkey.as_bytes().to_vec();
+        key.append(&mut node_id.to_bytes().to_vec());
+        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
+        Self {
+            server_auth,
+            pad_len: 0,
+            repres,
+            epoch_hour: "".into(),
+            mac: h,
+
+            client_repres,
+            client_mark,
+        }
+    }
+
     pub fn get_seed(&self) -> Result<drbg::Seed> {
         // TODO: Actual derive from messsage
         return drbg::Seed::new();
     }
+
 }
 
 impl Packet for ServerHandshakeMessage {
     fn marshall(&mut self, buf: &mut impl BufMut) -> Result<()> {
         trace!("serializing server handshake");
-        Err(Error::NotImplemented)
+
+        Mac::reset(&mut self.mac);
+        self.mac.update(self.repres.as_bytes().as_ref());
+        let mark: &[u8] = &self.mac.finalize_reset().into_bytes()[..];
+
+        // The server handshake is Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E) where:
+        //  * Y is the server's ephemeral Curve25519 public key representative.
+        //  * AUTH is the ntor handshake AUTH value.
+        //  * P_S is [serverMinPadLength,serverMaxPadLength] bytes of random padding.
+        //  * M_S is HMAC-SHA256-128(serverIdentity | NodeID, Y)
+        //  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, Y .... E)
+        //  * E is the string representation of the number of hours since the UNIX
+        //    epoch.
+
+        // Generate the padding
+        let pad: &[u8] = &make_pad(self.pad_len)?;
+
+        // Write Y, AUTH, P_S, M_S.
+        let mut params = vec![];
+        params.extend_from_slice(self.repres.as_bytes());
+        params.extend_from_slice(&self.server_auth);
+        params.extend_from_slice(pad);
+        params.extend_from_slice(mark);
+        buf.put(params.as_slice());
+
+        // Calculate and write MAC
+        self.mac.update(&params);
+        self.epoch_hour = format!("{}", get_epoch_hour());
+        self.mac.update(self.epoch_hour.as_bytes());
+        buf.put(&self.mac.finalize_reset().into_bytes()[..]);
+
+        Ok(())
     }
 
     fn try_parse(buf: impl AsRef<[u8]>) -> Result<Self> {
@@ -176,7 +249,17 @@ impl Packet for Payload {
     }
 }
 
-pub struct PrngSeedMessage {}
+pub struct PrngSeedMessage {
+    len_seed: [u8; drbg::SEED_LENGTH],
+}
+
+impl PrngSeedMessage {
+    pub fn new(len_seed: drbg::Seed) -> Self {
+        Self {
+            len_seed: len_seed.to_bytes(),
+        }
+    }
+}
 
 impl Packet for PrngSeedMessage {
     fn marshall(&mut self, buf: &mut impl BufMut) -> Result<()> {
@@ -209,12 +292,20 @@ pub fn find_mac_mark(
     max_pos: usize,
     from_tait: bool,
 ) -> Option<usize> {
+
+    
+    
     None
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn find_mac_mark() -> Result<()> {
+        Ok(())
+    }
 
     #[test]
     fn epoch_format() {
