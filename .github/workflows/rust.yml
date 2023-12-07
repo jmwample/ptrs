@@ -1,0 +1,88 @@
+
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Verify code Fromatting
+    runs-on: "ubuntu-latest"
+    steps:
+    - uses: actions/checkout@v3
+    - name: Format
+      run: cargo fmt --all -- --check
+
+  lint:
+    name: Lint with clippy
+    needs: format
+    strategy:
+      fail-fast: true
+    runs-on: "ubuntu-latest"
+    env:
+      RUSTFLAGS: -Dwarnings
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: clippy, rustfmt
+
+    - name: Install clippy
+      run: rustup component add clippy --toolchain nightly
+
+    - name: Lint
+      run: cargo clippy --workspace --all-targets --verbose --all-features
+
+  build:
+    name: Test and Build
+    needs: format
+    # needs: [format, lint]
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ "ubuntu-latest" ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@nightly
+
+    # Build ptrs library
+    - name: Build library
+      run: cargo build
+
+    # Build ptrs proxy PoC
+    - name: Build library
+      run: cargo build --bin proxy --release
+
+    - name: Test
+      run: cargo test --verbose --workspace --all-features
+      env:
+        CARGO_INCREMENTAL: '0'
+        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Generate code coverage
+      run: cargo llvm-cov --all-features --workspace --codecov --output-path codecov.json
+    - name: Codecov
+      uses: codecov/codecov-action@v3
+      env:
+        CODECOV_TOKEN: ${{ secrets.PTRS_CODECOV_TOKEN }}
+      with:
+        files: codecov.json
+        verbose: true
+        fail_ci_if_error: true
