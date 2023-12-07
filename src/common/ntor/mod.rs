@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::{common::elligator2::Representative, Result};
+use crate::{common::elligator2::Representative, Result, Error};
 
 mod id;
 pub use id::{ID, NODE_ID_LENGTH};
@@ -20,10 +20,10 @@ const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
 const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 
 /// The length of the derived KEY_SEED.
-const KEY_SEED_LENGTH: usize = 32; // sha256.Size;
+pub(crate) const KEY_SEED_LENGTH: usize = 32; // sha256.Size;
 
 /// The length of the derived AUTH.
-const AUTH_LENGTH: usize = 32; //sha256.Size;
+pub(crate) const AUTH_LENGTH: usize = 32; //sha256.Size;
 
 /// The key material that results from a handshake (KEY_SEED).
 #[derive(Default, Debug, Clone)]
@@ -32,6 +32,18 @@ pub(crate) struct KeySeed([u8; KEY_SEED_LENGTH]);
 /// The verifier that results from a handshake (AUTH).
 #[derive(Default, Debug, Clone)]
 pub(crate) struct Auth([u8; AUTH_LENGTH]);
+impl Auth {
+    pub fn new(b: [u8; AUTH_LENGTH]) -> Self {
+        Self(b)
+    }
+    pub fn try_from_bytes(b: impl AsRef<[u8]>) -> Result<Self> {
+        let buf = &b.as_ref();
+        if buf.len() < AUTH_LENGTH {
+            Err(Error::Other("bad auth length".into()))?
+        }
+        Ok(Auth(b.as_ref().try_into()?))
+    }
+}
 
 /// Curve25519 keypair, there is no need for an elligator representative. This
 /// is intended to be used for the stations long term key, potentially allowing

@@ -3,11 +3,14 @@ use crate::{
     obfs4::{
         framing,
         packet::{self, Packet, PacketType},
+        constants::*,
     },
     stream::Stream,
     Result,
 };
 
+use hmac::{digest::Reset, Hmac, Mac};
+use sha2::{Sha256, Sha256VarCore};
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{trace, warn};
@@ -25,36 +28,11 @@ mod client;
 pub(super) use client::{Client, ClientHandshake, ClientSession};
 mod server;
 pub(super) use server::{Server, ServerHandshake, ServerSession};
+mod utils;
+pub (crate) use utils::*;
 
-const TRANSPORT_NAME: &str = "obfs4";
+pub(crate) type HmacSha256 = Hmac<Sha256>;
 
-const NODE_ID_ARG: &str = "node-id";
-const PUBLIC_KEY_ARG: &str = "public-key";
-const PRIVATE_KEY_ARG: &str = "private-key";
-const SEED_ARG: &str = "drbg-seed";
-const IAT_ARG: &str = "iat-mode";
-const CERT_ARG: &str = "cert";
-
-const BIAS_CMD_ARG: &str = "obfs4-distBias";
-const REPLAY_TTL: Duration = Duration::from_secs(60);
-#[cfg(test)]
-const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(test)]
-const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(not(test))]
-const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
-#[cfg(not(test))]
-const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
-
-const MAX_IAT_DELAY: usize = 100;
-const MAX_CLOSE_DELAY: usize = 60;
-const MAX_CLOSE_DELAY_BYTES: usize = MAX_HANDSHAKE_LENGTH;
-
-const SEED_LENGTH: usize = drbg::SEED_LENGTH;
-const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + packet::PACKET_OVERHEAD;
-const MAX_HANDSHAKE_LENGTH: usize = 8192;
-
-const SESSION_ID_LEN: usize = 8;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 enum IAT {

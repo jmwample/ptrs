@@ -366,6 +366,12 @@ pub enum FrameError {
     /// Error indicating that a message decoded, or a message provided for
     /// encoding is of an innapropriate type for the context.
     InvalidMessage,
+
+    /// Failed while trying to parse a handshake message
+    InvalidHandshake,
+
+    /// Received either a REALLY unfortunate random, or a replayed handshake message
+    ReplayedHandshake,
 }
 
 impl std::fmt::Display for FrameError {
@@ -378,7 +384,7 @@ impl std::fmt::Display for FrameError {
             FrameError::IO(e) => {
                 write!(f, "framing: i/o error occured while processing frame: {e}")
             }
-            FrameError::EAgain => write!(f, "framing: More data needed to decode"),
+            FrameError::EAgain => write!(f, "framing: more data needed to decode"),
             FrameError::TagMismatch => write!(f, "framing: Poly1305 tag mismatch"),
             FrameError::NonceCounterWrapped => write!(f, "framing: Nonce counter wrapped"),
             FrameError::ShortBuffer => write!(
@@ -386,6 +392,8 @@ impl std::fmt::Display for FrameError {
                 "framing: provided bytes buffer was too short for payload"
             ),
             FrameError::InvalidMessage => write!(f, "framing: incorrect message for context"),
+            FrameError::InvalidHandshake => write!(f, "framing: failed to parse handshake message"),
+            FrameError::ReplayedHandshake => write!(f, "framing: handshake replayed within TTL"),
         }
     }
 }

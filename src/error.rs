@@ -125,6 +125,12 @@ impl From<InvalidLength> for Error {
     }
 }
 
+impl From<obfs4::framing::FrameError> for Error {
+    fn from(e: obfs4::framing::FrameError) -> Self {
+        Error::Obfs4Framing(e)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

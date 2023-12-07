@@ -6,6 +6,8 @@ pub mod packet;
 pub mod proto;
 pub mod server;
 
+pub(crate) mod constants;
+
 const NAME: &str = "obfs4";
 
 #[allow(non_camel_case_types)]

@@ -12,7 +12,7 @@ use x25519_dalek::PublicKey;
 pub use c_impl::{decode, encode};
 
 /// The length of an Elligator representative.
-const REPRESENTATIVE_LENGTH: usize = 32;
+pub const REPRESENTATIVE_LENGTH: usize = 32;
 
 /// The length of an Elligator point public key.
 const PUBLIC_KEY_LENGTH: usize = 32;
@@ -33,6 +33,10 @@ impl Representative {
         Some(Self {
             bytes: c_impl::encode(pubkey.to_bytes())?,
         })
+    }
+
+    pub fn zero() -> Self {
+        Self {bytes: [0_u8; REPRESENTATIVE_LENGTH]}
     }
 
     pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
