@@ -2,10 +2,11 @@ use crate::{obfs4::constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rand::{Fill, Rng};
 use rand_core::{OsRng, RngCore};
 use subtle::ConstantTimeEq;
 use tokio_util::bytes::{Buf, BufMut, Bytes};
-use tracing::trace;
+use tracing::debug; // , trace};
 
 pub fn get_epoch_hour() -> u64 {
     SystemTime::now()
@@ -16,8 +17,11 @@ pub fn get_epoch_hour() -> u64 {
 }
 
 pub fn make_pad(pad_len: usize) -> Result<Vec<u8>> {
-    let mut pad = Vec::with_capacity(pad_len);
-    OsRng.fill_bytes(&mut pad);
+    debug!("[make_pad] generating {pad_len}B");
+    let mut pad = vec![u8::default(); pad_len];
+    let rng = rand::thread_rng()
+        .try_fill_bytes(&mut pad)
+        .expect("rng failure");
     Ok(pad)
 }
 
@@ -52,6 +56,7 @@ pub fn find_mac_mark(
         // tail of the buffer.  The client can't send valid data past M_C |
         // MAC_C as it does not have the server's public key yet.
         pos = end_pos - (MARK_LENGTH + MAC_LENGTH);
+        // trace!("{pos}\n{}\n{}", hex::encode(mark), hex::encode(&buffer[pos..pos + MARK_LENGTH]));
         if (&mark[..])
             .ct_eq(buffer[pos..pos + MARK_LENGTH].as_ref())
             .into()
@@ -73,7 +78,6 @@ pub fn find_mac_mark(
 
     // Ensure that there is enough trailing data for the MAC.
     if start_pos + pos + MARK_LENGTH + MAC_LENGTH > end_pos {
-        println!("HERE! 1");
         return None;
     }
 
@@ -86,7 +90,11 @@ pub fn find_mac_mark(
 mod test {
     use super::*;
     use bytes::Bytes;
+    use std::io::prelude::*;
     use std::iter;
+
+    use crate::common::elligator2;
+    use crate::test_utils;
 
     struct MacMarkTest {
         mark: [u8; MARK_LENGTH],

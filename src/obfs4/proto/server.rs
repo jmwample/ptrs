@@ -4,7 +4,7 @@ use crate::{
     common::{
         drbg,
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
-        ntor,
+        ntor::{self, AUTH_LENGTH},
         replay_filter::{self, ReplayFilter},
     },
     obfs4::{
@@ -71,11 +71,14 @@ impl Server {
     }
 
     pub fn new_session(&mut self) -> ServerSession {
-        ServerSession {
-            // TODO: generate session id
-            session_id: [0_u8; SESSION_ID_LEN],
+        let session_keys = ntor::SessionKeyPair::new(true);
 
-            session_keys: ntor::SessionKeyPair::new(true),
+        ServerSession {
+            session_id: session_keys.public.to_bytes()[..SESSION_ID_LEN]
+                .try_into()
+                .unwrap(),
+
+            session_keys,
             identity_keys: &self.identity_keys,
 
             iat_mode: self.iat_mode.clone(),
@@ -131,12 +134,12 @@ impl<'b> ServerHandshake<'b> {
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut chs: ClientHandshakeMessage;
+        let mut client_hs: ClientHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
             trace!("server-{} successful read {n}B", self.session.session_id());
 
-            chs = match self.try_parse_client_handshake(&mut buf) {
+            client_hs = match self.try_parse_client_handshake(&mut buf[..n]) {
                 Ok(chs) => chs,
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => {
                     trace!("server-{} reading more", self.session.session_id());
@@ -154,10 +157,9 @@ impl<'b> ServerHandshake<'b> {
             break;
         }
 
-        let seed = chs.get_seed()?.to_bytes();
-        let client_mark = chs.get_mark();
-        let client_repres = chs.get_representative();
-        let server_auth = vec![];
+        let client_mark = client_hs.get_mark();
+        let client_repres = client_hs.get_representative();
+        let server_auth = [0_u8; AUTH_LENGTH];
 
         trace!(
             "server-{} successfully parsed client handshake",
@@ -179,11 +181,10 @@ impl<'b> ServerHandshake<'b> {
             server_auth,
             client_repres,
             client_mark,
+            None,
         );
 
-        let mut key = self.session.identity_keys.public.as_bytes().to_vec();
-        key.append(&mut self.session.node_id.to_bytes().to_vec());
-        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
+        let mut h = self.get_hmac();
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         sh_msg.marshall(&mut buf, h)?;
 
@@ -193,9 +194,22 @@ impl<'b> ServerHandshake<'b> {
         stream.write(&mut buf).await?;
 
         // success!
+        let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
+            &client_hs.get_public()?,
+            &self.session.session_keys,
+            &self.session.identity_keys,
+            &self.session.node_id,
+        )
+        .into()
+        {
+            Some(r) => r,
+            None => Err(Error::NtorError(ntor::NtorError::HSFailure(
+                "failed to derive sharedsecret".into(),
+            )))?,
+        };
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(seed, KEY_MATERIAL_LENGTH * 2);
+        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
 
@@ -218,20 +232,25 @@ impl<'b> ServerHandshake<'b> {
         let r = &buf[0..REPRESENTATIVE_LENGTH];
         let repres = Representative::try_from_bytes(r)?;
 
+        trace!("here");
+
         // derive the mark
         h.update(r);
-        let mark = h.finalize_reset().into_bytes()[..].try_into()?;
+        let m = h.finalize_reset().into_bytes();
+        trace!("{}, {}", hex::encode(m), m.len());
+        let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 
         // find mark + mac position
         let pos = match find_mac_mark(
             mark,
-            buf,
+            &buf,
             REPRESENTATIVE_LENGTH + CLIENT_MIN_PAD_LENGTH,
             MAX_HANDSHAKE_LENGTH,
             true,
         ) {
             Some(p) => p,
             None => {
+                trace!("didn't find mark");
                 if buf.len() > MAX_HANDSHAKE_LENGTH {
                     Err(Error::Obfs4Framing(FrameError::InvalidHandshake))?
                 }
@@ -244,14 +263,19 @@ impl<'b> ServerHandshake<'b> {
         let mut epoch_hr = String::new();
         for offset in [0_i64, -1, 1] {
             // Allow the epoch to be off by up to one hour in either direction
-            println!("{offset}");
+            trace!("server trying offset: {offset}");
             let eh = format!("{}", offset + get_epoch_hour() as i64);
 
             Mac::reset(&mut h);
             h.update(&buf[..pos + MARK_LENGTH]);
             h.update(eh.as_bytes());
-            let mac_calculated = h.finalize_reset().into_bytes();
+            let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
             let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
+            trace!(
+                "server {}-{}",
+                hex::encode(mac_calculated),
+                hex::encode(mac_received)
+            );
             if mac_calculated.ct_eq(mac_received).into() {
                 trace!("correct mac");
                 // Ensure that this handshake has not been seen previously.
@@ -292,10 +316,15 @@ impl<'b> ServerHandshake<'b> {
 }
 
 pub struct ServerHandshakeMessage {
-    server_auth: Vec<u8>,
+    server_auth: [u8; AUTH_LENGTH],
     pad_len: usize,
     repres: Representative,
     epoch_hour: String,
+
+    /// Part of the obfs4 handshake is to send the PRNG Seed Message concatenated
+    /// with the ServerHandshake Message since it will be padded anyways. We
+    /// need the hs offset so we can parse the PRNG message.
+    hs_end_pos: usize,
 
     client_mark: [u8; MARK_LENGTH],
     client_repres: Representative,
@@ -304,24 +333,29 @@ pub struct ServerHandshakeMessage {
 impl ServerHandshakeMessage {
     pub fn new(
         repres: Representative,
-        server_auth: Vec<u8>,
+        server_auth: [u8; AUTH_LENGTH],
         client_repres: Representative,
         client_mark: [u8; MARK_LENGTH],
+        hs_end_pos: Option<usize>,
     ) -> Self {
         Self {
             server_auth,
             pad_len: 0,
             repres,
             epoch_hour: "".into(),
+            hs_end_pos: hs_end_pos.unwrap_or(0),
 
             client_mark,
             client_repres,
         }
     }
 
-    pub fn get_seed(self) -> Result<drbg::Seed> {
-        // TODO: Actual derive from message
-        return drbg::Seed::new();
+    pub fn server_pubkey(self) -> Result<ntor::PublicKey> {
+        self.repres.to_public()
+    }
+
+    pub fn server_auth(self) -> [u8; AUTH_LENGTH] {
+        self.server_auth
     }
 
     fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {

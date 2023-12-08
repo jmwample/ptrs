@@ -5,6 +5,7 @@ use std::{fmt::Display, str::FromStr};
 use hex::FromHexError;
 use sha2::digest::InvalidLength;
 
+use crate::common::ntor;
 use crate::obfs4;
 
 /// Result type returning [`Error`] or `T`
@@ -26,6 +27,7 @@ pub enum Error {
     Cancelled,
     HandshakeTimeout,
 
+    NtorError(ntor::NtorError),
     Obfs4Framing(obfs4::framing::FrameError),
 }
 
@@ -44,6 +46,7 @@ impl Display for Error {
             Error::NullTransport => write!(f, "NullTransport"),
             Error::HandshakeTimeout => write!(f, "handshake timed out"),
 
+            Error::NtorError(e) => write!(f, "{e}"),
             Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
     }

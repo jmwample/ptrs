@@ -3,7 +3,7 @@
 use crate::{
     common::{
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
-        ntor::{self, AUTH_LENGTH},
+        ntor::{self, HandShakeResult, AUTH_LENGTH},
     },
     obfs4::{
         framing::{FrameError, Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
@@ -18,6 +18,7 @@ use super::*;
 
 use bytes::{BufMut, BytesMut};
 use rand::prelude::*;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use std::sync::{Arc, Mutex};
@@ -61,17 +62,40 @@ pub struct ClientSession {
     session_keys: ntor::SessionKeyPair,
     session_id: [u8; SESSION_ID_LEN],
     iat_mode: IAT,
+    epoch_hour: String,
+    pad_len: usize,
+}
+
+impl std::fmt::Debug for ClientSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[ id:{}, ident_pk:{}, sess_key:{:?}, iat:{:?}, epoch_hr:{}, pad_len:{} ]",
+            hex::encode(self.node_id.as_bytes()),
+            hex::encode(self.node_pubkey.as_bytes()),
+            self.session_keys,
+            self.iat_mode,
+            self.epoch_hour,
+            self.pad_len,
+        )
+    }
 }
 
 impl ClientSession {
     pub fn new(station_id: ntor::ID, station_pubkey: ntor::PublicKey, iat_mode: IAT) -> Self {
+        let session_keys = ntor::SessionKeyPair::new(true);
+        let session_id = session_keys.get_public().to_bytes()[..SESSION_ID_LEN]
+            .try_into()
+            .unwrap();
         Self {
+            session_keys,
             node_id: station_id,
             node_pubkey: station_pubkey,
-            session_keys: ntor::SessionKeyPair::new(true),
             // TODO: generate session id
-            session_id: [0_u8; SESSION_ID_LEN],
+            session_id,
             iat_mode,
+            epoch_hour: "".into(),
+            pad_len: 0,
         }
     }
 
@@ -107,33 +131,58 @@ impl ClientHandshake {
             "".into(),
             [0_u8; MARK_LENGTH],
         );
+        self.session.pad_len = ch_msg.pad_len;
+
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         let mut key = self.session.node_pubkey.as_bytes().to_vec();
         key.append(&mut self.session.node_id.to_bytes().to_vec());
         let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
         ch_msg.marshall(&mut buf, h)?;
+        self.session.epoch_hour = ch_msg.epoch_hour;
+
+        trace!("{:?}", self.session);
+        // let mut file = tokio::fs::File::create("message.hex").await?;
+        // file.write_all(&buf).await?;
 
         // send client Handshake
         stream.write_all(&buf).await?;
-        trace!("client handshake sent, waiting for sever response");
+        trace!(
+            "client-{} handshake sent {}B, waiting for sever response",
+            self.session.session_id(),
+            buf.len()
+        );
 
         // Wait for and attempt to consume server handshake
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut seed: [u8; SEED_LENGTH];
+        let mut server_hs: ServerHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
 
             // validate sever
-            seed = match self.try_parse(&mut buf) {
-                Ok(shs) => shs.get_seed()?.to_bytes(),
+            server_hs = match self.try_parse(&mut buf[..n]) {
+                Ok(shs) => shs,
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,
                 Err(e) => return Err(e)?,
             };
             break;
         }
 
+        let ntor_hs_result: HandShakeResult = match ntor::HandShakeResult::client_handshake(
+            &self.session.session_keys,
+            &server_hs.server_pubkey()?,
+            &self.session.node_pubkey,
+            &self.session.node_id,
+        )
+        .into()
+        {
+            Some(r) => r,
+            None => Err(Error::NtorError(ntor::NtorError::HSFailure(
+                "failed to derive sharedsecret".into(),
+            )))?,
+        };
+
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(seed, KEY_MATERIAL_LENGTH * 2);
+        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
 
@@ -146,17 +195,21 @@ impl ClientHandshake {
     }
 
     fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<ServerHandshakeMessage> {
-        trace!("parsing server handshake");
         let buf = buf.as_ref();
+        trace!(
+            "client-{} parsing server handshake {}",
+            self.session.session_id(),
+            buf.len()
+        );
 
         if buf.len() < SERVER_MIN_HANDSHAKE_LENGTH {
+            panic!("AAAA");
             Err(Error::Obfs4Framing(FrameError::EAgain))?
         }
 
         let server_repres = Representative::try_from_bytes(&buf[0..REPRESENTATIVE_LENGTH])?;
-        let server_auth = ntor::Auth::new(
-            buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?,
-        );
+        let server_auth: [u8; AUTH_LENGTH] =
+            buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?;
 
         // derive the server mark
         let mut key = self.session.node_pubkey.as_bytes().to_vec();
@@ -181,20 +234,21 @@ impl ClientHandshake {
         // validate the MAC
         Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
         h.update(&buf[..pos + MARK_LENGTH]);
-        h.update(self.client_hs.epoch_hour.as_bytes());
-        let mac_calculated = h.finalize_reset().into_bytes()[..].try_into()?;
+        h.update(&self.session.epoch_hour.as_bytes());
+        let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
         let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
-        if !mac_calculated.ct_eq(mac_received).into() {
-            // received the incorrect mac
-            Err(Error::Obfs4Framing(FrameError::TagMismatch))?
+        if mac_calculated.ct_eq(mac_received).into() {
+            return Ok(ServerHandshakeMessage::new(
+                server_repres,
+                server_auth,
+                self.session.session_keys.representative.clone().unwrap(),
+                server_mark,
+                Some(pos + MARK_LENGTH + MAC_LENGTH),
+            ));
         }
 
-        Ok(ServerHandshakeMessage::new(
-            server_repres,
-            server_auth,
-            self.session.session_keys.representative.unwrap(),
-            server_mark,
-        ))
+        // received the incorrect mac
+        Err(Error::Obfs4Framing(FrameError::TagMismatch))
     }
 }
 
@@ -208,10 +262,6 @@ pub struct ClientHandshakeMessage {
 }
 
 impl ClientHandshakeMessage {
-    pub fn parse(&mut self) -> Result<&Self> {
-        Err(FrameError::InvalidHandshake.into())
-    }
-
     pub fn new(
         repres: Representative,
         pad_len: Option<usize>,
@@ -232,9 +282,8 @@ impl ClientHandshakeMessage {
         }
     }
 
-    pub fn get_seed(&self) -> Result<drbg::Seed> {
-        // TODO: Actual derive from message
-        return drbg::Seed::new();
+    pub fn get_public(&self) -> Result<ntor::PublicKey> {
+        self.repres.to_public()
     }
 
     pub fn get_mark(&self) -> [u8; MARK_LENGTH] {
@@ -250,7 +299,7 @@ impl ClientHandshakeMessage {
 
         Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
         h.update(self.repres.as_bytes().as_ref());
-        let mark: &[u8] = &h.finalize_reset().into_bytes()[..];
+        let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 
         // The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
         //  * X is the client's ephemeral Curve25519 public key representative.
@@ -261,19 +310,23 @@ impl ClientHandshakeMessage {
         //    epoch.
 
         // Generate the padding
-        let pad: &[u8] = &make_pad(self.pad_len)?;
+        let pad = make_pad(self.pad_len)?;
 
         // Write X, P_C, M_C
         let mut params = vec![];
         params.extend_from_slice(self.repres.as_bytes());
-        params.extend_from_slice(pad);
+        params.extend_from_slice(&pad);
         params.extend_from_slice(mark);
         buf.put(params.as_slice());
 
         // Calculate and write MAC
         h.update(&params);
-        h.update(format!("{}", get_epoch_hour()).as_bytes());
-        buf.put(&h.finalize_reset().into_bytes()[..]);
+        self.epoch_hour = format!("{}", get_epoch_hour());
+        h.update(self.epoch_hour.as_bytes());
+        let mac = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
+        buf.put(mac);
+
+        trace!("mark: {}, mac: {}", hex::encode(mark), hex::encode(mac));
 
         Ok(())
     }

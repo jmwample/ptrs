@@ -11,7 +11,8 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey as DalekPubKey, ReusableSecret, SharedSecret, StaticSecret};
 
-use std::fmt;
+use std::error::Error as StdError;
+use std::fmt::{self, Debug, Display};
 
 const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
@@ -45,6 +46,19 @@ impl Auth {
     }
 }
 
+#[derive(Debug)]
+pub enum NtorError {
+    HSFailure(String),
+}
+impl StdError for NtorError {}
+impl Display for NtorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NtorError::HSFailure(es) => write!(f, "ntor handshake failure:{es}"),
+        }
+    }
+}
+
 /// Curve25519 keypair, there is no need for an elligator representative. This
 /// is intended to be used for the stations long term key, potentially allowing
 /// the key to be (de)serielized to/from a statefile.
@@ -65,6 +79,20 @@ pub struct SessionKeyPair {
     pub private: ReusableSecret,
     pub public: PublicKey,
     pub representative: Option<Representative>,
+}
+
+impl Debug for SessionKeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.representative {
+            Some(r) => write!(
+                f,
+                "{}->[{}]",
+                hex::encode(self.public.to_bytes()),
+                hex::encode(r.as_bytes())
+            ),
+            None => write!(f, "{}->None", hex::encode(self.public.to_bytes())),
+        }
+    }
 }
 
 impl IdentityKeyPair {
@@ -129,8 +157,8 @@ pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> u8 {
 
 // Provides a Key Derivation Function (KDF) that extracts and expands KEY_SEED
 // via HKDF-SHA256 and returns `okm_len` bytes of key material.
-pub fn kdf(key_seed: impl AsRef<[u8]>, okm_len: usize) -> Vec<u8> {
-    let kdf = hkdf::Hkdf::<Sha256>::new(Some(T_KEY), &key_seed.as_ref()[..]);
+pub fn kdf(key_seed: KeySeed, okm_len: usize) -> Vec<u8> {
+    let kdf = hkdf::Hkdf::<Sha256>::new(Some(T_KEY), &key_seed.0[..]);
 
     let mut okm = vec![0u8; okm_len];
     kdf.expand(M_EXPAND, &mut okm)
@@ -167,7 +195,7 @@ impl HandShakeResult {
         }
     }
 
-    fn client_handshake(
+    pub fn client_handshake(
         client_keys: &SessionKeyPair,
         server_public: &PublicKey,
         id_public: &PublicKey,
@@ -198,7 +226,7 @@ impl HandShakeResult {
         subtle::CtOption::new(Self { key_seed, auth }, not_ok.ct_eq(&0_u8))
     }
 
-    fn server_handshake(
+    pub fn server_handshake(
         client_public: &PublicKey,
         server_keys: &SessionKeyPair,
         id_keys: &IdentityKeyPair,
