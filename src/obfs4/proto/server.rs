@@ -20,6 +20,7 @@ use crate::{
 use super::*;
 
 use bytes::BufMut;
+use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -157,43 +158,12 @@ impl<'b> ServerHandshake<'b> {
             break;
         }
 
-        let client_mark = client_hs.get_mark();
-        let client_repres = client_hs.get_representative();
-        let server_auth = [0_u8; AUTH_LENGTH];
-
         trace!(
             "server-{} successfully parsed client handshake",
             self.session.session_id()
         );
 
-        // Since the current and only implementation always sends a PRNG seed for
-        // the length obfuscation, this makes the amount of data received from the
-        // server inconsistent with the length sent from the client.
-        //
-        // Re-balance this by tweaking the client minimum padding/server maximum
-        // padding, and sending the PRNG seed unpadded (As in, treat the PRNG seed
-        // as part of the server response).  See inlineSeedFrameLength in
-        // handshake_ntor.go.
-
-        // Generate/send the response.
-        let mut sh_msg = ServerHandshakeMessage::new(
-            self.session.session_keys.representative.clone().unwrap(),
-            server_auth,
-            client_repres,
-            client_mark,
-            None,
-        );
-
-        let mut h = self.get_hmac();
-        let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-        sh_msg.marshall(&mut buf, h)?;
-
-        // Send the PRNG seed as part of the first packet.
-        packet::PrngSeedMessage::new(self.session.len_seed.clone()).marshall(&mut buf)?;
-
-        stream.write(&mut buf).await?;
-
-        // success!
+        // derive key materials
         let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
             &client_hs.get_public()?,
             &self.session.session_keys,
@@ -208,6 +178,42 @@ impl<'b> ServerHandshake<'b> {
             )))?,
         };
 
+        let client_mark = client_hs.get_mark();
+        let client_repres = client_hs.get_representative();
+        let epoch_hr = client_hs.get_epoch_hr();
+        let server_auth = ntor_hs_result.auth;
+
+        // Since the current and only implementation always sends a PRNG seed for
+        // the length obfuscation, this makes the amount of data received from the
+        // server inconsistent with the length sent from the client.
+        //
+        // Re-balance this by tweaking the client minimum padding/server maximum
+        // padding, and sending the PRNG seed unpadded (As in, treat the PRNG seed
+        // as part of the server response).  See inlineSeedFrameLength in
+        // handshake_ntor.go.
+
+        // Generate/send the response.
+        let mut sh_msg = ServerHandshakeMessage::new(
+            self.session.session_keys.representative.clone().unwrap(),
+            server_auth.to_bytes(),
+            client_repres,
+            client_mark,
+            None,
+            epoch_hr,
+        );
+
+        let mut h = self.get_hmac();
+        let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
+        sh_msg.marshall(&mut buf, h)?;
+        trace!("generating prng seed");
+
+        // Send the PRNG seed as part of the first packet.
+        packet::PrngSeedMessage::new(self.session.len_seed.clone()).marshall(&mut buf)?;
+
+        trace!("server-{} writing server handshake {}B", self.session.session_id(), buf.len());
+        stream.write(&mut buf).await?;
+
+        // success!
         // use the derived seed value to bootstrap Read / Write crypto codec.
         let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
@@ -308,7 +314,7 @@ impl<'b> ServerHandshake<'b> {
 
         Ok(ClientHandshakeMessage::new(
             repres,
-            Some(0), // doesn't matter when we are reading client handshake msg
+            0, // doesn't matter when we are reading client handshake msg
             epoch_hr,
             [0_u8; MARK_LENGTH],
         ))
@@ -337,12 +343,13 @@ impl ServerHandshakeMessage {
         client_repres: Representative,
         client_mark: [u8; MARK_LENGTH],
         hs_end_pos: Option<usize>,
+        epoch_hr: String,
     ) -> Self {
         Self {
             server_auth,
-            pad_len: 0,
+            pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH .. SERVER_MAX_PAD_LENGTH),
             repres,
-            epoch_hour: "".into(),
+            epoch_hour: epoch_hr,
             hs_end_pos: hs_end_pos.unwrap_or(0),
 
             client_mark,
@@ -363,7 +370,7 @@ impl ServerHandshakeMessage {
 
         Mac::reset(&mut h);
         h.update(self.repres.as_bytes().as_ref());
-        let mark: &[u8] = &h.finalize_reset().into_bytes()[..];
+        let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 
         // The server handshake is Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E) where:
         //  * Y is the server's ephemeral Curve25519 public key representative.
@@ -387,8 +394,8 @@ impl ServerHandshakeMessage {
 
         // Calculate and write MAC
         h.update(&params);
-        h.update(format!("{}", get_epoch_hour()).as_bytes());
-        buf.put(&h.finalize_reset().into_bytes()[..]);
+        h.update(self.epoch_hour.as_bytes());
+        buf.put(&h.finalize_reset().into_bytes()[..MAC_LENGTH]);
 
         Ok(())
     }

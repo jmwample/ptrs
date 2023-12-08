@@ -111,7 +111,10 @@ impl PrngSeedMessage {
 impl Packet for PrngSeedMessage {}
 impl Marshall for PrngSeedMessage {
     fn marshall(&mut self, buf: &mut impl BufMut) -> Result<()> {
-        Err(Error::NotImplemented)
+        trace!("AAAAAAAAAA");
+        // TODO: Actually implement this.
+        // Err(Error::NotImplemented)
+        Ok(())
     }
 }
 

@@ -95,7 +95,7 @@ impl ClientSession {
             session_id,
             iat_mode,
             epoch_hour: "".into(),
-            pad_len: 0,
+            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH .. CLIENT_MAX_PAD_LENGTH),
         }
     }
 
@@ -127,7 +127,7 @@ impl ClientHandshake {
         // build client handshake message
         let mut ch_msg = ClientHandshakeMessage::new(
             self.session.session_keys.representative.clone().unwrap(),
-            None,
+            self.session.pad_len,
             "".into(),
             [0_u8; MARK_LENGTH],
         );
@@ -157,6 +157,11 @@ impl ClientHandshake {
         let mut server_hs: ServerHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
+            trace!(
+                "client-{} read {n}/{}B of server handshake",
+                self.session.session_id(),
+                buf.len()
+            );
 
             // validate sever
             server_hs = match self.try_parse(&mut buf[..n]) {
@@ -203,7 +208,6 @@ impl ClientHandshake {
         );
 
         if buf.len() < SERVER_MIN_HANDSHAKE_LENGTH {
-            panic!("AAAA");
             Err(Error::Obfs4Framing(FrameError::EAgain))?
         }
 
@@ -217,7 +221,7 @@ impl ClientHandshake {
         let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
         Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
         h.update(server_repres.as_bytes().as_ref());
-        let server_mark = h.finalize_reset().into_bytes()[..].try_into()?;
+        let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
 
         //attempt to find the mark + MAC
         let start_pos = REPRESENTATIVE_LENGTH + AUTH_LENGTH + SERVER_MIN_PAD_LENGTH;
@@ -231,12 +235,18 @@ impl ClientHandshake {
             }
         };
 
+
         // validate the MAC
-        Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
+        Mac::reset(&mut h); // disambiguate `reset()` implementations Mac v digest
         h.update(&buf[..pos + MARK_LENGTH]);
         h.update(&self.session.epoch_hour.as_bytes());
         let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
         let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
+        trace!(
+            "client mac check {}-{}",
+            hex::encode(mac_calculated),
+            hex::encode(mac_received)
+        );
         if mac_calculated.ct_eq(mac_received).into() {
             return Ok(ServerHandshakeMessage::new(
                 server_repres,
@@ -244,6 +254,7 @@ impl ClientHandshake {
                 self.session.session_keys.representative.clone().unwrap(),
                 server_mark,
                 Some(pos + MARK_LENGTH + MAC_LENGTH),
+                self.session.epoch_hour.clone(),
             ));
         }
 
@@ -264,16 +275,12 @@ pub struct ClientHandshakeMessage {
 impl ClientHandshakeMessage {
     pub fn new(
         repres: Representative,
-        pad_len: Option<usize>,
+        pad_len: usize,
         epoch_hour: String,
         mark: [u8; MARK_LENGTH],
     ) -> Self {
-        let pad_len_alt: usize = rand::thread_rng().gen::<usize>()
-            % (CLIENT_MAX_PAD_LENGTH - CLIENT_MIN_PAD_LENGTH)
-            + CLIENT_MIN_PAD_LENGTH;
-
         Self {
-            pad_len: pad_len.unwrap_or(pad_len_alt),
+            pad_len,
             repres,
 
             // only used when parsing (i.e. on the server side)
@@ -292,6 +299,10 @@ impl ClientHandshakeMessage {
 
     pub fn get_representative(&self) -> Representative {
         self.repres.clone()
+    }
+
+    pub fn get_epoch_hr(&self) -> String {
+        self.epoch_hour.clone()
     }
 
     fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
