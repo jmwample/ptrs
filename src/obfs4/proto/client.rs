@@ -95,7 +95,7 @@ impl ClientSession {
             session_id,
             iat_mode,
             epoch_hour: "".into(),
-            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH .. CLIENT_MAX_PAD_LENGTH),
+            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
         }
     }
 
@@ -234,7 +234,6 @@ impl ClientHandshake {
                 Err(Error::Obfs4Framing(FrameError::EAgain))?
             }
         };
-
 
         // validate the MAC
         Mac::reset(&mut h); // disambiguate `reset()` implementations Mac v digest

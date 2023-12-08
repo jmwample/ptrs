@@ -210,7 +210,11 @@ impl<'b> ServerHandshake<'b> {
         // Send the PRNG seed as part of the first packet.
         packet::PrngSeedMessage::new(self.session.len_seed.clone()).marshall(&mut buf)?;
 
-        trace!("server-{} writing server handshake {}B", self.session.session_id(), buf.len());
+        trace!(
+            "server-{} writing server handshake {}B",
+            self.session.session_id(),
+            buf.len()
+        );
         stream.write(&mut buf).await?;
 
         // success!
@@ -347,7 +351,7 @@ impl ServerHandshakeMessage {
     ) -> Self {
         Self {
             server_auth,
-            pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH .. SERVER_MAX_PAD_LENGTH),
+            pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
             repres,
             epoch_hour: epoch_hr,
             hs_end_pos: hs_end_pos.unwrap_or(0),

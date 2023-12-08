@@ -45,7 +45,7 @@ impl Auth {
         Ok(Auth(b.as_ref().try_into()?))
     }
     pub fn to_bytes(&self) -> [u8; AUTH_LENGTH] {
-        return self.0.clone()
+        return self.0.clone();
     }
 }
 

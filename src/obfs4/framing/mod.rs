@@ -2,30 +2,38 @@
 ///
 /// The Encoder/Decoder shared secret format is:
 ///
-///     uint8_t[32] NaCl secretbox key
-///     uint8_t[16] NaCl Nonce prefix
-///     uint8_t[16] SipHash-2-4 key (used to obfsucate length)
-///     uint8_t[8]  SipHash-2-4 IV
+/// ```txt
+///     NaCl_secretbox_key  [u8; 32];
+///     NaCl_Nonce_prefix   [u8; 16];
+///     SipHash_24_key      [u8; 16]; // (used to obfsucate length)
+///     SipHash_24_IV       [u8; 8];
+/// ```
 ///
 /// The frame format is:
 ///
-///     uint16_t length (obfsucated, big endian)
-///     NaCl secretbox (Poly1305/XSalsa20) containing:
-///       uint8_t[16] tag (Part of the secretbox construct)
-///       uint8_t[]   payload
+/// ```txt
+///     length      u16; // (obfsucated, big endian)
+///     // NaCl secretbox (Poly1305/XSalsa20) containing:
+///         tag     [u8; 16]; // (Part of the secretbox construct)
+///         payload [u8];
+/// ```
 ///
 /// The length field is length of the NaCl secretbox XORed with the truncated
 /// SipHash-2-4 digest ran in OFB mode.
 ///
-///     Initialize K, IV[0] with values from the shared secret.
-///     On each packet, IV[n] = H(K, IV[n - 1])
-///     mask[n] = IV[n][0:2]
-///     obfsLen = length ^ mask[n]
+/// ```txt
+///     // Initialize K, IV[0] with values from the shared secret.
+///     // On each packet, IV[n] = H(K, IV[n - 1])
+///     // mask_n = IV[n][0:2]
+///     // obfs_len = length ^ mask[n]
+/// ```
 ///
 /// The NaCl secretbox (Poly1305/XSalsa20) nonce format is:
 ///
-///     uint8_t[24] prefix (Fixed)
-///     uint64_t    counter (Big endian)
+/// ```txt
+///     prefix  [u8; 24]; //(Fixed)
+///     counter u64; // (Big endian)
+/// ```
 ///
 /// The counter is initialized to 1, and is incremented on each frame.  Since
 /// the protocol is designed to be used over a reliable medium, the nonce is not
