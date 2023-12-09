@@ -2,16 +2,13 @@ use crate::{
     common::{drbg, AsyncDiscard},
     obfs4::{
         constants::*,
-        framing,
-        packet::{self, Packet, PacketType},
+        framing::{self, PacketType},
     },
     stream::Stream,
     Result,
 };
 
 use bytes::BytesMut;
-use hmac::{digest::Reset, Hmac, Mac};
-use sha2::{Sha256, Sha256VarCore};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{trace, warn};
 
@@ -30,8 +27,6 @@ mod server;
 pub(super) use server::{Server, ServerHandshake, ServerSession};
 mod utils;
 pub(crate) use utils::*;
-
-pub(crate) type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 enum IAT {
@@ -104,7 +99,7 @@ impl<'a> O4Stream<'a> {
     }
 
     fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
-        let tail_len = buf.len();
+        let tail_len = buf.len() % framing::MAX_SEGMENT_LENGTH;
 
         let mut pad_len = 0;
         if to_pad_to >= tail_len {
@@ -113,26 +108,64 @@ impl<'a> O4Stream<'a> {
             pad_len = (framing::MAX_SEGMENT_LENGTH - tail_len) + to_pad_to
         }
 
-        let data: Option<Vec<u8>> = None;
+        let data = vec![];
         if pad_len > HEADER_LENGTH {
-            packet::build(buf, PacketType::Payload, data, pad_len - HEADER_LENGTH);
+            // pad_len > 19
+            Ok(framing::build_and_marshall(
+                buf,
+                PacketType::Payload,
+                data,
+                pad_len - HEADER_LENGTH,
+            )?)
         } else if pad_len > 0 {
-            // TODO: I think this double pad might be a mistake and there should be an else in
-            // between
-            packet::build(
-                buf.clone(),
+            // TODO: I think this double pad might be a mistake and there should
+            // be an else in between.
+            framing::build_and_marshall(
+                buf,
                 PacketType::Payload,
                 data.clone(),
-                packet::MAX_PACKET_PAYLOAD_LENGTH,
-            );
+                framing::MAX_PACKET_PAYLOAD_LENGTH,
+            )?;
             // } else {
-            packet::build(buf, PacketType::Payload, data, pad_len);
+            Ok(framing::build_and_marshall(
+                buf,
+                PacketType::Payload,
+                data,
+                pad_len,
+            )?)
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 }
 
+impl<'a> AsyncWrite for O4Stream<'a> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<StdResult<usize, IoError>> {
+        todo!()
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
+        todo!()
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
+        todo!()
+    }
+}
+
+impl<'a> AsyncRead for O4Stream<'a> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<StdResult<(), IoError>> {
+        todo!()
+    }
+}
 impl<'a> AsyncWrite for Obfs4Stream<'a> {
     fn poll_write(
         self: Pin<&mut Self>,

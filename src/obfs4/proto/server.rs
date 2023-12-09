@@ -6,11 +6,11 @@ use crate::{
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
         ntor::{self, AUTH_LENGTH},
         replay_filter::{self, ReplayFilter},
+        HmacSha256,
     },
     obfs4::{
         constants::*,
-        framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
-        packet::{Marshall, TryParse},
+        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_MATERIAL_LENGTH},
         proto::client::{ClientHandshakeMessage, ClientParams},
     },
     stream::Stream,
@@ -20,9 +20,11 @@ use crate::{
 use super::*;
 
 use bytes::BufMut;
+use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::codec::Encoder;
 
 use std::time::Instant;
 
@@ -183,6 +185,13 @@ impl<'b> ServerHandshake<'b> {
         let epoch_hr = client_hs.get_epoch_hr();
         let server_auth = ntor_hs_result.auth;
 
+        // use the derived seed value to bootstrap Read / Write crypto codec.
+        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
+        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
+        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
+
+        let mut codec = Obfs4Codec::new(ekm, dkm);
+
         // Since the current and only implementation always sends a PRNG seed for
         // the length obfuscation, this makes the amount of data received from the
         // server inconsistent with the length sent from the client.
@@ -205,26 +214,26 @@ impl<'b> ServerHandshake<'b> {
         let mut h = self.get_hmac();
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         sh_msg.marshall(&mut buf, h)?;
-        trace!("generating prng seed");
+        trace!("adding encoded prng seed");
 
         // Send the PRNG seed as part of the first packet.
-        packet::PrngSeedMessage::new(self.session.len_seed.clone()).marshall(&mut buf)?;
+        let pkt = framing::build_and_marshall(
+            &mut buf,
+            PacketType::PrngSeed,
+            &self.session.len_seed.as_bytes(),
+            0,
+        )?;
 
         trace!(
             "server-{} writing server handshake {}B",
             self.session.session_id(),
             buf.len()
         );
-        stream.write(&mut buf).await?;
+
+        let mut o4 = O4Stream::new(stream, codec, Session::Server(self.session));
+        o4.write(&mut buf).await?;
 
         // success!
-        // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
-        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
-
-        let codec = Obfs4Codec::new(ekm, dkm);
-        let o4 = O4Stream::new(stream, codec, Session::Server(self.session));
         Ok(Obfs4Stream::from_o4(o4))
     }
 
@@ -276,7 +285,7 @@ impl<'b> ServerHandshake<'b> {
             trace!("server trying offset: {offset}");
             let eh = format!("{}", offset + get_epoch_hour() as i64);
 
-            Mac::reset(&mut h);
+            h.reset();
             h.update(&buf[..pos + MARK_LENGTH]);
             h.update(eh.as_bytes());
             let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
@@ -372,7 +381,7 @@ impl ServerHandshakeMessage {
     fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
         trace!("serializing server handshake");
 
-        Mac::reset(&mut h);
+        h.reset();
         h.update(self.repres.as_bytes().as_ref());
         let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 

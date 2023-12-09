@@ -1,6 +1,6 @@
 use crate::{
     common::{drbg, elligator2, ntor},
-    obfs4::{framing, packet},
+    obfs4::framing,
 };
 
 use std::time::Duration;
@@ -65,6 +65,6 @@ pub const MAX_CLOSE_DELAY: usize = 60;
 pub const MAX_CLOSE_DELAY_BYTES: usize = MAX_HANDSHAKE_LENGTH;
 
 pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
-pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + packet::PACKET_OVERHEAD;
+pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::PACKET_OVERHEAD;
 
 pub const SESSION_ID_LEN: usize = 8;

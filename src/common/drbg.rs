@@ -43,8 +43,12 @@ impl Seed {
         }
     }
 
-    pub fn to_bytes(self) -> [u8; SEED_LENGTH] {
-        self.0
+    pub fn to_bytes(&self) -> [u8; SEED_LENGTH] {
+        self.0.clone()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 }
 

@@ -4,10 +4,10 @@ use crate::{
     common::{
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
         ntor::{self, HandShakeResult, AUTH_LENGTH},
+        HmacSha256,
     },
     obfs4::{
-        framing::{FrameError, Obfs4Codec, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        packet::{Marshall, Packet, TryParse},
+        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         proto::server::ServerHandshakeMessage,
     },
     stream::Stream,
@@ -15,6 +15,8 @@ use crate::{
 };
 
 use super::*;
+use hmac::{Hmac, Mac};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::{BufMut, BytesMut};
 use rand::prelude::*;
@@ -157,6 +159,12 @@ impl ClientHandshake {
         let mut server_hs: ServerHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
+            if n == 0 {
+                Err(Error::IOError(IoError::new(
+                    IoErrorKind::UnexpectedEof,
+                    "read 0B in client handshake",
+                )))?
+            }
             trace!(
                 "client-{} read {n}/{}B of server handshake",
                 self.session.session_id(),
@@ -219,7 +227,7 @@ impl ClientHandshake {
         let mut key = self.session.node_pubkey.as_bytes().to_vec();
         key.append(&mut self.session.node_id.to_bytes().to_vec());
         let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
-        Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
+        h.reset(); // disambiguate reset() implementations Mac v digest
         h.update(server_repres.as_bytes().as_ref());
         let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
 
@@ -236,7 +244,7 @@ impl ClientHandshake {
         };
 
         // validate the MAC
-        Mac::reset(&mut h); // disambiguate `reset()` implementations Mac v digest
+        h.reset(); // disambiguate `reset()` implementations Mac v digest
         h.update(&buf[..pos + MARK_LENGTH]);
         h.update(&self.session.epoch_hour.as_bytes());
         let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
@@ -307,7 +315,7 @@ impl ClientHandshakeMessage {
     fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
         trace!("serializing client handshake");
 
-        Mac::reset(&mut h); // disambiguate reset() implementations Mac v digest
+        h.reset(); // disambiguate reset() implementations Mac v digest
         h.update(self.repres.as_bytes().as_ref());
         let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 

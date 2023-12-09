@@ -2,7 +2,6 @@ use crate::{traits::*, Result};
 
 pub mod client;
 pub mod framing;
-pub mod packet;
 pub mod proto;
 pub mod server;
 

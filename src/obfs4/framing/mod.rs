@@ -41,17 +41,20 @@
 /// and the initial counter value.  It is imperative that the counter does not
 /// wrap, and sessions MUST terminate before 2^64 frames are sent.
 use crate::common::drbg::{self, Drbg, Seed};
-use crate::obfs4::packet::{Message, Payload};
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use crypto_secretbox::{
     aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit, OsRng},
     Nonce, XSalsa20Poly1305,
 };
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use rand::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::trace;
+
+mod packet;
+pub use packet::*;
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -83,6 +86,18 @@ pub(crate) const TAG_SIZE: usize = 16;
 
 pub(crate) const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
 
+pub trait Marshall {
+    fn marshall(&mut self, buf: &mut impl BufMut) -> Result<(), FrameError>;
+}
+
+pub trait TryParse {
+    type Output;
+    fn try_parse(&mut self, buf: &mut impl Buf) -> Result<Self::Output, FrameError>
+    where
+        Self: Sized;
+}
+
+// TODO: make this (Obfs4Codec) threadsafe
 pub struct Obfs4Codec {
     // key: [u8; KEY_LENGTH],
     encoder: Obfs4Encoder,
@@ -102,13 +117,6 @@ impl Obfs4Codec {
         }
     }
 }
-
-// #[derive(Debug)]
-// pub enum Obfs4Message {
-//     ClientHandshake,
-//     ServerHandshake,
-//     ProxyPayload(Vec<u8>),
-// }
 
 ///Decoder is a frame decoder instance.
 struct Obfs4Decoder {
@@ -162,16 +170,17 @@ impl Decoder for Obfs4Codec {
                 return Ok(None);
             }
 
-            // Remove the field length from the buffer
-            let mut len_buf: [u8; LENGTH_LENGTH] = src[..LENGTH_LENGTH].try_into().unwrap();
-
             // derive the nonce that the peer would have used
             self.decoder.next_nonce = self.decoder.nonce.next()?;
 
+            // Remove the field length from the buffer
+            // let mut len_buf: [u8; LENGTH_LENGTH] = src[..LENGTH_LENGTH].try_into().unwrap();
+            let mut length = src.get_u16();
+
             // De-obfuscate the length field
-            let mut length = u16::from_be_bytes(len_buf);
             let length_mask = self.decoder.drbg.uint64() as u16;
             length ^= length_mask;
+            println!("{length}");
             if MAX_FRAME_LENGTH < length as usize || MIN_FRAME_LENGTH > length as usize {
                 // Per "Plaintext Recovery Attacks Against SSH" by
                 // Martin R. Albrecht, Kenneth G. Paterson and Gaven J. Watson,
@@ -186,8 +195,9 @@ impl Decoder for Obfs4Codec {
 
                 let invalid_length = length;
                 self.decoder.next_length_inalid = true;
-                getrandom::getrandom(&mut len_buf);
-                length = u16::from_be_bytes(len_buf) % (MAX_FRAME_LENGTH - MIN_FRAME_LENGTH) as u16
+
+                length = rand::thread_rng().gen::<u16>()
+                    % (MAX_FRAME_LENGTH - MIN_FRAME_LENGTH) as u16
                     + MIN_FRAME_LENGTH as u16;
                 trace!(
                     "invalid length {invalid_length} {length} {}",
@@ -227,7 +237,7 @@ impl Decoder for Obfs4Codec {
         self.decoder.next_length = 0;
         self.decoder.nonce.counter += 1;
 
-        Ok(Some(Message::Payload(Payload::new(plaintext, 0))))
+        Ok(Some(Message::Payload(plaintext)))
     }
 }
 
@@ -255,7 +265,7 @@ impl Obfs4Encoder {
     }
 }
 
-impl Encoder<Message> for Obfs4Codec {
+impl Encoder<&mut dyn Buf> for Obfs4Codec {
     type Error = FrameError;
 
     /// Encode encodes a single frame worth of payload and returns
@@ -263,18 +273,18 @@ impl Encoder<Message> for Obfs4Codec {
     /// treated as fatal and the session aborted.
     fn encode(
         &mut self,
-        item: Message,
+        plaintext: &mut dyn Buf,
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
         trace!("encoding");
-        let item = match item {
-            Message::Payload(m) => m,
-            _ => return Err(FrameError::InvalidMessage),
-        };
+        // let item = match item {
+        //     Message::Payload(m) => m,
+        //     _ => return Err(FrameError::InvalidMessage),
+        // };
 
         // Don't send a string if it is longer than the other end will accept.
-        if MAX_FRAME_PAYLOAD_LENGTH < item.data.len() {
-            return Err(FrameError::InvalidPayloadLength(item.data.len()));
+        if MAX_FRAME_PAYLOAD_LENGTH < plaintext.remaining() {
+            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
         }
 
         // Generate a new nonce
@@ -285,9 +295,10 @@ impl Encoder<Message> for Obfs4Codec {
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        trace!("encode: all things generated");
-        let ciphertext = cipher.encrypt(&nonce, item.data.as_ref())?;
-        trace!("encode: encrypted");
+        let mut plaintext_u8 = vec![0_u8; plaintext.remaining()];
+        plaintext.copy_to_slice(&mut plaintext_u8[..]);
+        let ciphertext = cipher.encrypt(&nonce, plaintext_u8.as_ref())?;
+        trace!("[encode] finished encrypting");
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
@@ -329,6 +340,8 @@ impl NonceBox {
         // we start each counter at 1.  If it ever happens that more than 2^64 - 1
         // frames are transmitted over a given connection, support for rekeying
         // will be neccecary, but that's unlikely to happen.
+
+        trace!("okokok");
         if self.counter == u64::MAX {
             return Err(FrameError::NonceCounterWrapped);
         }
@@ -380,6 +393,9 @@ pub enum FrameError {
 
     /// Received either a REALLY unfortunate random, or a replayed handshake message
     ReplayedHandshake,
+
+    /// An unknown packet type was received in a non-handshake packet frame.
+    UnknownPacketType(u8),
 }
 
 impl std::fmt::Display for FrameError {
@@ -402,6 +418,7 @@ impl std::fmt::Display for FrameError {
             FrameError::InvalidMessage => write!(f, "framing: incorrect message for context"),
             FrameError::InvalidHandshake => write!(f, "framing: failed to parse handshake message"),
             FrameError::ReplayedHandshake => write!(f, "framing: handshake replayed within TTL"),
+            FrameError::UnknownPacketType(pt) => write!(f, "framing: unknown packet type ({pt})"),
         }
     }
 }

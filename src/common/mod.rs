@@ -1,5 +1,8 @@
 use crate::Result;
 
+use hmac::{digest::Reset, Hmac, Mac};
+use sha2::{Sha256, Sha256VarCore};
+
 mod skip;
 pub use skip::AsyncDiscard;
 // pub use skip::{AsyncDiscard, AsyncSkipReader, Discard, SkipReader};
@@ -16,3 +19,5 @@ pub trait ArgParse {
 
     fn parse_args() -> Result<Self::Output>;
 }
+
+pub(crate) type HmacSha256 = Hmac<Sha256>;

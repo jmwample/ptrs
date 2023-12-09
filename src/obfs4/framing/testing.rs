@@ -12,7 +12,7 @@ use super::*;
 use crate::test_utils::init_subscriber;
 use crate::Result;
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
@@ -41,10 +41,8 @@ async fn oversized_flow() -> Result<()> {
 
     let mut b = bytes::BytesMut::with_capacity(2_usize.pow(13));
     let mut codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
-    let res = codec.encode(
-        Message::Payload(Payload::new(oversized_messsage, 0)),
-        &mut b,
-    );
+    let src = Bytes::from(oversized_messsage);
+    let res = codec.encode(&mut src, &mut b);
 
     assert_eq!(
         res.unwrap_err(),
@@ -84,25 +82,24 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
         let (mut sink, mut input) = codec.framed(s).split();
 
         while let Some(Ok(event)) = input.next().await {
-            if let Message::Payload(m) = &event {
-                assert_eq!(m.data, message.clone());
-                trace!("Event {:?}", String::from_utf8(m.data.clone()).unwrap());
+            if let Message::Payload(m) = event {
+                assert_eq!(&m, &message.clone());
+                trace!("Event {:?}", String::from_utf8(m.clone()).unwrap());
+
+                sink.send(&mut Bytes::from(m))
+                    .await
+                    .expect("server response failed");
             } else {
                 panic!("failed while reading from codec");
             }
-
-            sink.send(event).await.expect("server response failed");
         }
     });
 
-    let message = &msg;
+    let mut message = Bytes::from(msg.clone());
     let client_codec = Obfs4Codec::new(key_material, key_material);
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
 
-    c_sink
-        .send(Message::Payload(Payload::new(message.to_vec(), 0)))
-        .await
-        .expect("client send failed");
+    c_sink.send(&mut message).await.expect("client send failed");
     trace!("client write success");
 
     if let Message::Payload(m) = c_stream
@@ -115,7 +112,8 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
         ))
         .expect("an error occured when you called back")
     {
-        assert_eq!(&m.data, message);
+        // skip over length field in the Payload message
+        assert_eq!(&m, &msg);
         trace!("client read success");
     } else {
         panic!("failed while reading from codec");
