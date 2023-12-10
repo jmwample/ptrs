@@ -51,7 +51,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use rand::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::trace;
+use tracing::{error, trace};
 
 mod packet;
 pub use packet::*;
@@ -126,7 +126,7 @@ struct Obfs4Decoder {
 
     next_nonce: [u8; NONCE_LENGTH],
     next_length: u16,
-    next_length_inalid: bool,
+    next_length_invalid: bool,
 }
 
 impl Obfs4Decoder {
@@ -145,7 +145,7 @@ impl Obfs4Decoder {
 
             next_nonce: [0_u8; NONCE_LENGTH],
             next_length: 0,
-            next_length_inalid: false,
+            next_length_invalid: false,
         }
     }
 }
@@ -161,12 +161,20 @@ impl Decoder for Obfs4Codec {
         &mut self,
         src: &mut BytesMut,
     ) -> std::result::Result<Option<Self::Item>, Self::Error> {
-        trace!("decoding");
+        trace!(
+            "decoding src:{}B {} {}",
+            src.remaining(),
+            self.decoder.next_length,
+            self.decoder.next_length_invalid
+        );
+        trace!("{}", hex::encode(&src));
         // A length of 0 indicates that we do not know the expected size of
-        // the next frame.
+        // the next frame. we use this to store the length of a packet when we
+        // receive the length at the beginning, but not the whole packet, since
+        // future reads may not have the who packet (including length) available
         if self.decoder.next_length == 0 {
             // Attempt to pull out the next frame length
-            if LENGTH_LENGTH > src.len() {
+            if LENGTH_LENGTH > src.remaining() {
                 return Ok(None);
             }
 
@@ -180,7 +188,6 @@ impl Decoder for Obfs4Codec {
             // De-obfuscate the length field
             let length_mask = self.decoder.drbg.uint64() as u16;
             length ^= length_mask;
-            println!("{length}");
             if MAX_FRAME_LENGTH < length as usize || MIN_FRAME_LENGTH > length as usize {
                 // Per "Plaintext Recovery Attacks Against SSH" by
                 // Martin R. Albrecht, Kenneth G. Paterson and Gaven J. Watson,
@@ -194,14 +201,14 @@ impl Decoder for Obfs4Codec {
                 // paper.
 
                 let invalid_length = length;
-                self.decoder.next_length_inalid = true;
+                self.decoder.next_length_invalid = true;
 
                 length = rand::thread_rng().gen::<u16>()
                     % (MAX_FRAME_LENGTH - MIN_FRAME_LENGTH) as u16
                     + MIN_FRAME_LENGTH as u16;
-                trace!(
+                error!(
                     "invalid length {invalid_length} {length} {}",
-                    self.decoder.next_length_inalid
+                    self.decoder.next_length_invalid
                 );
             }
 
@@ -215,7 +222,15 @@ impl Decoder for Obfs4Codec {
             //
             // We reserve more space in the buffer. This is not strictly
             // necessary, but is a good idea performance-wise.
-            src.reserve(next_len - src.len());
+            if !self.decoder.next_length_invalid {
+                src.reserve(next_len - src.len());
+            }
+
+            trace!(
+                "next_len > src.len --> reading more {} {}",
+                self.decoder.next_length,
+                self.decoder.next_length_invalid
+            );
 
             // We inform the Framed that we need more bytes to form the next
             // frame.
@@ -223,20 +238,28 @@ impl Decoder for Obfs4Codec {
         }
 
         // Use advance to modify src such that it no longer contains this frame.
-        let data = src[2..2 + next_len].to_vec();
-        src.advance(2 + next_len);
+        let data = src.get(..next_len).unwrap().to_vec();
 
         // Unseal the frame
         let key = GenericArray::from_slice(&self.decoder.key);
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
 
-        let plaintext = cipher.decrypt(&nonce, data.as_ref())?;
+        let res = cipher.decrypt(&nonce, data.as_ref());
+        if res.is_err() {
+            let e = res.unwrap_err();
+            trace!("failed to decrypt result: {e}");
+            return Err(e.into());
+        }
+        let plaintext = res?;
 
-        // Clean uo and prepare for the next frame
+        // Clean up and prepare for the next frame
+        //
+        // we read a whole frame, we no longer know the size of the next pkt
         self.decoder.next_length = 0;
-        self.decoder.nonce.counter += 1;
+        src.advance(next_len);
 
+        trace!("decoded: {next_len}B src:{}B", src.remaining());
         Ok(Some(Message::Payload(plaintext)))
     }
 }
@@ -265,7 +288,7 @@ impl Obfs4Encoder {
     }
 }
 
-impl Encoder<&mut dyn Buf> for Obfs4Codec {
+impl<T: Buf> Encoder<T> for Obfs4Codec {
     type Error = FrameError;
 
     /// Encode encodes a single frame worth of payload and returns
@@ -273,14 +296,10 @@ impl Encoder<&mut dyn Buf> for Obfs4Codec {
     /// treated as fatal and the session aborted.
     fn encode(
         &mut self,
-        plaintext: &mut dyn Buf,
+        mut plaintext: T,
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
         trace!("encoding");
-        // let item = match item {
-        //     Message::Payload(m) => m,
-        //     _ => return Err(FrameError::InvalidMessage),
-        // };
 
         // Don't send a string if it is longer than the other end will accept.
         if MAX_FRAME_PAYLOAD_LENGTH < plaintext.remaining() {
@@ -297,20 +316,20 @@ impl Encoder<&mut dyn Buf> for Obfs4Codec {
 
         let mut plaintext_u8 = vec![0_u8; plaintext.remaining()];
         plaintext.copy_to_slice(&mut plaintext_u8[..]);
-        let ciphertext = cipher.encrypt(&nonce, plaintext_u8.as_ref())?;
+        let mut ciphertext = cipher.encrypt(&nonce, plaintext_u8.as_ref())?;
         trace!("[encode] finished encrypting");
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
         let length_mask: u16 = self.encoder.drbg.uint64() as u16;
+        trace!("encoded {length}B");
         length ^= length_mask;
 
-        // Reserve space in the buffer.
-        dst.reserve(ciphertext.len() + LENGTH_LENGTH);
-
         // Write the length and string to the buffer.
-        dst.extend_from_slice(&length.to_be_bytes());
+        ciphertext.splice(..0, length.to_be_bytes());
         dst.extend_from_slice(&ciphertext);
+        trace!("{}", hex::encode(ciphertext));
+
         Ok(())
     }
 }
@@ -341,7 +360,6 @@ impl NonceBox {
         // frames are transmitted over a given connection, support for rekeying
         // will be neccecary, but that's unlikely to happen.
 
-        trace!("okokok");
         if self.counter == u64::MAX {
             return Err(FrameError::NonceCounterWrapped);
         }
@@ -350,6 +368,7 @@ impl NonceBox {
 
         let nonce_l: [u8; NONCE_LENGTH] = nonce[..].try_into().unwrap();
 
+        trace!("fresh nonce: {}", hex::encode(nonce_l));
         self.inc();
         Ok(nonce_l)
     }

@@ -37,8 +37,8 @@ const MAC_LENGTH: usize = SHA256_SIZE / 2;
 ///   payload   [u8; length];     // Data payload.
 ///   padding   [0_u8; pad_len];  // Padding.
 /// ```
-pub fn build_and_marshall(
-    dst: &mut impl BufMut,
+pub fn build_and_marshall<T: BufMut>(
+    dst: &mut T,
     pt: PacketType,
     data: impl AsRef<[u8]>,
     pad_len: usize,
@@ -101,7 +101,7 @@ pub enum Message {
 }
 
 impl Message {
-    fn try_parse(buf: &mut impl Buf) -> Result<Self, FrameError> {
+    fn try_parse<T: Buf>(buf: &mut T) -> Result<Self, FrameError> {
         if buf.remaining() < PACKET_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
