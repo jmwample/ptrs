@@ -112,10 +112,9 @@ impl TryFrom<&[u8]> for Seed {
     }
 }
 
-impl TryFrom<[u8; SEED_LENGTH]> for Seed {
-    type Error = Error;
-    fn try_from(arr: [u8; SEED_LENGTH]) -> Result<Self> {
-        Ok(Seed(arr))
+impl From<[u8; SEED_LENGTH]> for Seed {
+    fn from(arr: [u8; SEED_LENGTH]) -> Self {
+        Seed(arr)
     }
 }
 

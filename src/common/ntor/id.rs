@@ -1,6 +1,7 @@
 use crate::{Error, Result};
 
 use hex::FromHex;
+use rand_core::RngCore;
 use std::fmt;
 use std::str::FromStr;
 
@@ -13,7 +14,9 @@ pub struct ID([u8; NODE_ID_LENGTH]);
 
 impl ID {
     pub fn new() -> Self {
-        ID([0_u8; NODE_ID_LENGTH])
+        let mut id = [0_u8; NODE_ID_LENGTH];
+        rand::thread_rng().fill_bytes(&mut id);
+        ID(id)
     }
 
     pub fn to_bytes(&self) -> [u8; NODE_ID_LENGTH] {

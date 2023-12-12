@@ -20,6 +20,7 @@ use crate::{
 use super::*;
 
 use bytes::BufMut;
+use colored::Colorize;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -109,7 +110,23 @@ pub(crate) struct ServerSession<'a> {
 
 impl<'a> ServerSession<'a> {
     pub fn session_id(&self) -> String {
-        return hex::encode(self.session_id);
+        Self::colorize(&self.session_id)
+    }
+
+    pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
+        trace!(
+            "{} -> {} session id update",
+            Self::colorize(&self.session_id),
+            Self::colorize(&id)
+        );
+        self.session_id = id;
+    }
+
+    fn colorize(id: &[u8; SESSION_ID_LEN]) -> String {
+        let r = 0xff & id[0];
+        let g = 0xff & id[1];
+        let b = 0xff & id[2];
+        hex::encode(id).truecolor(r, g, b).to_string()
     }
 }
 
@@ -186,9 +203,16 @@ impl<'b> ServerHandshake<'b> {
         let server_auth = ntor_hs_result.auth;
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
+        let okm = ntor::kdf(
+            ntor_hs_result.key_seed,
+            KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
+        );
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
+        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
+            .try_into()
+            .unwrap();
+        self.session
+            .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
 
         let mut codec = Obfs4Codec::new(ekm, dkm);
 

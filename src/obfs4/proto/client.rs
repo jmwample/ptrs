@@ -15,14 +15,15 @@ use crate::{
 };
 
 use super::*;
-use hmac::{Hmac, Mac};
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::{BufMut, BytesMut};
+use colored::Colorize;
+use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::{Arc, Mutex};
 
 pub struct ClientParams {
@@ -102,7 +103,23 @@ impl ClientSession {
     }
 
     pub fn session_id(&self) -> String {
-        return hex::encode(self.session_id);
+        Self::colorize(&self.session_id)
+    }
+
+    pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
+        trace!(
+            "{} -> {} session id update",
+            Self::colorize(&self.session_id),
+            Self::colorize(&id)
+        );
+        self.session_id = id;
+    }
+
+    fn colorize(id: &[u8; SESSION_ID_LEN]) -> String {
+        let r = 0xff & id[0];
+        let g = 0xff & id[1];
+        let b = 0xff & id[2];
+        hex::encode(id).truecolor(r, g, b).to_string()
     }
 }
 
@@ -195,9 +212,16 @@ impl ClientHandshake {
         };
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(ntor_hs_result.key_seed, KEY_MATERIAL_LENGTH * 2);
+        let okm = ntor::kdf(
+            ntor_hs_result.key_seed,
+            KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
+        );
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..].try_into().unwrap();
+        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
+            .try_into()
+            .unwrap();
+        self.session
+            .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
 
         let codec = Obfs4Codec::new(ekm, dkm);
         Ok(Obfs4Stream::from_o4(O4Stream::new(

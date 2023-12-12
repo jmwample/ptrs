@@ -11,6 +11,7 @@ use crate::{
     Error,
 };
 
+use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand_core::{OsRng, RngCore};
@@ -53,10 +54,6 @@ pub fn build_and_marshall<T: BufMut>(
     if total_size > MAX_PACKET_PAYLOAD_LENGTH {
         Err(FrameError::InvalidPayloadLength(total_size))?
     }
-    // will the things that we need to write fit in the provided buffer?
-    if PACKET_OVERHEAD + buf.len() + pad_len > buf.remaining() {
-        Err(FrameError::ShortBuffer)?
-    }
 
     dst.put_u8(pt.into());
     dst.put_u16(buf.len() as u16);
@@ -95,6 +92,7 @@ impl TryFrom<u8> for PacketType {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Message {
     Payload(Vec<u8>),
     PrngSeed([u8; SEED_LENGTH]),
@@ -112,13 +110,108 @@ impl Message {
             PacketType::Payload => {
                 let mut dst = vec![];
                 dst.put(buf.take(length));
+                trace!("{}B padding?", buf.remaining());
+                assert_eq!(buf.remaining(), Self::drain_padding(buf));
                 Ok(Message::Payload(dst))
             }
             PacketType::PrngSeed => {
                 let mut seed = [0_u8; 24];
                 buf.copy_to_slice(&mut seed[..]);
+                trace!("{}B padding?", buf.remaining());
+                assert_eq!(buf.remaining(), Self::drain_padding(buf));
                 Ok(Message::PrngSeed(seed))
             }
         }
+    }
+
+    fn drain_padding<T: Buf>(b: &mut T) -> usize {
+        if !b.has_remaining() {
+            return 0;
+        }
+
+        let mut count = b.remaining();
+        // make a shallow copy that we can work with so that we can continually
+        // check first byte without actually removing it (advancing the pointer
+        // in the Bytes object).
+        let mut buf = b.copy_to_bytes(b.remaining());
+        for i in 0..buf.remaining() {
+            if buf[i] != 0 {
+                count = i;
+                break;
+            }
+        }
+
+        // b.advance(count);
+        trace!(
+            "drained {count}B, {}B remaining, {}",
+            b.remaining(),
+            buf.remaining()
+        );
+        count
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::init_subscriber;
+
+    use rand::prelude::*;
+
+    #[test]
+    fn drain_padding() {
+        let test_cases = [
+            ("", 0, 0),
+            ("00", 1, 0),
+            ("0000", 2, 0),
+            ("0000000000000000", 8, 0),
+            ("000000000000000001", 8, 0),
+            ("0000010000000000", 2, 6),
+            ("0102030000000000", 0, 8),
+        ];
+
+        for case in test_cases {
+            let mut buf = &hex::decode(case.0).expect("failed to decode hex");
+            let mut b = Bytes::copy_from_slice(&buf);
+            let cnt = Message::drain_padding(&mut b);
+            assert_eq!(cnt, case.1);
+            assert_eq!(b.remaining(), case.2);
+        }
+    }
+
+    #[test]
+    fn prngseed() -> Result<(), FrameError> {
+        init_subscriber();
+
+        let mut buf = BytesMut::new();
+        let mut rng = rand::thread_rng();
+        let pad_len = rng.gen_range(0..100);
+        let mut seed = [0_u8; SEED_LENGTH];
+        rng.fill_bytes(&mut seed);
+
+        build_and_marshall(&mut buf, PacketType::PrngSeed, &seed, pad_len)?;
+
+        let pkt = Message::try_parse(&mut buf)?;
+        assert_eq!(Message::PrngSeed(seed), pkt);
+
+        Ok(())
+    }
+
+    #[test]
+    fn payload() -> Result<(), FrameError> {
+        init_subscriber();
+
+        let mut buf = BytesMut::new();
+        let mut rng = rand::thread_rng();
+        let pad_len = rng.gen_range(0..100);
+        let mut payload = [0_u8; 1000];
+        rng.fill_bytes(&mut payload);
+
+        build_and_marshall(&mut buf, PacketType::Payload, &payload, pad_len)?;
+
+        let pkt = Message::try_parse(&mut buf)?;
+        assert_eq!(Message::Payload(payload.to_vec()), pkt);
+
+        Ok(())
     }
 }

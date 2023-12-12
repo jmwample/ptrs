@@ -33,6 +33,7 @@ lazy_static = "0.1.4"
 
 hex = "0.4.3"
 tracing = "0.1.40"
+colored = "2.0.4"
 
 pin-project = "1.1.3"
 futures = "0.3.29"
