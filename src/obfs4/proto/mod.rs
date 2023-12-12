@@ -8,8 +8,16 @@ use crate::{
     Result,
 };
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
+use futures::{
+    sink::{Sink, SinkExt},
+    stream::{Stream as FStream, StreamExt},
+};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio_util::{
+    codec::{Decoder, Encoder, Framed},
+    io::StreamReader,
+};
 use tracing::{trace, warn};
 
 use std::{
@@ -50,52 +58,67 @@ impl<'a> Session<'a> {
     }
 }
 
-pub struct Obfs4Stream<'a> {
-    s: Arc<Mutex<O4Stream<'a>>>,
+pub struct Obfs4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
+    s: Arc<Mutex<O4Stream<'a, T>>>,
 }
 
-impl<'a> Obfs4Stream<'a> {
-    pub(crate) fn from_o4(o4: O4Stream<'a>) -> Self {
+impl<'a, T> Obfs4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
+    pub(crate) fn from_o4(o4: O4Stream<'a, T>) -> Self {
         Obfs4Stream {
             s: Arc::new(Mutex::new(o4)),
         }
     }
 }
 
-struct O4Stream<'a> {
-    inner: &'a mut dyn Stream<'a>,
+struct O4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
+    // sink: Box<dyn Sink<B, Error=framing::FrameError>>,
+    // stream: Box<dyn FStream<Item=std::result::Result<framing::Message, framing::FrameError>>>,
+    stream: Framed<T, framing::Obfs4Codec>,
+
     session: Session<'a>,
-    codec: framing::Obfs4Codec,
 }
 
-impl<'a> O4Stream<'a> {
+impl<'a, T> O4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
     fn new(
-        stream: &'a mut dyn Stream<'a>,
+        // inner: &'a mut dyn Stream<'a>,
+        inner: T,
         codec: framing::Obfs4Codec,
         session: Session<'a>,
     ) -> Self {
         Self {
-            inner: stream,
+            stream: codec.framed(inner),
+
             session,
-            codec,
         }
     }
 
     async fn close_after_delay(&mut self, d: Duration) {
-        let r = AsyncDiscard::new(&mut self.inner);
+        // let r = AsyncDiscard::new(&mut StreamReader::new(self.stream));
 
-        if let Err(_) = tokio::time::timeout(d, r.discard()).await {
-            trace!(
-                "{} timed out while discarding",
-                hex::encode(&self.session.id())
-            );
-        }
-        if let Err(e) = self.inner.shutdown().await {
-            warn!(
-                "{} encountered an error while closing: {e}",
-                hex::encode(&self.session.id())
-            );
-        };
+        // if let Err(_) = tokio::time::timeout(d, r.discard()).await {
+        //     trace!(
+        //         "{} timed out while discarding",
+        //         hex::encode(&self.session.id())
+        //     );
+        // }
+        // if let Err(e) = self.sink.close().await {
+        //     warn!(
+        //         "{} encountered an error while closing: {e}",
+        //         hex::encode(&self.session.id())
+        //     );
+        // };
     }
 
     fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
@@ -139,7 +162,10 @@ impl<'a> O4Stream<'a> {
     }
 }
 
-impl<'a> AsyncWrite for O4Stream<'a> {
+impl<'a, T> AsyncWrite for O4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -157,7 +183,10 @@ impl<'a> AsyncWrite for O4Stream<'a> {
     }
 }
 
-impl<'a> AsyncRead for O4Stream<'a> {
+impl<'a, T> AsyncRead for O4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -166,7 +195,11 @@ impl<'a> AsyncRead for O4Stream<'a> {
         todo!()
     }
 }
-impl<'a> AsyncWrite for Obfs4Stream<'a> {
+
+impl<'a, T> AsyncWrite for Obfs4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -184,7 +217,10 @@ impl<'a> AsyncWrite for Obfs4Stream<'a> {
     }
 }
 
-impl<'a> AsyncRead for Obfs4Stream<'a> {
+impl<'a, T> AsyncRead for Obfs4Stream<'a, T>
+where
+    T: AsyncRead + AsyncWrite,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

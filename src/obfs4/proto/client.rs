@@ -16,7 +16,7 @@ use crate::{
 
 use super::*;
 
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use colored::Colorize;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
@@ -43,7 +43,10 @@ impl Client {
         Ok(self)
     }
 
-    pub async fn wrap<'a>(&self, stream: &'a mut impl Stream<'a>) -> Result<Obfs4Stream<'a>> {
+    pub async fn wrap<'a, T>(&self, stream: T) -> Result<Obfs4Stream<'a, T>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
         tokio::select! {
             r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
             e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
@@ -138,7 +141,10 @@ impl ClientHandshake {
         Ok(Self { session })
     }
 
-    pub async fn complete<'a>(mut self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream> {
+    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
         if self.session.session_keys.representative.is_none() {
             return Err(Error::Other("Bad session keys".into()));
         }

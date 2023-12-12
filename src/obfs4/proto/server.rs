@@ -19,7 +19,7 @@ use crate::{
 
 use super::*;
 
-use bytes::BufMut;
+use bytes::{Buf, BufMut, Bytes};
 use colored::Colorize;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
@@ -46,7 +46,10 @@ impl Server {
         }
     }
 
-    pub async fn wrap<'a>(&'a mut self, stream: &'a mut dyn Stream<'a>) -> Result<Obfs4Stream<'a>> {
+    pub async fn wrap<'a, T>(&'a mut self, stream: T) -> Result<Obfs4Stream<'a, T>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
         let session = self.new_session();
         tokio::select! {
             r = ServerHandshake::new(session).complete(stream) => r,
@@ -145,12 +148,10 @@ impl<'b> ServerHandshake<'b> {
         HmacSha256::new_from_slice(&key[..]).unwrap()
     }
 
-    pub async fn complete<'a>(
-        mut self,
-        mut stream: &'a mut dyn Stream<'a>,
-    ) -> Result<Obfs4Stream<'a>>
+    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         'b: 'a,
+        T: AsyncRead + AsyncWrite + Unpin,
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
@@ -241,12 +242,15 @@ impl<'b> ServerHandshake<'b> {
         trace!("adding encoded prng seed");
 
         // Send the PRNG seed as part of the first packet.
+        let mut prng_pkt_buf = BytesMut::new();
         let pkt = framing::build_and_marshall(
-            &mut buf,
+            &mut prng_pkt_buf,
             PacketType::PrngSeed,
             &self.session.len_seed.as_bytes(),
             0,
         )?;
+
+        codec.encode(prng_pkt_buf, &mut buf)?;
 
         trace!(
             "server-{} writing server handshake {}B",
@@ -254,10 +258,10 @@ impl<'b> ServerHandshake<'b> {
             buf.len()
         );
 
-        let mut o4 = O4Stream::new(stream, codec, Session::Server(self.session));
-        o4.write(&mut buf).await?;
+        stream.write(&mut buf).await?;
 
         // success!
+        let mut o4 = O4Stream::new(stream, codec, Session::Server(self.session));
         Ok(Obfs4Stream::from_o4(o4))
     }
 
