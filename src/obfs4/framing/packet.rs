@@ -99,7 +99,7 @@ pub enum Message {
 }
 
 impl Message {
-    fn try_parse<T: Buf>(buf: &mut T) -> Result<Self, FrameError> {
+    fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
         if buf.remaining() < PACKET_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
@@ -124,29 +124,27 @@ impl Message {
         }
     }
 
-    fn drain_padding<T: Buf>(b: &mut T) -> usize {
+    fn drain_padding<T: BufMut + Buf>(b: &mut T) -> usize {
         if !b.has_remaining() {
             return 0;
         }
 
-        let mut count = b.remaining();
+        let length = b.remaining();
+        let mut count = length;
         // make a shallow copy that we can work with so that we can continually
         // check first byte without actually removing it (advancing the pointer
         // in the Bytes object).
         let mut buf = b.copy_to_bytes(b.remaining());
-        for i in 0..buf.remaining() {
-            if buf[i] != 0 {
+        for i in 0..length {
+            if buf[0] != 0 {
                 count = i;
                 break;
             }
+            _ = buf.get_u8();
         }
 
-        // b.advance(count);
-        trace!(
-            "drained {count}B, {}B remaining, {}",
-            b.remaining(),
-            buf.remaining()
-        );
+        b.put(buf);
+        trace!("drained {count}B, {}B remaining", b.remaining(),);
         count
     }
 }
@@ -160,19 +158,20 @@ mod test {
 
     #[test]
     fn drain_padding() {
+        init_subscriber();
         let test_cases = [
             ("", 0, 0),
             ("00", 1, 0),
             ("0000", 2, 0),
             ("0000000000000000", 8, 0),
-            ("000000000000000001", 8, 0),
+            ("000000000000000001", 8, 1),
             ("0000010000000000", 2, 6),
             ("0102030000000000", 0, 8),
         ];
 
         for case in test_cases {
-            let mut buf = &hex::decode(case.0).expect("failed to decode hex");
-            let mut b = Bytes::copy_from_slice(&buf);
+            let mut buf = hex::decode(case.0).expect("failed to decode hex");
+            let mut b = BytesMut::from(&buf as &[u8]);
             let cnt = Message::drain_padding(&mut b);
             assert_eq!(cnt, case.1);
             assert_eq!(b.remaining(), case.2);
