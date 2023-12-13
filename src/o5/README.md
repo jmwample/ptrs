@@ -13,4 +13,13 @@ changes from obfs4:
 * might add
     - session tickets and resumption
     - bidirectional heartbeats
+    - version / params frame for negotiating (theoretically in the first exchange alongside PRNG seed)
 
+
+Goals
+* Stick closer to Codec / Framed implementation for all packets (hadshake included)
+* use the tor/arti ntor implementation
+
+
+Features to keep
+- once a session is established, unrecognized frame types are ignored
