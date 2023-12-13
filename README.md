@@ -39,8 +39,19 @@ cargo install .....
 
 * Why shift from the obfs4 style naming and use o7? 
 
-Because I want to and I wrote the library. Don't like the name? Fork it and maintain it yourself.
+    Because I want to and I wrote the library. Don't like the name? Fork it and maintain it yourself.
 
 * What happened to o6? 
 
-See the answer above.
+    See the answer above.
+
+## Open Source License
+
+Dual licensing under both MIT and Apache-2.0 is the currently accepted standard by the Rust language
+community and has been used for both the compiler and many public libraries since (see
+[Why dual MIT/ASL2license?](https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license)).
+In order to match the community standards, o7 is using the dual MIT+Apache-2.0 license.
+
+## Contributing
+
+Contributors, Issues, and Pull Requests are Welcome!
