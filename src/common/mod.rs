@@ -1,5 +1,6 @@
 use crate::Result;
 
+use colored::Colorize;
 use hmac::{digest::Reset, Hmac, Mac};
 use sha2::{Sha256, Sha256VarCore};
 
@@ -21,3 +22,14 @@ pub trait ArgParse {
 }
 
 pub(crate) type HmacSha256 = Hmac<Sha256>;
+
+pub(crate) fn colorize(b: impl AsRef<[u8]>) -> String {
+    let id = b.as_ref();
+    if id.len() < 3 {
+        return hex::encode(id);
+    }
+    let r = 0xff & id[0];
+    let g = 0xff & id[1];
+    let b = 0xff & id[2];
+    hex::encode(id).truecolor(r, g, b).to_string()
+}

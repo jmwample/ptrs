@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rand_core::{OsRng, RngCore};
 use subtle::ConstantTimeEq;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
-use tracing::trace;
+use tracing::{debug, trace};
 
 pub(crate) const PACKET_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_PACKET_PAYLOAD_LENGTH: usize =
@@ -58,11 +58,13 @@ pub fn build_and_marshall<T: BufMut>(
     dst.put_u8(pt.into());
     dst.put_u16(buf.len() as u16);
     dst.put(buf);
-    dst.put_bytes(0_u8, pad_len);
+    if pad_len != 0 {
+        dst.put_bytes(0_u8, pad_len);
+    }
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum PacketType {
     Payload,
     PrngSeed,
@@ -75,8 +77,8 @@ impl PacketType {
 impl From<PacketType> for u8 {
     fn from(value: PacketType) -> Self {
         match value {
-            PacketType::Payload => 0_u8,
-            PacketType::PrngSeed => 1_u8,
+            PacketType::Payload => PacketType::PAYLOAD,
+            PacketType::PrngSeed => PacketType::PRNG_SEED,
         }
     }
 }
@@ -99,7 +101,7 @@ pub enum Message {
 }
 
 impl Message {
-    fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
+    pub(crate) fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
         if buf.remaining() < PACKET_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
@@ -117,7 +119,6 @@ impl Message {
             PacketType::PrngSeed => {
                 let mut seed = [0_u8; 24];
                 buf.copy_to_slice(&mut seed[..]);
-                trace!("{}B padding?", buf.remaining());
                 assert_eq!(buf.remaining(), Self::drain_padding(buf));
                 Ok(Message::PrngSeed(seed))
             }

@@ -133,6 +133,7 @@ impl Obfs4Decoder {
     // Creates a new Decoder instance.  It must be supplied a slice
     // containing exactly KeyLength bytes of keying material.
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
+        trace!("new decoder key_material: {}", hex::encode(&key_material));
         let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
@@ -167,7 +168,6 @@ impl Decoder for Obfs4Codec {
             self.decoder.next_length,
             self.decoder.next_length_invalid
         );
-        trace!("{}", hex::encode(&src));
         // A length of 0 indicates that we do not know the expected size of
         // the next frame. we use this to store the length of a packet when we
         // receive the length at the beginning, but not the whole packet, since
@@ -187,6 +187,10 @@ impl Decoder for Obfs4Codec {
 
             // De-obfuscate the length field
             let length_mask = self.decoder.drbg.uint64() as u16;
+            trace!(
+                "decoding {length:04x}^{length_mask:04x} {:04x}B",
+                length ^ length_mask
+            );
             length ^= length_mask;
             if MAX_FRAME_LENGTH < length as usize || MIN_FRAME_LENGTH > length as usize {
                 // Per "Plaintext Recovery Attacks Against SSH" by
@@ -260,7 +264,9 @@ impl Decoder for Obfs4Codec {
         src.advance(next_len);
 
         trace!("decoded: {next_len}B src:{}B", src.remaining());
-        Ok(Some(Message::Payload(plaintext)))
+        let msg = Message::try_parse(&mut BytesMut::from(plaintext.as_slice()))?;
+
+        Ok(Some(msg))
     }
 }
 
@@ -275,6 +281,7 @@ impl Obfs4Encoder {
     /// Creates a new Encoder instance. It must be supplied a slice
     /// containing exactly KeyLength bytes of keying material.  
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
+        trace!("new encoder key_material: {}", hex::encode(&key_material));
         let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
@@ -322,14 +329,15 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
         let length_mask: u16 = self.encoder.drbg.uint64() as u16;
-        trace!("encoded {length}B");
+        trace!(
+            "encoded {length}B, {length:04x}^{length_mask:04x} {:04x}",
+            length ^ length_mask
+        );
         length ^= length_mask;
 
-        // Write the length and string to the buffer.
-        ciphertext.splice(..0, length.to_be_bytes());
+        // Write the length and payload to the buffer.
+        dst.extend_from_slice(&length.to_be_bytes()[..]);
         dst.extend_from_slice(&ciphertext);
-        trace!("{}", hex::encode(ciphertext));
-
         Ok(())
     }
 }

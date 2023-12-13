@@ -2,7 +2,7 @@
 
 use crate::{
     common::{
-        drbg,
+        colorize, drbg,
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
         ntor::{self, AUTH_LENGTH},
         replay_filter::{self, ReplayFilter},
@@ -20,12 +20,12 @@ use crate::{
 use super::*;
 
 use bytes::{Buf, BufMut, Bytes};
-use colored::Colorize;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
+use tracing::{debug, info};
 
 use std::time::Instant;
 
@@ -113,23 +113,16 @@ pub(crate) struct ServerSession<'a> {
 
 impl<'a> ServerSession<'a> {
     pub fn session_id(&self) -> String {
-        Self::colorize(&self.session_id)
+        String::from("s-") + &colorize(&self.session_id)
     }
 
     pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
-        trace!(
-            "{} -> {} session id update",
-            Self::colorize(&self.session_id),
-            Self::colorize(&id)
+        debug!(
+            "{} -> {} server updating session id",
+            colorize(&self.session_id),
+            colorize(&id)
         );
         self.session_id = id;
-    }
-
-    fn colorize(id: &[u8; SESSION_ID_LEN]) -> String {
-        let r = 0xff & id[0];
-        let g = 0xff & id[1];
-        let b = 0xff & id[2];
-        hex::encode(id).truecolor(r, g, b).to_string()
     }
 }
 
@@ -158,17 +151,17 @@ impl<'b> ServerHandshake<'b> {
         let mut client_hs: ClientHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
-            trace!("server-{} successful read {n}B", self.session.session_id());
+            trace!("{} successful read {n}B", self.session.session_id());
 
             client_hs = match self.try_parse_client_handshake(&mut buf[..n]) {
                 Ok(chs) => chs,
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => {
-                    trace!("server-{} reading more", self.session.session_id());
+                    trace!("{} reading more", self.session.session_id());
                     continue;
                 }
                 Err(e) => {
                     trace!(
-                        "server-{} failed to parse client handshake: {e}",
+                        "{} failed to parse client handshake: {e}",
                         self.session.session_id()
                     );
                     return Err(e)?;
@@ -178,8 +171,8 @@ impl<'b> ServerHandshake<'b> {
             break;
         }
 
-        trace!(
-            "server-{} successfully parsed client handshake",
+        debug!(
+            "{} successfully parsed client handshake",
             self.session.session_id()
         );
 
@@ -208,10 +201,10 @@ impl<'b> ServerHandshake<'b> {
             ntor_hs_result.key_seed,
             KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
         );
-        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
+        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
             .try_into()
             .unwrap();
+        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
         self.session
             .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
 
@@ -241,6 +234,7 @@ impl<'b> ServerHandshake<'b> {
         sh_msg.marshall(&mut buf, h)?;
         trace!("adding encoded prng seed");
 
+        // TODO: Is this used for anything on the client side?
         // Send the PRNG seed as part of the first packet.
         let mut prng_pkt_buf = BytesMut::new();
         let pkt = framing::build_and_marshall(
@@ -250,10 +244,11 @@ impl<'b> ServerHandshake<'b> {
             0,
         )?;
 
+        let nn = buf.len();
         codec.encode(prng_pkt_buf, &mut buf)?;
 
-        trace!(
-            "server-{} writing server handshake {}B",
+        debug!(
+            "{} writing server handshake {}B",
             self.session.session_id(),
             buf.len()
         );
@@ -261,6 +256,7 @@ impl<'b> ServerHandshake<'b> {
         stream.write(&mut buf).await?;
 
         // success!
+        info!("{} handshake complete", self.session.session_id());
         let mut o4 = O4Stream::new(stream, codec, Session::Server(self.session));
         Ok(Obfs4Stream::from_o4(o4))
     }
@@ -279,12 +275,9 @@ impl<'b> ServerHandshake<'b> {
         let r = &buf[0..REPRESENTATIVE_LENGTH];
         let repres = Representative::try_from_bytes(r)?;
 
-        trace!("here");
-
         // derive the mark
         h.update(r);
         let m = h.finalize_reset().into_bytes();
-        trace!("{}, {}", hex::encode(m), m.len());
         let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 
         // find mark + mac position

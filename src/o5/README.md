@@ -10,4 +10,7 @@ changes from obfs4:
     - not sure why this was done in the first place
 * padding change (/fix?)
 * padding is a frame type, not just appended bytes
+* might add
+    - session tickets and resumption
+    - bidirectional heartbeats
 

@@ -13,12 +13,13 @@ use futures::{
     sink::{Sink, SinkExt},
     stream::{Stream as FStream, StreamExt},
 };
+use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio_util::{
     codec::{Decoder, Encoder, Framed},
     io::StreamReader,
 };
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 use std::{
     io::Error as IoError,
@@ -36,6 +37,8 @@ pub(super) use server::{Server, ServerHandshake, ServerSession};
 mod utils;
 pub(crate) use utils::*;
 
+use super::framing::LENGTH_LENGTH;
+
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 enum IAT {
     #[default]
@@ -52,17 +55,31 @@ pub(super) enum Session<'a> {
 impl<'a> Session<'a> {
     fn id(&self) -> String {
         match self {
-            Session::Client(cs) => cs.session_id(),
-            Session::Server(ss) => ss.session_id(),
+            Session::Client(cs) => format!("c{}", cs.session_id()),
+            Session::Server(ss) => format!("s{}", ss.session_id()),
+        }
+    }
+    pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
+        debug!(
+            "{} setting length seed {}",
+            self.id(),
+            hex::encode(seed.as_bytes())
+        );
+        match self {
+            Session::Client(cs) => cs.set_len_seed(seed),
+            _ => {} // pass}
         }
     }
 }
 
+#[pin_project]
 pub struct Obfs4Stream<'a, T>
 where
     T: AsyncRead + AsyncWrite,
 {
-    s: Arc<Mutex<O4Stream<'a, T>>>,
+    // s: Arc<Mutex<O4Stream<'a, T>>>,
+    #[pin]
+    s: O4Stream<'a, T>,
 }
 
 impl<'a, T> Obfs4Stream<'a, T>
@@ -71,25 +88,26 @@ where
 {
     pub(crate) fn from_o4(o4: O4Stream<'a, T>) -> Self {
         Obfs4Stream {
-            s: Arc::new(Mutex::new(o4)),
+            // s: Arc::new(Mutex::new(o4)),
+            s: o4,
         }
     }
 }
 
+#[pin_project]
 struct O4Stream<'a, T>
 where
     T: AsyncRead + AsyncWrite,
 {
-    // sink: Box<dyn Sink<B, Error=framing::FrameError>>,
-    // stream: Box<dyn FStream<Item=std::result::Result<framing::Message, framing::FrameError>>>,
-    stream: Framed<T, framing::Obfs4Codec>,
+    #[pin]
+    pub stream: Framed<T, framing::Obfs4Codec>,
 
-    session: Session<'a>,
+    pub session: Session<'a>,
 }
 
 impl<'a, T> O4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn new(
         // inner: &'a mut dyn Stream<'a>,
@@ -99,26 +117,62 @@ where
     ) -> Self {
         Self {
             stream: codec.framed(inner),
-
             session,
         }
     }
 
-    async fn close_after_delay(&mut self, d: Duration) {
-        // let r = AsyncDiscard::new(&mut StreamReader::new(self.stream));
+    fn try_handle_non_payload_packet(&mut self) -> Result<()> {
+        let buf = self.stream.read_buffer_mut();
 
-        // if let Err(_) = tokio::time::timeout(d, r.discard()).await {
-        //     trace!(
-        //         "{} timed out while discarding",
-        //         hex::encode(&self.session.id())
-        //     );
-        // }
-        // if let Err(e) = self.sink.close().await {
-        //     warn!(
-        //         "{} encountered an error while closing: {e}",
-        //         hex::encode(&self.session.id())
-        //     );
-        // };
+        debug!("ATTEMPTING TO PARSE EXPECTED PACKET");
+        if !buf.has_remaining() {
+            return Ok(());
+        } else if buf.remaining() < PACKET_OVERHEAD {
+            return Ok(());
+        }
+
+        debug!("HERHERE ({}) {}", buf.remaining(), buf[0]);
+        let proto_type = PacketType::try_from(buf[0])?;
+        if proto_type == PacketType::Payload {
+            return Ok(());
+        }
+
+        let length = u16::from_be_bytes(buf[1..3].try_into().unwrap()) as usize;
+
+        if length > buf.remaining() - PACKET_OVERHEAD {
+            debug!("HERHERE {length} > {}", buf.remaining() - PACKET_OVERHEAD);
+            // somehow we don't have the full packet yet.
+            return Ok(());
+        }
+
+        // we have enough bytes. advance past the header and try to parse the frame.
+        let m = framing::Message::try_parse(buf)?;
+        if let framing::Message::PrngSeed(len_seed) = m {
+            self.session.set_len_seed(drbg::Seed::from(len_seed));
+        }
+
+        Ok(())
+    }
+
+    async fn close_after_delay(&mut self, d: Duration) {
+        let s = self.stream.get_mut();
+
+        let r = AsyncDiscard::new(s);
+
+        if let Err(_) = tokio::time::timeout(d, r.discard()).await {
+            trace!(
+                "{} timed out while discarding",
+                hex::encode(&self.session.id())
+            );
+        }
+
+        let s = self.stream.get_mut();
+        if let Err(e) = s.shutdown().await {
+            warn!(
+                "{} encountered an error while closing: {e}",
+                hex::encode(&self.session.id())
+            );
+        };
     }
 
     fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
@@ -171,14 +225,17 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
+        trace!("{} writing", self.session.id());
         todo!()
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
+        trace!("{} flushing", self.session.id());
         todo!()
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
+        trace!("{} shutting down", self.session.id());
         todo!()
     }
 }
@@ -192,28 +249,34 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
+        trace!("{} reading", self.session.id());
+        // let mut pinned = std::pin::pin!(self.stream);
+        // pinned.as_mut().poll_read(cx, buf)
         todo!()
     }
 }
 
 impl<'a, T> AsyncWrite for Obfs4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
-        todo!()
+        let this = self.project();
+        this.s.poll_write(cx, buf)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
-        todo!()
+        let this = self.project();
+        this.s.poll_flush(cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
-        todo!()
+        let this = self.project();
+        this.s.poll_shutdown(cx)
     }
 }
 
@@ -222,10 +285,11 @@ where
     T: AsyncRead + AsyncWrite,
 {
     fn poll_read(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
-        todo!()
+        let this = self.project();
+        this.s.poll_read(cx, buf)
     }
 }

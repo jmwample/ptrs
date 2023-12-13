@@ -2,6 +2,7 @@
 
 use crate::{
     common::{
+        colorize,
         elligator2::{Representative, REPRESENTATIVE_LENGTH},
         ntor::{self, HandShakeResult, AUTH_LENGTH},
         HmacSha256,
@@ -17,11 +18,11 @@ use crate::{
 use super::*;
 
 use bytes::{Buf, BufMut, BytesMut};
-use colored::Colorize;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::{debug, info};
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::sync::{Arc, Mutex};
@@ -70,6 +71,9 @@ pub struct ClientSession {
     iat_mode: IAT,
     epoch_hour: String,
     pad_len: usize,
+
+    // TODO: does the client have a len_seed or is this unused???
+    len_seed: drbg::Seed,
 }
 
 impl std::fmt::Debug for ClientSession {
@@ -97,32 +101,35 @@ impl ClientSession {
             session_keys,
             node_id: station_id,
             node_pubkey: station_pubkey,
-            // TODO: generate session id
             session_id,
             iat_mode,
             epoch_hour: "".into(),
             pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
+
+            len_seed: drbg::Seed::new().unwrap(),
         }
     }
 
     pub fn session_id(&self) -> String {
-        Self::colorize(&self.session_id)
+        String::from("c-") + &colorize(&self.session_id)
     }
 
     pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
-        trace!(
-            "{} -> {} session id update",
-            Self::colorize(&self.session_id),
-            Self::colorize(&id)
+        debug!(
+            "{} -> {} client updating session id",
+            colorize(&self.session_id),
+            colorize(&id)
         );
         self.session_id = id;
     }
 
-    fn colorize(id: &[u8; SESSION_ID_LEN]) -> String {
-        let r = 0xff & id[0];
-        let g = 0xff & id[1];
-        let b = 0xff & id[2];
-        hex::encode(id).truecolor(r, g, b).to_string()
+    pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
+        debug!(
+            "{} setting length seed {}",
+            self.session_id(),
+            hex::encode(seed.as_bytes())
+        );
+        self.len_seed = seed;
     }
 }
 
@@ -171,13 +178,14 @@ impl ClientHandshake {
 
         // send client Handshake
         stream.write_all(&buf).await?;
-        trace!(
-            "client-{} handshake sent {}B, waiting for sever response",
+        debug!(
+            "{} handshake sent {}B, waiting for sever response",
             self.session.session_id(),
             buf.len()
         );
 
         // Wait for and attempt to consume server handshake
+        let mut remainder = BytesMut::new();
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
         let mut server_hs: ServerHandshakeMessage;
         loop {
@@ -188,15 +196,20 @@ impl ClientHandshake {
                     "read 0B in client handshake",
                 )))?
             }
-            trace!(
-                "client-{} read {n}/{}B of server handshake",
+            debug!(
+                "{} read {n}/{}B of server handshake",
                 self.session.session_id(),
                 buf.len()
             );
 
             // validate sever
             server_hs = match self.try_parse(&mut buf[..n]) {
-                Ok(shs) => shs,
+                Ok((shs, len)) => {
+                    // TODO: make sure bytes after server hello get put back
+                    // into the read buffer for message handling
+                    remainder.put(&buf[n - SEED_PACKET_LENGTH..n]);
+                    shs
+                }
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,
                 Err(e) => return Err(e)?,
             };
@@ -229,18 +242,26 @@ impl ClientHandshake {
         self.session
             .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
 
-        let codec = Obfs4Codec::new(ekm, dkm);
-        Ok(Obfs4Stream::from_o4(O4Stream::new(
-            stream,
-            codec,
-            Session::Client(self.session),
-        )))
+        info!("{} handshake complete", self.session.session_id());
+
+        let mut codec = Obfs4Codec::new(ekm, dkm);
+        let res = codec.decode(&mut remainder);
+        if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
+            // try to parse the remainder of the server hello packet as a
+            // PrngSeed since it should be there.
+            self.session.set_len_seed(drbg::Seed::from(seed));
+        } else {
+            debug!("NOPE {res:?}");
+        }
+        let mut o4 = O4Stream::new(stream, codec, Session::Client(self.session));
+
+        Ok(Obfs4Stream::from_o4(o4))
     }
 
-    fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<ServerHandshakeMessage> {
+    fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<(ServerHandshakeMessage, usize)> {
         let buf = buf.as_ref();
         trace!(
-            "client-{} parsing server handshake {}",
+            "{} parsing server handshake {}",
             self.session.session_id(),
             buf.len()
         );
@@ -285,13 +306,16 @@ impl ClientHandshake {
             hex::encode(mac_received)
         );
         if mac_calculated.ct_eq(mac_received).into() {
-            return Ok(ServerHandshakeMessage::new(
-                server_repres,
-                server_auth,
-                self.session.session_keys.representative.clone().unwrap(),
-                server_mark,
-                Some(pos + MARK_LENGTH + MAC_LENGTH),
-                self.session.epoch_hour.clone(),
+            return Ok((
+                ServerHandshakeMessage::new(
+                    server_repres,
+                    server_auth,
+                    self.session.session_keys.representative.clone().unwrap(),
+                    server_mark,
+                    Some(pos + MARK_LENGTH + MAC_LENGTH),
+                    self.session.epoch_hour.clone(),
+                ),
+                pos + MARK_LENGTH + MAC_LENGTH,
             ));
         }
 
