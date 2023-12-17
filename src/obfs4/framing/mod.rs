@@ -306,10 +306,13 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
         mut plaintext: T,
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
-        trace!("encoding");
+        trace!(
+            "encoding {}/{MAX_FRAME_PAYLOAD_LENGTH}",
+            plaintext.remaining()
+        );
 
         // Don't send a string if it is longer than the other end will accept.
-        if MAX_FRAME_PAYLOAD_LENGTH < plaintext.remaining() {
+        if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
             return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
         }
 

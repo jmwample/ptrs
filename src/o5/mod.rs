@@ -1,3 +1,5 @@
+mod framing;
+
 #[cfg(test)]
 mod tests {
     use super::*;

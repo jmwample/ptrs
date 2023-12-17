@@ -14,6 +14,7 @@ use crate::{
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use futures::sink::{Sink, SinkExt};
 use rand_core::{OsRng, RngCore};
 use subtle::ConstantTimeEq;
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -48,10 +49,17 @@ pub fn build_and_marshall<T: BufMut>(
     if pad_len > u16::MAX as usize {
         Err(FrameError::InvalidPayloadLength(pad_len))?
     }
+
     // is the provided data a reasonable size?
     let buf = data.as_ref();
-    let total_size = PACKET_OVERHEAD + buf.len() + pad_len;
-    if total_size > MAX_PACKET_PAYLOAD_LENGTH {
+    let total_size = buf.len() + pad_len;
+    trace!(
+        "building: total size = {}+{}={} / {MAX_PACKET_PAYLOAD_LENGTH}",
+        buf.len(),
+        pad_len,
+        total_size,
+    );
+    if total_size >= MAX_PACKET_PAYLOAD_LENGTH {
         Err(FrameError::InvalidPayloadLength(total_size))?
     }
 
@@ -62,6 +70,17 @@ pub fn build_and_marshall<T: BufMut>(
         dst.put_bytes(0_u8, pad_len);
     }
     Ok(())
+}
+
+pub async fn send_payload<S, T>(sink: &mut S, buf: &T) -> Result<(), <S as Sink<Bytes>>::Error>
+where
+    S: Sink<Bytes> + Unpin,
+    T: AsRef<[u8]>,
+{
+    let mut m = BytesMut::new();
+    Message::Payload(buf.as_ref().to_vec()).marshall(&mut m);
+
+    sink.send(m.freeze()).await
 }
 
 #[derive(Debug, PartialEq)]
@@ -101,6 +120,28 @@ pub enum Message {
 }
 
 impl Message {
+    pub(crate) fn as_pt(&self) -> PacketType {
+        match self {
+            Message::Payload(_) => PacketType::Payload,
+            Message::PrngSeed(_) => PacketType::PrngSeed,
+        }
+    }
+
+    pub(crate) fn marshall<T: BufMut>(&self, dst: &mut T) -> Result<(), FrameError> {
+        dst.put_u8(self.as_pt().into());
+        match self {
+            Message::Payload(buf) => {
+                dst.put_u16(buf.len() as u16);
+                dst.put(&buf[..]);
+            }
+            Message::PrngSeed(buf) => {
+                dst.put_u16(buf.len() as u16);
+                dst.put(&buf[..]);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
         if buf.remaining() < PACKET_OVERHEAD {
             Err(FrameError::InvalidMessage)?
