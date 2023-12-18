@@ -465,6 +465,12 @@ impl From<std::io::Error> for FrameError {
     }
 }
 
+impl From<FrameError> for std::io::Error {
+    fn from(value: FrameError) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("{}", value))
+    }
+}
+
 #[cfg(test)]
 mod generic_test;
 #[cfg(test)]

@@ -17,7 +17,7 @@ use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio_util::{
     codec::{Decoder, Encoder, Framed},
-    io::StreamReader,
+    io::{SinkWriter, StreamReader},
 };
 use tracing::{debug, trace, warn};
 
@@ -102,6 +102,11 @@ where
     #[pin]
     pub stream: Framed<T, framing::Obfs4Codec>,
 
+    // #[pin]
+    // pub reader: &'a dyn AsyncRead,
+
+    // #[pin]
+    // pub writer: &'a dyn AsyncWrite,
     pub session: Session<'a>,
 }
 
@@ -115,23 +120,24 @@ where
         codec: framing::Obfs4Codec,
         session: Session<'a>,
     ) -> Self {
+        let stream = codec.framed(inner);
         Self {
-            stream: codec.framed(inner),
+            stream,
+            // reader: &StreamReader::new(&mut stream),
+            // writer: &SinkWriter::new(&mut stream),
             session,
         }
     }
 
-    fn try_handle_non_payload_packet(&mut self) -> Result<()> {
+    fn try_recv_non_payload_packet(&mut self) -> Result<()> {
         let buf = self.stream.read_buffer_mut();
 
-        debug!("ATTEMPTING TO PARSE EXPECTED PACKET");
         if !buf.has_remaining() {
             return Ok(());
         } else if buf.remaining() < PACKET_OVERHEAD {
             return Ok(());
         }
 
-        debug!("HERHERE ({}) {}", buf.remaining(), buf[0]);
         let proto_type = PacketType::try_from(buf[0])?;
         if proto_type == PacketType::Payload {
             return Ok(());
@@ -140,15 +146,21 @@ where
         let length = u16::from_be_bytes(buf[1..3].try_into().unwrap()) as usize;
 
         if length > buf.remaining() - PACKET_OVERHEAD {
-            debug!("HERHERE {length} > {}", buf.remaining() - PACKET_OVERHEAD);
             // somehow we don't have the full packet yet.
             return Ok(());
         }
 
         // we have enough bytes. advance past the header and try to parse the frame.
         let m = framing::Message::try_parse(buf)?;
-        if let framing::Message::PrngSeed(len_seed) = m {
-            self.session.set_len_seed(drbg::Seed::from(len_seed));
+        self.try_handle_non_payload_message(m)
+    }
+
+    fn try_handle_non_payload_message(&mut self, msg: framing::Message) -> Result<()> {
+        match msg {
+            framing::Message::PrngSeed(len_seed) => {
+                self.session.set_len_seed(drbg::Seed::from(len_seed));
+            }
+            _ => {}
         }
 
         Ok(())
@@ -175,6 +187,11 @@ where
         };
     }
 
+    /// Attempts to pad a burst of data so that the last packet is of the length
+    /// `to_pad_to`. This can involve creating multiple packets, making this
+    /// slightly complex.
+    ///
+    /// TODO: document logic more clearly
     fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
         let tail_len = buf.len() % framing::MAX_SEGMENT_LENGTH;
 
@@ -185,29 +202,26 @@ where
             pad_len = (framing::MAX_SEGMENT_LENGTH - tail_len) + to_pad_to
         }
 
-        let data = vec![];
         if pad_len > HEADER_LENGTH {
             // pad_len > 19
             Ok(framing::build_and_marshall(
                 buf,
                 PacketType::Payload,
-                data,
+                vec![],
                 pad_len - HEADER_LENGTH,
             )?)
         } else if pad_len > 0 {
-            // TODO: I think this double pad might be a mistake and there should
-            // be an else in between.
             framing::build_and_marshall(
                 buf,
                 PacketType::Payload,
-                data.clone(),
+                vec![],
                 framing::MAX_PACKET_PAYLOAD_LENGTH,
             )?;
             // } else {
             Ok(framing::build_and_marshall(
                 buf,
                 PacketType::Payload,
-                data,
+                vec![],
                 pad_len,
             )?)
         } else {
@@ -226,23 +240,40 @@ where
         buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
         trace!("{} writing", self.session.id());
-        todo!()
+        let mut pinned = std::pin::pin!(self.stream);
+        if futures::Sink::<&[u8]>::poll_ready(pinned, cx) == Poll::Pending {
+            return Poll::Pending;
+        }
+
+        let n = buf.len();
+        pinned.start_send(buf)?;
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} flushing", self.session.id());
-        todo!()
+        let mut pinned = std::pin::pin!(self.stream);
+        match futures::Sink::<&[u8]>::poll_flush(pinned, cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} shutting down", self.session.id());
-        todo!()
+        let mut pinned = std::pin::pin!(self.stream);
+        match futures::Sink::<&[u8]>::poll_close(pinned, cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 impl<'a, T> AsyncRead for O4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -250,9 +281,34 @@ where
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
         trace!("{} reading", self.session.id());
-        // let mut pinned = std::pin::pin!(self.stream);
-        // pinned.as_mut().poll_read(cx, buf)
-        todo!()
+        let mut pinned = std::pin::pin!(self.stream);
+
+        // If there is no payload from the previous Read() calls, consume data off
+        // the network.  Not all data received is guaranteed to be usable payload,
+        // so do this in a loop until we would block on a read or an error occurs.
+        loop {
+            let msg = match pinned.poll_next(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(res) => {
+                    // TODO: when would this be None?
+                    match res.unwrap() {
+                        Ok(m) => m,
+                        Err(e) => Err(e)?,
+                    }
+                }
+            };
+
+            if let framing::Message::Payload(message) = msg {
+                buf.put_slice(&message);
+                return Poll::Ready(Ok(()));
+            }
+
+            let this = self.get_mut(); // get `&mut O4Stream<'a, T>` from `Pin<&mut O4Stream<'a, T>>`
+            match this.try_handle_non_payload_message(msg) {
+                Ok(_) => continue,
+                Err(e) => return Poll::Ready(Err(e.into())),
+            }
+        }
     }
 }
 
