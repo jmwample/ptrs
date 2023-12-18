@@ -1,9 +1,9 @@
 :root {
     --chunky-text: #777;
-    --server-bg: hsl(190, 60%, 80%);
-    --client-bg: hsl(142, 61%, 82%);
-    --server-bg-hover: hsl(288, 28%, 83%);
-    --client-bg-hover: hsl(288, 31%, 80%);
+    --server-bg: hsl(190deg 20% 31%);
+    --client-bg:hsl(58deg 15% 30%);
+    --server-bg-hover: hsl(288deg, 12%, 30%);
+    --client-bg-hover: hsl(288deg, 15%, 27%);
 
     --sam-btn0: hsl(190, 30%, 45%);
     --sam-btn9: hsl(190, 25%, 40%);
@@ -256,7 +256,7 @@ tt.longboi {
 .record-data .string .label {
     display: none;
     position: absolute;
-    background-color: #FAF7DC;
+    background-color: #272722;
     border-radius: 5px;
     margin: 2px 0;
     padding: 2px 7px;
@@ -282,7 +282,7 @@ tt.longboi {
     left: 10px;
     border-width: 3px;
     border-style: solid;
-    border-color: transparent #FAF7DC #FAF7DC transparent;
+    border-color: transparent #9ebdc0 #9ebdc0 transparent;
 }
 
 .record.annotate .string > .explanation,
@@ -293,7 +293,7 @@ tt.longboi {
     color: black;
     margin: 1em 0;
     padding: 1em;
-    background-color: #FAF7DC;
+    background-color: #9ebdc0;
     border: 2px solid #e0d998;
     border-radius: 1em;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -308,7 +308,7 @@ tt.longboi {
     top: -7px;
     left: 20px;
     border: 2px solid;
-    background-color: #FAF7DC;
+    background-color: #9ebdc0;
     border-color: #e0d998 transparent transparent #e0d998;
 }
 
@@ -474,8 +474,8 @@ button#openCloseAll {
     margin: 0;
     padding: 2px;
     border-bottom: 1px solid grey;
-    background-color: bisque;
-    color: #444;
+    background-color: #000;
+    color: #f0caca;
     line-height: 20px;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-size: 14px;
@@ -483,7 +483,7 @@ button#openCloseAll {
 }
 .header a, .header a:visited, .header a:hover {
     text-decoration: none;
-    color: #444;
+    color: #f0caca;
 }
 .header a.this-page:before {
     content: "❧\00a0";

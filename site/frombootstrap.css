@@ -11,7 +11,7 @@ html {
     -webkit-text-size-adjust: 100%;
     -ms-text-size-adjust: 100%;
     -ms-overflow-style: scrollbar;
-    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+    -webkit-tap-light-color: rgba(0, 0, 0, 0);
 }
 
 body {
@@ -21,9 +21,9 @@ body {
     font-size: 1rem;
     font-weight: 400;
     line-height: 1.5;
-    color: #212529;
+    color: rgb(209, 205, 199);
     text-align: left;
-    background-color: #fff;
+    background-color: rgb(24, 26, 27);
 }
 
 p {
@@ -79,7 +79,7 @@ h6, .h6 {
 pre {
     display: block;
     font-size: 87.5%;
-    color: #212529;
+    color: #000;
 }
 
 .container {
