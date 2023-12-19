@@ -10,7 +10,8 @@ use crate::{
 
 use bytes::{Buf, BytesMut};
 use futures::{
-    sink::{Sink, SinkExt},
+    Sink,
+    sink::SinkExt,
     stream::{Stream as FStream, StreamExt},
 };
 use pin_project::pin_project;
@@ -235,25 +236,31 @@ where
     T: AsyncRead + AsyncWrite,
 {
     fn poll_write(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
         trace!("{} writing", self.session.id());
-        let mut pinned = std::pin::pin!(self.stream);
-        if futures::Sink::<&[u8]>::poll_ready(pinned, cx) == Poll::Pending {
+        let mut this = self.as_mut().project();
+        if futures::Sink::<&[u8]>::poll_ready(this.stream.as_mut(), cx) == Poll::Pending {
             return Poll::Pending;
         }
 
+
+        let payload = framing::Message::Payload(buf.to_vec());
+
+        let mut buf = BytesMut::new();
+        payload.marshall(&mut buf);
         let n = buf.len();
-        pinned.start_send(buf)?;
+        this.stream.start_send(buf)?;
+        self.poll_flush(cx);
         Poll::Ready(Ok(n))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} flushing", self.session.id());
-        let mut pinned = std::pin::pin!(self.stream);
-        match futures::Sink::<&[u8]>::poll_flush(pinned, cx) {
+        let mut this = self.project();
+        match futures::Sink::<&[u8]>::poll_flush(this.stream.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
             Poll::Pending => Poll::Pending,
@@ -262,8 +269,8 @@ where
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} shutting down", self.session.id());
-        let mut pinned = std::pin::pin!(self.stream);
-        match futures::Sink::<&[u8]>::poll_close(pinned, cx) {
+        let mut this = self.project();
+        match futures::Sink::<&[u8]>::poll_close(this.stream.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
             Poll::Pending => Poll::Pending,
@@ -276,24 +283,34 @@ where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
         trace!("{} reading", self.session.id());
-        let mut pinned = std::pin::pin!(self.stream);
 
         // If there is no payload from the previous Read() calls, consume data off
         // the network.  Not all data received is guaranteed to be usable payload,
         // so do this in a loop until we would block on a read or an error occurs.
         loop {
-            let msg = match pinned.poll_next(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(res) => {
-                    // TODO: when would this be None?
-                    match res.unwrap() {
-                        Ok(m) => m,
-                        Err(e) => Err(e)?,
+            let msg = {
+                    // mutable borrow of self is dropped at the end of this block
+                    let mut this = self.as_mut().project();
+                    match this.stream.as_mut().poll_next(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(res) => {
+
+                        // TODO: when would this be None?
+                        // It seems like this maybe happens when reading an EOF
+                        // or reading from a closed connection
+                        if res.is_none() {
+                            return Poll::Ready(Ok(()))
+                        }
+
+                        match res.unwrap() {
+                            Ok(m) => m,
+                            Err(e) => Err(e)?,
+                        }
                     }
                 }
             };
@@ -303,8 +320,7 @@ where
                 return Poll::Ready(Ok(()));
             }
 
-            let this = self.get_mut(); // get `&mut O4Stream<'a, T>` from `Pin<&mut O4Stream<'a, T>>`
-            match this.try_handle_non_payload_message(msg) {
+            match self.as_mut().try_handle_non_payload_message(msg) {
                 Ok(_) => continue,
                 Err(e) => return Poll::Ready(Err(e.into())),
             }
@@ -338,7 +354,7 @@ where
 
 impl<'a, T> AsyncRead for Obfs4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -349,3 +365,4 @@ where
         this.s.poll_read(cx, buf)
     }
 }
+
