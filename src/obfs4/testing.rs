@@ -28,7 +28,12 @@ async fn public_iface() -> Result<()> {
 
     let mut buf = vec![0_u8; message.len()];
     o4c_stream.read(&mut buf).await?;
-    assert_eq!(&message[..], &buf, "{}", String::from_utf8(message.to_vec())?);
+    assert_eq!(
+        &message[..],
+        &buf,
+        "{}",
+        String::from_utf8(message.to_vec())?
+    );
 
     Ok(())
 }

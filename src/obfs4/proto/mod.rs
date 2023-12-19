@@ -10,9 +10,9 @@ use crate::{
 
 use bytes::{Buf, BytesMut};
 use futures::{
-    Sink,
     sink::SinkExt,
     stream::{Stream as FStream, StreamExt},
+    Sink,
 };
 use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
@@ -246,7 +246,6 @@ where
             return Poll::Pending;
         }
 
-
         let payload = framing::Message::Payload(buf.to_vec());
 
         let mut buf = BytesMut::new();
@@ -294,17 +293,16 @@ where
         // so do this in a loop until we would block on a read or an error occurs.
         loop {
             let msg = {
-                    // mutable borrow of self is dropped at the end of this block
-                    let mut this = self.as_mut().project();
-                    match this.stream.as_mut().poll_next(cx) {
+                // mutable borrow of self is dropped at the end of this block
+                let mut this = self.as_mut().project();
+                match this.stream.as_mut().poll_next(cx) {
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(res) => {
-
                         // TODO: when would this be None?
                         // It seems like this maybe happens when reading an EOF
                         // or reading from a closed connection
                         if res.is_none() {
-                            return Poll::Ready(Ok(()))
+                            return Poll::Ready(Ok(()));
                         }
 
                         match res.unwrap() {
@@ -365,4 +363,3 @@ where
         this.s.poll_read(cx, buf)
     }
 }
-
