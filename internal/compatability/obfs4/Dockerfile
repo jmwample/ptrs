@@ -7,8 +7,9 @@ RUN cargo install --path . --bin fwd_proxy
 
 FROM golang:bullseye as go-builder
 WORKDIR /usr/src/obfs4-go
-COPY internal/compatability/obfs4/main.go .
-COPY internal/compatability/obfs4/go.mod .
+COPY internal/compatability/obfs4/ .
+RUN ls
+RUN go mod tidy
 RUN go build -o fwd_go .
 
 FROM debian:bullseye-slim

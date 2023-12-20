@@ -67,12 +67,11 @@ pub struct ClientSession {
     node_pubkey: ntor::PublicKey,
     session_keys: ntor::SessionKeyPair,
     session_id: [u8; SESSION_ID_LEN],
-    iat_mode: IAT,
+    iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
     pad_len: usize,
 
-    // TODO: does the client have a len_seed or is this unused???
-    len_seed: drbg::Seed,
+    len_seed: drbg::Seed, // TODO: initialize the distributions using the seed
 }
 
 impl std::fmt::Debug for ClientSession {
