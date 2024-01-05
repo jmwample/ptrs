@@ -10,6 +10,7 @@ use crate::{
 
 use bytes::{Buf, BytesMut};
 use futures::{
+    ready,
     sink::SinkExt,
     stream::{Stream as FStream, StreamExt},
     Sink,
@@ -103,11 +104,6 @@ where
     #[pin]
     pub stream: Framed<T, framing::Obfs4Codec>,
 
-    // #[pin]
-    // pub reader: &'a dyn AsyncRead,
-
-    // #[pin]
-    // pub writer: &'a dyn AsyncWrite,
     pub session: Session<'a>,
 }
 
@@ -242,18 +238,52 @@ where
     ) -> Poll<StdResult<usize, IoError>> {
         trace!("{} writing", self.session.id());
         let mut this = self.as_mut().project();
+
+        // is the stream ready to send an event?
         if futures::Sink::<&[u8]>::poll_ready(this.stream.as_mut(), cx) == Poll::Pending {
             return Poll::Pending;
         }
+        debug!("here 1");
 
-        let payload = framing::Message::Payload(buf.to_vec());
+        // put the buf into the send queue for the framed to each chunks off and
+        // send one piece at a time.
+        match this.stream.as_mut().start_send(buf) {
+            Ok(()) => {} // return Poll::Ready(Ok(buf.len())),
+            Err(e) => return Poll::Ready(Err(e.into())),
+        };
 
-        let mut buf = BytesMut::new();
-        payload.marshall(&mut buf);
-        let n = buf.len();
-        this.stream.start_send(buf)?;
+        debug!("here 2");
         self.poll_flush(cx);
-        Poll::Ready(Ok(n))
+        Poll::Ready(Ok(buf.len()))
+        /*
+        let mut this = self.as_mut().project();
+
+
+        let msg_len = buf.len();
+
+        // while we have bytes in the buffer write MAX_FRAME_PAYLOAD_LENGTH
+        // chunks until we have less than that amount left.
+        // TODO: asyncwrite - apply length_dist instead of just full payloads
+        let mut len_sent: usize = 0;
+        let mut out_buf = BytesMut::with_capacity(framing::MAX_FRAME_PAYLOAD_LENGTH);
+        while msg_len - len_sent > framing::MAX_FRAME_PAYLOAD_LENGTH {
+            let payload = framing::Message::Payload(
+                buf[len_sent..len_sent + framing::MAX_FRAME_PAYLOAD_LENGTH].to_vec(),
+            );
+
+            // payload.marshall(&mut out_buf);
+            this.stream.as_mut().start_send(&buf[len_sent..len_sent + framing::MAX_FRAME_PAYLOAD_LENGTH])?;
+
+            len_sent += framing::MAX_FRAME_PAYLOAD_LENGTH;
+            out_buf.clear();
+        }
+
+        let payload = framing::Message::Payload(buf[len_sent..].to_vec());
+
+        let mut out_buf = BytesMut::new();
+        payload.marshall(&mut out_buf);
+        this.stream.as_mut().start_send(out_buf)?;
+        */
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {

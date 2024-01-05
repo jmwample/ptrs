@@ -256,6 +256,7 @@ impl<'b> ServerHandshake<'b> {
 
         // success!
         info!("{} handshake complete", self.session.session_id());
+        codec.handshake_complete();
         let mut o4 = O4Stream::new(stream, codec, Session::Server(self.session));
         Ok(Obfs4Stream::from_o4(o4))
     }

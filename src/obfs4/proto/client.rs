@@ -45,7 +45,7 @@ impl Client {
 
     pub async fn wrap<'a, T>(&self, stream: T) -> Result<Obfs4Stream<'a, T>>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
         tokio::select! {
             r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
@@ -251,6 +251,7 @@ impl ClientHandshake {
         } else {
             debug!("NOPE {res:?}");
         }
+        codec.handshake_complete();
         let mut o4 = O4Stream::new(stream, codec, Session::Client(self.session));
 
         Ok(Obfs4Stream::from_o4(o4))

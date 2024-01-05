@@ -53,6 +53,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
 
+use std::cmp::min;
+
 mod packet;
 pub use packet::*;
 
@@ -102,6 +104,8 @@ pub struct Obfs4Codec {
     // key: [u8; KEY_LENGTH],
     encoder: Obfs4Encoder,
     decoder: Obfs4Decoder,
+
+    pub(crate) handshake_complete: bool,
 }
 
 impl Obfs4Codec {
@@ -114,7 +118,12 @@ impl Obfs4Codec {
             // key,
             encoder: Obfs4Encoder::new(encoder_key_material),
             decoder: Obfs4Decoder::new(decoder_key_material),
+            handshake_complete: false,
         }
+    }
+
+    pub(crate) fn handshake_complete(&mut self) {
+        self.handshake_complete = true;
     }
 }
 
@@ -149,6 +158,7 @@ impl Obfs4Decoder {
             next_length_invalid: false,
         }
     }
+
 }
 
 impl Decoder for Obfs4Codec {
@@ -307,13 +317,26 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
         trace!(
-            "encoding {}/{MAX_FRAME_PAYLOAD_LENGTH}",
+            "encoding {}/{MAX_PACKET_PAYLOAD_LENGTH}",
             plaintext.remaining()
         );
 
-        // Don't send a string if it is longer than the other end will accept.
-        if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
-            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
+        let mut plaintext_frame = BytesMut::new();
+        if self.handshake_complete {
+            // from write buf -> Paylad and serialize it
+            let num_bytes = min(MAX_PACKET_PAYLOAD_LENGTH, plaintext.remaining());
+            let mut plaintext_u8 = vec![0_u8; MAX_PACKET_PAYLOAD_LENGTH];
+            plaintext_u8.put(plaintext.take(num_bytes));
+            Message::Payload(plaintext_u8).marshall(&mut plaintext_frame)?;
+        } else {
+
+            // Don't send a handshake message if it is longer than the other
+            // end will accept.
+            if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
+                return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
+            }
+
+            plaintext_frame.put(plaintext);
         }
 
         // Generate a new nonce
@@ -324,9 +347,7 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
         let cipher = XSalsa20Poly1305::new(&key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        let mut plaintext_u8 = vec![0_u8; plaintext.remaining()];
-        plaintext.copy_to_slice(&mut plaintext_u8[..]);
-        let mut ciphertext = cipher.encrypt(&nonce, plaintext_u8.as_ref())?;
+        let mut ciphertext = cipher.encrypt(&nonce, plaintext_frame.as_ref())?;
         trace!("[encode] finished encrypting");
 
         // Obfuscate the length
