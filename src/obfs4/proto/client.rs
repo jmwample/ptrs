@@ -3,8 +3,7 @@
 use crate::{
     common::{
         colorize,
-        elligator2::{Representative, REPRESENTATIVE_LENGTH},
-        ntor::{self, HandShakeResult, AUTH_LENGTH},
+        ntor::{self, HandShakeResult, AUTH_LENGTH, Representative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     obfs4::{
@@ -218,7 +217,7 @@ impl ClientHandshake {
 
         let ntor_hs_result: HandShakeResult = match ntor::HandShakeResult::client_handshake(
             &self.session.session_keys,
-            &server_hs.server_pubkey()?,
+            &server_hs.server_pubkey(),
             &self.session.node_pubkey,
             &self.session.node_id,
         )
@@ -270,7 +269,8 @@ impl ClientHandshake {
             Err(Error::Obfs4Framing(FrameError::EAgain))?
         }
 
-        let server_repres = Representative::try_from_bytes(&buf[0..REPRESENTATIVE_LENGTH])?;
+        let repres_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let server_repres = Representative::from(repres_bytes);
         let server_auth: [u8; AUTH_LENGTH] =
             buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?;
 
@@ -327,6 +327,7 @@ impl ClientHandshake {
 pub struct ClientHandshakeMessage {
     pad_len: usize,
     repres: Representative,
+    pubkey: Option<ntor::PublicKey>,
 
     // only used when parsing (i.e. on the server side)
     epoch_hour: String,
@@ -343,6 +344,7 @@ impl ClientHandshakeMessage {
         Self {
             pad_len,
             repres,
+            pubkey: None,
 
             // only used when parsing (i.e. on the server side)
             epoch_hour,
@@ -350,8 +352,15 @@ impl ClientHandshakeMessage {
         }
     }
 
-    pub fn get_public(&self) -> Result<ntor::PublicKey> {
-        self.repres.to_public()
+    pub fn get_public(&mut self) -> ntor::PublicKey {
+        match self.pubkey {
+            Some(pk) => pk,
+            None => {
+                let pk = ntor::PublicKey::from(&self.repres);
+                self.pubkey = Some(pk); 
+                pk
+            }
+        }
     }
 
     pub fn get_mark(&self) -> [u8; MARK_LENGTH] {

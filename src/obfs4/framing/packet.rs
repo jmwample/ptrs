@@ -1,7 +1,6 @@
 use crate::{
     common::{
         drbg,
-        elligator2::{Representative, REPRESENTATIVE_LENGTH},
         ntor, HmacSha256,
     },
     obfs4::{

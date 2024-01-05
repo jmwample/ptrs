@@ -8,7 +8,7 @@ mod skip;
 pub use skip::AsyncDiscard;
 // pub use skip::{AsyncDiscard, AsyncSkipReader, Discard, SkipReader};
 
-pub mod elligator2;
+// pub mod elligator2;
 
 pub mod drbg;
 pub mod ntor;
