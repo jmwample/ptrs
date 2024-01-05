@@ -25,8 +25,7 @@ hkdf = "0.12.3"
 
 crypto_secretbox = { version="0.1.1", features=["salsa20"]}
 subtle = "2.5.0"
-curve25519-dalek = { version="4", features=["group"]}
-x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reusable_secrets"] }
+x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reusable_secrets", "elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "elligator2-ntor"}
 group = "0.13.0"
 
 lazy_static = "0.1.4"

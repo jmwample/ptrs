@@ -3,8 +3,7 @@
 use crate::{
     common::{
         colorize, drbg,
-        elligator2::{Representative, REPRESENTATIVE_LENGTH},
-        ntor::{self, AUTH_LENGTH},
+        ntor::{self, AUTH_LENGTH, Representative, REPRESENTATIVE_LENGTH},
         replay_filter::{self, ReplayFilter},
         HmacSha256,
     },
@@ -178,7 +177,7 @@ impl<'b> ServerHandshake<'b> {
 
         // derive key materials
         let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
-            &client_hs.get_public()?,
+            &client_hs.get_public(),
             &self.session.session_keys,
             &self.session.identity_keys,
             &self.session.node_id,
@@ -272,11 +271,11 @@ impl<'b> ServerHandshake<'b> {
             Err(Error::Obfs4Framing(FrameError::EAgain))?;
         }
 
-        let r = &buf[0..REPRESENTATIVE_LENGTH];
-        let repres = Representative::try_from_bytes(r)?;
+        let r_bytes: [u8;32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let repres = Representative::from(&r_bytes);
 
         // derive the mark
-        h.update(r);
+        h.update(&r_bytes[..]);
         let m = h.finalize_reset().into_bytes();
         let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 
@@ -359,6 +358,7 @@ pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTH_LENGTH],
     pad_len: usize,
     repres: Representative,
+    pubkey: Option<ntor::PublicKey>,
     epoch_hour: String,
 
     /// Part of the obfs4 handshake is to send the PRNG Seed Message concatenated
@@ -383,6 +383,7 @@ impl ServerHandshakeMessage {
             server_auth,
             pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
             repres,
+            pubkey: None,
             epoch_hour: epoch_hr,
             hs_end_pos: hs_end_pos.unwrap_or(0),
 
@@ -391,8 +392,15 @@ impl ServerHandshakeMessage {
         }
     }
 
-    pub fn server_pubkey(self) -> Result<ntor::PublicKey> {
-        self.repres.to_public()
+    pub fn server_pubkey(&mut self) -> ntor::PublicKey {
+        match self.pubkey {
+            Some(pk) => pk,
+            None => {
+                let pk = ntor::PublicKey::from(&self.repres);
+                self.pubkey = Some(pk); 
+                pk
+            }
+        }
     }
 
     pub fn server_auth(self) -> [u8; AUTH_LENGTH] {

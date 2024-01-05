@@ -93,7 +93,6 @@ mod test {
     use std::io::prelude::*;
     use std::iter;
 
-    use crate::common::elligator2;
     use crate::test_utils;
 
     struct MacMarkTest {

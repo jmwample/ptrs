@@ -1,18 +1,20 @@
 #![allow(unused)]
 
-use crate::{common::elligator2::Representative, Error, Result};
+use crate::{Error, Result};
 
 mod id;
 pub use id::{ID, NODE_ID_LENGTH};
 
-use curve25519_dalek::Scalar;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use x25519_dalek::{PublicKey as DalekPubKey, ReusableSecret, SharedSecret, StaticSecret};
+use x25519_dalek::{ReusableSecret, SharedSecret, StaticSecret, PublicRepresentative, x25519};
 
 use std::error::Error as StdError;
 use std::fmt::{self, Debug, Display};
+use std::convert::From;
+
+pub const REPRESENTATIVE_LENGTH: usize = 32;
 
 const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
@@ -71,7 +73,10 @@ pub struct IdentityKeyPair {
 }
 
 /// Re-Export the public key type for consistency in usage.
-pub type PublicKey = DalekPubKey;
+pub type PublicKey = x25519_dalek::PublicKey;
+
+/// Re-Export the public key type for consistency in usage.
+pub type Representative = x25519_dalek::PublicRepresentative;
 
 /// Curve25519 keypair with an optional Elligator representative.
 /// As only certain Curve25519 keys can be obfuscated with Elligator, the
@@ -122,7 +127,7 @@ impl SessionKeyPair {
 
         if elligator {
             loop {
-                match Representative::new(rp.public) {
+                match Option::<Representative>::from(&rp.private) {
                     Some(representative) => {
                         rp.representative = Some(representative);
                     }
