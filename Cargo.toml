@@ -3,9 +3,6 @@ name = "obfs"
 version = "0.1.0"
 edition = "2021"
 
-links = "libelligator2"
-build = "build.rs"
-
 [lib]
 name = "obfs"
 crate-type = ["cdylib", "rlib"]
