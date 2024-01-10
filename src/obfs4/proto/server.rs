@@ -10,7 +10,11 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_MATERIAL_LENGTH},
-        proto::client::{ClientHandshakeMessage, ClientParams},
+        proto::{
+            state::Session,
+            client::ClientParams,
+            handshake_client::ClientHandshakeMessage,
+        },
     },
     stream::Stream,
     Error, Result,

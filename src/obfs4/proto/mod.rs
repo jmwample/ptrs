@@ -35,7 +35,7 @@ use std::{
 mod client;
 pub(super) use client::{Client, ClientHandshake, ClientSession};
 mod server;
-pub(super) use server::{Server, ServerHandshake, ServerSession};
+pub(super) use server::{Server, ServerHandshake}; //, ServerSession};
 mod utils;
 pub(crate) use utils::*;
 
@@ -52,30 +52,30 @@ enum IAT {
     Paranoid,
 }
 
-pub(super) enum Session<'a> {
-    Server(ServerSession<'a>),
-    Client(ClientSession),
-}
-
-impl<'a> Session<'a> {
-    fn id(&self) -> String {
-        match self {
-            Session::Client(cs) => format!("c{}", cs.session_id()),
-            Session::Server(ss) => format!("s{}", ss.session_id()),
-        }
-    }
-    pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
-        debug!(
-            "{} setting length seed {}",
-            self.id(),
-            hex::encode(seed.as_bytes())
-        );
-        match self {
-            Session::Client(cs) => cs.set_len_seed(seed),
-            _ => {} // pass}
-        }
-    }
-}
+// // pub(super) enum Session<'a> {
+// //     Server(ServerSession<'a>),
+// //     Client(ClientSession),
+// // }
+// 
+// impl<'a> Session<'a> {
+//     fn id(&self) -> String {
+//         match self {
+//             Session::Client(cs) => format!("c{}", cs.session_id()),
+//             Session::Server(ss) => format!("s{}", ss.session_id()),
+//         }
+//     }
+//     pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
+//         debug!(
+//             "{} setting length seed {}",
+//             self.id(),
+//             hex::encode(seed.as_bytes())
+//         );
+//         match self {
+//             Session::Client(cs) => cs.set_len_seed(seed),
+//             _ => {} // pass}
+//         }
+//     }
+// }
 
 #[pin_project]
 pub struct Obfs4Stream<'a, T>
@@ -107,7 +107,7 @@ where
     #[pin]
     pub stream: Framed<T, framing::Obfs4Codec>,
 
-    pub session: Session<'a>,
+    pub session: state::Session<'a>,
 }
 
 impl<'a, T> O4Stream<'a, T>
@@ -118,7 +118,7 @@ where
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
         codec: framing::Obfs4Codec,
-        session: Session<'a>,
+        session: state::Session<'a>,
     ) -> Self {
         let stream = codec.framed(inner);
         Self {

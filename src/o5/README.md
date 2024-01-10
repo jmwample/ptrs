@@ -14,6 +14,7 @@ changes from obfs4:
     - session tickets and resumption
     - bidirectional heartbeats
     - version / params frame for negotiating (theoretically in the first exchange alongside PRNG seed)
+    - handshake complete frame type 
 
 
 Goals
