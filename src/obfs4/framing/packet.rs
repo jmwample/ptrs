@@ -1,23 +1,21 @@
 use crate::{
     common::{
         drbg,
-        ntor, HmacSha256,
     },
     obfs4::{
         constants::*,
-        framing::{self, FrameError, Marshall, TryParse, LENGTH_LENGTH},
+        framing::{self, FrameError},
     },
-    Error,
 };
 
-use std::io::Cursor;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+
 
 use futures::sink::{Sink, SinkExt};
-use rand_core::{OsRng, RngCore};
-use subtle::ConstantTimeEq;
+
+
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
-use tracing::{debug, trace};
+use tracing::{trace};
 
 pub(crate) const PACKET_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_PACKET_PAYLOAD_LENGTH: usize =
@@ -211,7 +209,7 @@ mod test {
         ];
 
         for case in test_cases {
-            let mut buf = hex::decode(case.0).expect("failed to decode hex");
+            let buf = hex::decode(case.0).expect("failed to decode hex");
             let mut b = BytesMut::from(&buf as &[u8]);
             let cnt = Message::drain_padding(&mut b);
             assert_eq!(cnt, case.1);
@@ -229,7 +227,7 @@ mod test {
         let mut seed = [0_u8; SEED_LENGTH];
         rng.fill_bytes(&mut seed);
 
-        build_and_marshall(&mut buf, PacketType::PrngSeed, &seed, pad_len)?;
+        build_and_marshall(&mut buf, PacketType::PrngSeed, seed, pad_len)?;
 
         let pkt = Message::try_parse(&mut buf)?;
         assert_eq!(Message::PrngSeed(seed), pkt);
@@ -247,7 +245,7 @@ mod test {
         let mut payload = [0_u8; 1000];
         rng.fill_bytes(&mut payload);
 
-        build_and_marshall(&mut buf, PacketType::Payload, &payload, pad_len)?;
+        build_and_marshall(&mut buf, PacketType::Payload, payload, pad_len)?;
 
         let pkt = Message::try_parse(&mut buf)?;
         assert_eq!(Message::Payload(payload.to_vec()), pkt);

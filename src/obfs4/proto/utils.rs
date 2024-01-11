@@ -2,10 +2,10 @@ use crate::{obfs4::constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand::{Fill, Rng};
-use rand_core::{OsRng, RngCore};
+
+use rand_core::{RngCore};
 use subtle::ConstantTimeEq;
-use tokio_util::bytes::{Buf, BufMut, Bytes};
+
 use tracing::debug; // , trace};
 
 pub fn get_epoch_hour() -> u64 {
@@ -19,7 +19,7 @@ pub fn get_epoch_hour() -> u64 {
 pub fn make_pad(pad_len: usize) -> Result<Vec<u8>> {
     debug!("[make_pad] generating {pad_len}B");
     let mut pad = vec![u8::default(); pad_len];
-    let rng = rand::thread_rng()
+    rand::thread_rng()
         .try_fill_bytes(&mut pad)
         .expect("rng failure");
     Ok(pad)
@@ -57,7 +57,7 @@ pub fn find_mac_mark(
         // MAC_C as it does not have the server's public key yet.
         pos = end_pos - (MARK_LENGTH + MAC_LENGTH);
         // trace!("{pos}\n{}\n{}", hex::encode(mark), hex::encode(&buffer[pos..pos + MARK_LENGTH]));
-        if (&mark[..])
+        if mark[..]
             .ct_eq(buffer[pos..pos + MARK_LENGTH].as_ref())
             .into()
         {
@@ -90,10 +90,10 @@ pub fn find_mac_mark(
 mod test {
     use super::*;
     use bytes::Bytes;
-    use std::io::prelude::*;
-    use std::iter;
+    
+    
 
-    use crate::test_utils;
+    
 
     struct MacMarkTest {
         mark: [u8; MARK_LENGTH],
@@ -256,7 +256,7 @@ mod test {
 
     #[test]
     fn epoch_format() {
-        let h = format!("{}", get_epoch_hour());
+        let _h = format!("{}", get_epoch_hour());
         // println!("{h} {}", hex::encode(h.as_bytes()));
     }
 }

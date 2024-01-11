@@ -47,7 +47,7 @@ impl Client {
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
 
-        let session = sessions::new_client_session(self.id.clone(), self.station_pubkey.clone(), self.iat_mode);
+        let session = sessions::new_client_session(self.id.clone(), self.station_pubkey, self.iat_mode);
 
         tokio::select! {
             r = session.handshake(stream) => r,

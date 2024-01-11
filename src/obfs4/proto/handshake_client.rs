@@ -9,23 +9,22 @@ use crate::{
     },
     obfs4::{
         constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
+        framing::{FrameError, Obfs4Codec, TryParse, KEY_MATERIAL_LENGTH},
         proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage, utils::find_mac_mark},
     },
-    stream::Stream,
     Error, Result,
 };
 
-use bytes::{Buf, BufMut, BytesMut};
-use hmac::{Hmac, Mac};
+use bytes::{BufMut, BytesMut};
+use hmac::Mac;
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+
+
 
 // /// PlaceHolder
 // trait ClientSessionState {}
@@ -115,7 +114,7 @@ pub(crate) fn new(
 
 impl<'a> ClientHandshake<'a, NewClientHandshake> {
     pub(crate) async fn start<T>(
-        mut self,
+        self,
         mut stream: T,
     ) -> Result<ClientHandshake<'a, ClientHandshakeSent>>
     where
@@ -142,7 +141,7 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         let mut key = self.materials.node_pubkey.as_bytes().to_vec();
         key.append(&mut self.materials.node_id.to_bytes().to_vec());
-        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
+        let h = HmacSha256::new_from_slice(&key[..]).unwrap();
         ch_msg.marshall(&mut buf, h)?;
         let epoch_hour = ch_msg.epoch_hour;
 
@@ -167,7 +166,7 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
 }
 impl<'a, S: ClientHandshakeState> ClientHandshake<'a, S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(&self.materials.session_id)
+        String::from("c-") + &colorize(self.materials.session_id)
     }
 }
 
@@ -182,7 +181,7 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
         // Wait for and attempt to consume server handshake
         let mut remainder = BytesMut::new();
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut server_hs: ServerHandshakeMessage;
+        let server_hs: ServerHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
             if n == 0 {
@@ -199,7 +198,7 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
 
             // validate sever
             server_hs = match self.try_parse(&mut buf[..n]) {
-                Ok((shs, len)) => {
+                Ok((shs, _len)) => {
                     // TODO: make sure bytes after server hello get put back
                     // into the read buffer for message handling
                     remainder.put(&buf[n - SEED_PACKET_LENGTH..n]);
@@ -260,7 +259,7 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
         // validate the MAC
         h.reset(); // disambiguate `reset()` implementations Mac v digest
         h.update(&buf[..pos + MARK_LENGTH]);
-        h.update(&self._h_state.epoch_hour.as_bytes());
+        h.update(self._h_state.epoch_hour.as_bytes());
         let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
         let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
         trace!(
@@ -291,7 +290,7 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
     pub(crate) async fn complete(mut self) -> Result<ClientHandshake<'a, ClientHandshakeSuccess>> {
         let ntor_hs_failed: Option<ntor::HandShakeResult> =
             ntor::HandShakeResult::client_handshake(
-                &self.materials.session_keys,
+                self.materials.session_keys,
                 &self._h_state.server_hs.server_pubkey(),
                 &self.materials.node_pubkey,
                 &self.materials.node_id,
@@ -314,7 +313,7 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
         let hs_complete_session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
         self.materials.session_id = hs_complete_session_id;
 
-        let mut codec = Obfs4Codec::new(ekm, dkm);
+        let codec = Obfs4Codec::new(ekm, dkm);
 
         Ok(ClientHandshake {
             materials: self.materials,

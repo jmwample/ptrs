@@ -81,7 +81,7 @@ impl Server {
         ClientParams {
             station_pubkey: self.identity_keys.public,
             node_id: self.node_id.clone(),
-            iat_mode: self.iat_mode.clone(),
+            iat_mode: self.iat_mode,
         }
     }
 }

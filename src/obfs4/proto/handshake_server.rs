@@ -2,7 +2,7 @@ use crate::{
     common::{
         colorize,
         ntor::{
-            self, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH,
+            self, Representative, AUTH_LENGTH,
             REPRESENTATIVE_LENGTH,
         },
         HmacSha256, replay_filter,
@@ -10,28 +10,26 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{
-            self, FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH,
+            self, FrameError, Marshall, Obfs4Codec, KEY_MATERIAL_LENGTH,
         },
         proto::{
-            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad,
-            O4Stream, Obfs4Stream, PacketType, Session,
+            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad, PacketType,
         },
     },
-    stream::Stream,
     Error, Result,
 };
 
-use bytes::{Buf, BufMut, BytesMut};
-use hmac::{Hmac, Mac};
+use bytes::{BufMut, BytesMut};
+use hmac::{Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+
+
+
 use std::time::Instant;
 
 // #[derive(Debug)]
@@ -83,7 +81,7 @@ pub(crate) struct ServerHandshake<'a, S: ServerHandshakeState> {
 
 impl<'a, S: ServerHandshakeState> ServerHandshake<'a, S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(&self.materials.session_id)
+        String::from("c-") + &colorize(self.materials.session_id)
     }
 }
 
@@ -110,7 +108,7 @@ impl ServerHandshakeState for NewServerHandshake {}
 impl ServerHandshakeState for ClientHandshakeReceived {}
 impl ServerHandshakeState for ServerHandshakeSuccess {}
 
-pub fn new<'a>(materials: HandshakeMaterials<'a>) -> Result<ServerHandshake<'a, NewServerHandshake>> {
+pub fn new(materials: HandshakeMaterials<'_>) -> Result<ServerHandshake<'_, NewServerHandshake>> {
     Ok( ServerHandshake {
         materials,
         _h_state: NewServerHandshake {},
@@ -167,7 +165,7 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
         &mut self,
         buf: impl AsRef<[u8]>,
     ) -> Result<ClientHandshakeMessage> {
-        let mut buf = buf.as_ref();
+        let buf = buf.as_ref();
         let mut h = self.materials.get_hmac();
 
         if CLIENT_MIN_HANDSHAKE_LENGTH > buf.len() {
@@ -185,7 +183,7 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
         // find mark + mac position
         let pos = match find_mac_mark(
             mark,
-            &buf,
+            buf,
             REPRESENTATIVE_LENGTH + CLIENT_MIN_PAD_LENGTH,
             MAX_HANDSHAKE_LENGTH,
             true,
@@ -318,17 +316,17 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             epoch_hr,
         );
 
-        let mut h = self.materials.get_hmac();
+        let h = self.materials.get_hmac();
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
         sh_msg.marshall(&mut buf, h)?;
         trace!("adding encoded prng seed");
 
         // Send the PRNG seed as part of the first packet.
         let mut prng_pkt_buf = BytesMut::new();
-        let pkt = framing::build_and_marshall(
+        framing::build_and_marshall(
             &mut prng_pkt_buf,
             PacketType::PrngSeed,
-            &self.materials.len_seed,
+            self.materials.len_seed,
             0,
         )?;
 

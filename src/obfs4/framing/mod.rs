@@ -44,12 +44,9 @@ use crate::common::drbg::{self, Drbg, Seed};
 
 use bytes::{Buf, BufMut, BytesMut};
 use crypto_secretbox::{
-    aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit, OsRng},
-    Nonce, XSalsa20Poly1305,
+    aead::{generic_array::GenericArray, Aead, KeyInit}, XSalsa20Poly1305,
 };
-use futures::{Sink, SinkExt, Stream, StreamExt};
 use rand::prelude::*;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
 
@@ -142,8 +139,8 @@ impl Obfs4Decoder {
     // Creates a new Decoder instance.  It must be supplied a slice
     // containing exactly KeyLength bytes of keying material.
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        trace!("new decoder key_material: {}", hex::encode(&key_material));
-        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        trace!("new decoder key_material: {}", hex::encode(key_material));
+        let key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
@@ -256,10 +253,10 @@ impl Decoder for Obfs4Codec {
 
         // Unseal the frame
         let key = GenericArray::from_slice(&self.decoder.key);
-        let cipher = XSalsa20Poly1305::new(&key);
+        let cipher = XSalsa20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
 
-        let res = cipher.decrypt(&nonce, data.as_ref());
+        let res = cipher.decrypt(nonce, data.as_ref());
         if res.is_err() {
             let e = res.unwrap_err();
             trace!("failed to decrypt result: {e}");
@@ -291,8 +288,8 @@ impl Obfs4Encoder {
     /// Creates a new Encoder instance. It must be supplied a slice
     /// containing exactly KeyLength bytes of keying material.  
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        trace!("new encoder key_material: {}", hex::encode(&key_material));
-        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        trace!("new encoder key_material: {}", hex::encode(key_material));
+        let key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
@@ -313,7 +310,7 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
     /// treated as fatal and the session aborted.
     fn encode(
         &mut self,
-        mut plaintext: T,
+        plaintext: T,
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
         trace!(
@@ -344,10 +341,10 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
 
         // Encrypt and MAC payload
         let key = GenericArray::from_slice(&self.encoder.key);
-        let cipher = XSalsa20Poly1305::new(&key);
+        let cipher = XSalsa20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        let mut ciphertext = cipher.encrypt(&nonce, plaintext_frame.as_ref())?;
+        let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
         trace!("[encode] finished encrypting");
 
         // Obfuscate the length
@@ -396,7 +393,7 @@ impl NonceBox {
             return Err(FrameError::NonceCounterWrapped);
         }
         let mut nonce = self.prefix.clone().to_vec();
-        nonce.append(&mut self.counter.clone().to_be_bytes().to_vec());
+        nonce.append(&mut self.counter.to_be_bytes().to_vec());
 
         let nonce_l: [u8; NONCE_LENGTH] = nonce[..].try_into().unwrap();
 

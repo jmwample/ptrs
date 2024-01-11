@@ -1,44 +1,38 @@
 //
 //
 
-use super::{CLIENT_MAX_PAD_LENGTH, CLIENT_MIN_PAD_LENGTH, IAT, SESSION_ID_LEN};
+use super::{IAT, SESSION_ID_LEN};
 /// Session state management as a way to organize session establishment.
 use crate::{
     common::{
         colorize, drbg, ntor,
-        ntor::{HandShakeResult, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
         replay_filter::ReplayFilter,
-        HmacSha256,
     },
     obfs4::{
-        constants::SEED_LENGTH,
         framing::{
-            self, FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH,
+            self,
         },
         proto::{
-            handshake_client::{self, ClientHandshake, ClientHandshakeState, HandshakeMaterials as CHSMaterials},
-            handshake_server::{self, ServerHandshakeMessage, HandshakeMaterials as SHSMaterials},
-            O4Stream, Obfs4Stream, Server,
+            handshake_client::{self, HandshakeMaterials as CHSMaterials},
+            handshake_server::{self, HandshakeMaterials as SHSMaterials},
+            O4Stream, Obfs4Stream,
         },
-    },
-    stream::Stream,
-    Error, Result,
+    }, Result,
 };
 
-use bytes::{Buf, BufMut, BytesMut};
-use hmac::{Hmac, Mac};
-use rand::prelude::*;
-use subtle::ConstantTimeEq;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+use hmac::{Mac};
+
+
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::{
-    codec::{Decoder, Encoder, Framed},
-    io::{SinkWriter, StreamReader},
+    codec::{Decoder},
 };
 use tracing::{debug, info};
 
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+
+
+
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -96,20 +90,20 @@ impl Fault for ClientHandshakeFailed {}
 
 impl<S: ClientSessionState> ClientSession<S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(&self.session_id)
+        String::from("c-") + &colorize(self.session_id)
     }
 
     pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
         debug!(
             "{} -> {} client updating session id",
-            colorize(&self.session_id),
-            colorize(&id)
+            colorize(self.session_id),
+            colorize(id)
         );
         self.session_id = id;
     }
 
     /// Helper function to perform state transitions.
-    fn transition<T: ClientSessionState>(mut self, t: T) -> ClientSession<T> {
+    fn transition<T: ClientSessionState>(self, t: T) -> ClientSession<T> {
         ClientSession {
             session_keys: self.session_keys,
             node_id: self.node_id,
@@ -124,7 +118,7 @@ impl<S: ClientSessionState> ClientSession<S> {
     }
 
     /// Helper function to perform state transitions.
-    fn fault<F: Fault + ClientSessionState>(mut self, f: F) -> ClientSession<F> {
+    fn fault<F: Fault + ClientSessionState>(self, f: F) -> ClientSession<F> {
         ClientSession {
             session_keys: self.session_keys,
             node_id: self.node_id,
@@ -162,7 +156,7 @@ pub fn new_client_session(
 }
 
 impl ClientSession<Initialized> {
-    pub async fn handshake<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -204,7 +198,7 @@ impl ClientSession<Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let mut o4 = O4Stream::new(stream, codec, Session::Client(session_state));
+        let o4 = O4Stream::new(stream, codec, Session::Client(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
     }
@@ -313,20 +307,20 @@ impl Fault for ServerHandshakeFailed {}
 
 impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(&self.session_id)
+        String::from("c-") + &colorize(self.session_id)
     }
 
     pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
         debug!(
             "{} -> {} server updating session id",
-            colorize(&self.session_id),
-            colorize(&id)
+            colorize(self.session_id),
+            colorize(id)
         );
         self.session_id = id;
     }
 
     /// Helper function to perform state transitions.
-    fn transition<'s, T: ServerSessionState>(mut self, _state: T) -> ServerSession<'s, T>
+    fn transition<'s, T: ServerSessionState>(self, _state: T) -> ServerSession<'s, T>
     where
         'a:'s
     {
@@ -348,7 +342,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 
     /// Helper function to perform state transitions.
-    fn fault<'s, F: Fault + ServerSessionState>(mut self, f: F) -> ServerSession<'s, F>
+    fn fault<'s, F: Fault + ServerSessionState>(self, f: F) -> ServerSession<'s, F>
     where
         'a:'s
     {
@@ -401,7 +395,7 @@ pub fn new_server_session<'a>(
 
 impl<'b> ServerSession<'b, Initialized> {
 
-    pub async fn handshake<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
@@ -412,9 +406,9 @@ impl<'b> ServerSession<'b, Initialized> {
 
         let materials = SHSMaterials::new(
             session.node_id.clone(),
-            &session.identity_keys,
+            session.identity_keys,
             &session.session_keys,
-            &mut session.replay_filter,
+            session.replay_filter,
             session.session_id,
             session.len_seed.to_bytes(),
         );
@@ -449,7 +443,7 @@ impl<'b> ServerSession<'b, Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let mut o4 = O4Stream::new(stream, codec, Session::Server(session_state));
+        let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
     }

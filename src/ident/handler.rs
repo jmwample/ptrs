@@ -1,7 +1,7 @@
 use super::{Cfg, NAME};
-use futures::Future;
 
-use crate::{stream::Stream, traits::*, Error, Result};
+
+use crate::{traits::*, Error, Result};
 
 #[derive(Default, Clone, Debug)]
 pub struct Handler {
@@ -40,11 +40,12 @@ impl TryConfigure for Handler {
     }
 }
 
-impl Transport for Handler {
-    fn wrap<'a>(
-        &self,
-        s: impl Stream<'a>,
-    ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
-        async { Ok(s) }
-    }
-}
+// // TODO: Implement Transport for ident while fixing lifetime
+// impl Transport for Handler {
+//     fn wrap<'a>(
+//         &self,
+//         s: impl Stream<'a>,
+//     ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
+//         async { Ok(s) }
+//     }
+// }

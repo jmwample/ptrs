@@ -1,11 +1,15 @@
 use super::*;
-use crate::Result;
+use crate::{
+    Result,
+    test_utils::init_subscriber,
+    obfs4::proto::Server,
+};
 
-use crate::test_utils::init_subscriber;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
+use std::cmp::Ordering;
 use std::time::Duration;
 
 #[tokio::test]
@@ -13,7 +17,7 @@ async fn public_handshake() -> Result<()> {
     init_subscriber();
     let (mut c, mut s) = tokio::io::duplex(65_536);
 
-    let mut o4_server = proto::Server::new_from_random();
+    let mut o4_server = Server::new_from_random();
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -33,7 +37,7 @@ async fn public_iface() -> Result<()> {
     let message = b"awoewaeojawenwaefaw lfawn;awe da;wfenalw fawf aw";
     let (mut c, mut s) = tokio::io::duplex(65_536);
 
-    let mut o4_server = proto::Server::new_from_random();
+    let mut o4_server = Server::new_from_random();
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -53,7 +57,7 @@ async fn public_iface() -> Result<()> {
     let o4_client = proto::Client::from_params(client_config);
     let mut o4c_stream = o4_client.wrap(&mut c).await?;
 
-    o4c_stream.write_all(&message.clone()[..]).await?;
+    o4c_stream.write_all(&(*message)[..]).await?;
 
     let mut buf = vec![0_u8; message.len()];
     let _ = o4c_stream.read(&mut buf).await?;
@@ -74,7 +78,7 @@ async fn transfer_100M() -> Result<()> {
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
 
-    let mut o4_server = proto::Server::new_from_random();
+    let mut o4_server = Server::new_from_random();
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -93,7 +97,7 @@ async fn transfer_100M() -> Result<()> {
         for i in 0..1024 * 100 {
             w.write_all(&msg)
                 .await
-                .expect(&format!("failed on write #{i}"));
+                .unwrap_or_else(|_| panic!("failed on write #{i}"));
         }
     });
 
@@ -144,7 +148,7 @@ async fn transfer_2_x() -> Result<()> {
             let msg = vec![0_u8; base.pow(i)];
             w.write_all(&msg)
                 .await
-                .expect(&format!("failed on write #{i}"));
+                .unwrap_or_else(|_| panic!("failed on write #{i}"));
         }
     });
 
@@ -165,10 +169,10 @@ async fn transfer_2_x() -> Result<()> {
         }
 
         received += n;
-        if received == expected_total {
-            break;
-        } else if received > expected_total {
-            panic!("received more than expected {received} > {expected_total}");
+        match received.cmp(&expected_total) {
+            Ordering::Less => {}
+            Ordering::Equal => break,
+            Ordering::Greater => panic!("received more than expected {received} > {expected_total}"),
         }
     }
 

@@ -8,12 +8,11 @@
 /// - https://docs.rs/tokio-util/latest/tokio_util/codec/index.html
 ///     - tokio_util codec docs
 ///
-use super::*;
 use crate::Result;
 
 use bytes::{Buf, BytesMut};
-use futures::{Sink, SinkExt, Stream, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{SinkExt, StreamExt};
+
 use tokio_util::codec::{Decoder, Encoder};
 
 const MAX: usize = 8 * 1024 * 1024;

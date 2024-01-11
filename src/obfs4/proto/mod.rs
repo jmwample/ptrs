@@ -1,33 +1,23 @@
 use crate::{
-    common::{drbg, AsyncDiscard},
+    common::AsyncDiscard,
     obfs4::{
         constants::*,
         framing::{self, PacketType},
     },
-    stream::Stream,
     Result,
 };
 
 use bytes::{Buf, BytesMut};
-use futures::{
-    ready,
-    sink::SinkExt,
-    stream::{Stream as FStream, StreamExt},
-    Sink,
-};
+use futures::{Sink, Stream};
 use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio_util::{
-    codec::{Decoder, Encoder, Framed},
-    io::{SinkWriter, StreamReader},
-};
+use tokio_util::codec::{Decoder, Framed};
 use tracing::{debug, trace, warn};
 
 use std::{
     io::Error as IoError,
     pin::Pin,
     result::Result as StdResult,
-    sync::{Arc, Mutex},
     task::{Context, Poll},
     time::Duration,
 };
@@ -35,7 +25,9 @@ use std::{
 mod client;
 pub(super) use client::Client;
 mod server;
+#[allow(unused)]
 pub(super) use server::Server;
+
 mod utils;
 pub(crate) use utils::*;
 
@@ -45,10 +37,11 @@ pub(crate) use sessions::Session;
 mod handshake_client;
 mod handshake_server;
 
-use super::framing::LENGTH_LENGTH;
 
+
+#[allow(dead_code,unused)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-enum IAT {
+pub(crate) enum IAT {
     #[default]
     Off,
     Enabled,
@@ -78,7 +71,7 @@ where
 }
 
 #[pin_project]
-struct O4Stream<'a, T>
+pub(crate) struct O4Stream<'a, T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -92,9 +85,9 @@ impl<'a, T> O4Stream<'a, T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    fn new(
+    pub(crate) fn new(
         // inner: &'a mut dyn Stream<'a>,
-        mut inner: T,
+        inner: T,
         codec: framing::Obfs4Codec,
         session: Session<'a>,
     ) -> O4Stream<'a, T> {
@@ -107,7 +100,8 @@ where
         }
     }
 
-    fn try_recv_non_payload_packet(&mut self) -> Result<()> {
+
+    pub(crate) fn try_recv_non_payload_packet(&mut self) -> Result<()> {
         let buf = self.stream.read_buffer_mut();
 
         if !buf.has_remaining() {
@@ -133,25 +127,14 @@ where
         self.try_handle_non_payload_message(m)
     }
 
-    fn try_handle_non_payload_message(&mut self, msg: framing::Message) -> Result<()> {
-        match msg {
-            // // PrngSeed Messages should only be sent during the handshake and are handled by
-            // // the session (i.e. `ClientSession<ClientHandshaking>.set_len_seed()` )
-            // framing::Message::PrngSeed(len_seed) => {
-            //     self.session.set_len_seed(drbg::Seed::from(len_seed));
-            // }
 
-            // Ignore unknown messages - this allows new messages to be added in
-            // future versions as older versions will simply ignore them.
-            _ => {}
-
-            // TODO: Add a liveness heartbeat ping / pong messages
-        }
+    pub(crate) fn try_handle_non_payload_message(&mut self, _msg: framing::Message) -> Result<()> {
+        {}
 
         Ok(())
     }
 
-    async fn close_after_delay(&mut self, d: Duration) {
+    pub(crate) async fn close_after_delay(&mut self, d: Duration) {
         let s = self.stream.get_mut();
 
         let r = AsyncDiscard::new(s);
@@ -159,7 +142,7 @@ where
         if let Err(_) = tokio::time::timeout(d, r.discard()).await {
             trace!(
                 "{} timed out while discarding",
-                hex::encode(&self.session.id())
+                hex::encode(self.session.id())
             );
         }
 
@@ -167,7 +150,7 @@ where
         if let Err(e) = s.shutdown().await {
             warn!(
                 "{} encountered an error while closing: {e}",
-                hex::encode(&self.session.id())
+                hex::encode(self.session.id())
             );
         };
     }
@@ -177,7 +160,7 @@ where
     /// slightly complex.
     ///
     /// TODO: document logic more clearly
-    fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
+    pub(crate) fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
         let tail_len = buf.len() % framing::MAX_SEGMENT_LENGTH;
 
         let mut pad_len = 0;
@@ -241,8 +224,12 @@ where
         };
 
         debug!("here 2");
-        self.poll_flush(cx);
-        Poll::Ready(Ok(buf.len()))
+        match  self.poll_flush(cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(buf.len())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+
         /*
         let mut this = self.as_mut().project();
 
@@ -373,7 +360,7 @@ where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {

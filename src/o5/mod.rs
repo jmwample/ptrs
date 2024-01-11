@@ -1,8 +1,8 @@
 mod framing;
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
-    use super::*;
     use pqc_kyber::*;
     use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -16,7 +16,7 @@ mod tests {
 
     impl From<pqc_kyber::KyberError> for Error {
         fn from(e: pqc_kyber::KyberError) -> Self {
-            return Error::PQCError(e);
+            Error::PQCError(e)
         }
     }
 

@@ -30,7 +30,7 @@ fn encode_decode() -> Result<()> {
     let mut key_material = [0_u8; KEY_MATERIAL_LENGTH];
     rand::thread_rng().fill(&mut key_material[..]);
 
-    let mut codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+    let mut codec = Obfs4Codec::new(key_material, key_material);
 
     let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + PACKET_OVERHEAD + message.len());
     let mut input = BytesMut::new();
@@ -62,7 +62,7 @@ async fn oversized_flow() -> Result<()> {
     let key_material = [0_u8; KEY_MATERIAL_LENGTH];
 
     let mut b = bytes::BytesMut::with_capacity(2_usize.pow(13));
-    let mut codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+    let mut codec = Obfs4Codec::new(key_material, key_material);
     let mut src = Bytes::from(oversized_messsage);
     let res = codec.encode(&mut src, &mut b);
 
@@ -98,7 +98,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     let msg_s = msg.clone();
 
     tokio::spawn(async move {
-        let codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+        let codec = Obfs4Codec::new(key_material, key_material);
         let message = &msg_s;
 
         let (mut sink, mut input) = codec.framed(s).split();
@@ -129,11 +129,9 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     if let Message::Payload(m) = c_stream
         .next()
         .await
-        .expect(&format!(
-            "you were supposed to call me back!, {} (max={})",
+        .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
             message.len(),
-            MAX_FRAME_PAYLOAD_LENGTH
-        ))
+            MAX_FRAME_PAYLOAD_LENGTH))
         .expect("an error occured when you called back")
     {
         // skip over length field in the Payload message
@@ -195,11 +193,9 @@ async fn double_encode_decode() -> Result<()> {
         if let Message::Payload(m) = c_stream
             .next()
             .await
-            .expect(&format!(
-                "you were supposed to call me back!, {} (max={})",
+            .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
                 msg.len(),
-                MAX_FRAME_PAYLOAD_LENGTH
-            ))
+                MAX_FRAME_PAYLOAD_LENGTH))
             .expect("an error occured when you called back")
         {
             // skip over length field in the Payload message
