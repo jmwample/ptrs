@@ -119,14 +119,14 @@ pub fn new<'a>(materials: HandshakeMaterials<'a>) -> Result<ServerHandshake<'a, 
 
 impl<'b> ServerHandshake<'b, NewServerHandshake> {
 
-    pub async fn retrieve_client_handshake<'a, T>(mut self, mut stream: &mut T) -> Result<ServerHandshake<'a, ClientHandshakeReceived>>
+    pub async fn retrieve_client_handshake<'a, T>(mut self, stream: &mut T) -> Result<ServerHandshake<'a, ClientHandshakeReceived>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
         'b:'a,
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut client_hs: ClientHandshakeMessage;
+        let client_hs: ClientHandshakeMessage;
         loop {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", self.session_id());
@@ -332,7 +332,6 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             0,
         )?;
 
-        let nn = buf.len();
         codec.encode(prng_pkt_buf, &mut buf)?;
 
         debug!(
@@ -341,7 +340,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             buf.len()
         );
 
-        stream.write(&mut buf).await?;
+        stream.write_all(&mut buf).await?;
 
         Ok(ServerHandshake {
             materials: self.materials,

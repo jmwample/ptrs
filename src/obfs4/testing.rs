@@ -56,7 +56,7 @@ async fn public_iface() -> Result<()> {
     o4c_stream.write_all(&message.clone()[..]).await?;
 
     let mut buf = vec![0_u8; message.len()];
-    o4c_stream.read(&mut buf).await?;
+    let _ = o4c_stream.read(&mut buf).await?;
     assert_eq!(
         &message[..],
         &buf,
