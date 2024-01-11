@@ -26,6 +26,7 @@ use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::codec::Encoder;
 use tracing::{debug, info, trace};
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -37,10 +38,11 @@ use std::time::Instant;
 pub(crate) struct HandshakeMaterials<'a> {
     node_id: ntor::ID,
     identity_keys: &'a ntor::IdentityKeyPair,
-    session_keys: ntor::SessionKeyPair,
+    session_keys: &'a ntor::SessionKeyPair,
     replay_filter: &'a replay_filter::ReplayFilter,
 
     session_id: [u8;SESSION_ID_LEN],
+    len_seed: [u8;SEED_LENGTH]
 }
 
 impl<'a> HandshakeMaterials<'a> {
@@ -48,6 +50,24 @@ impl<'a> HandshakeMaterials<'a> {
         let mut key = self.identity_keys.public.as_bytes().to_vec();
         key.append(&mut self.node_id.to_bytes().to_vec());
         HmacSha256::new_from_slice(&key[..]).unwrap()
+    }
+
+    pub fn new<'b>(
+        node_id: ntor::ID,
+        identity_keys: &'b ntor::IdentityKeyPair,
+        session_keys: &'b ntor::SessionKeyPair,
+        replay_filter: &'b replay_filter::ReplayFilter,
+        session_id: [u8;SESSION_ID_LEN],
+        len_seed: [u8; SEED_LENGTH],
+    ) -> Self {
+        HandshakeMaterials {
+            node_id,
+            identity_keys,
+            session_keys,
+            replay_filter,
+            session_id,
+            len_seed
+        }
     }
 }
 
@@ -73,7 +93,10 @@ struct ClientHandshakeReceived {
     client_hs: ClientHandshakeMessage,
 }
 
-struct ServerHandshakeSuccess {}
+struct ServerHandshakeSuccess {
+    pub(crate) codec: Obfs4Codec,
+    pub(crate) session_id: [u8; SESSION_ID_LEN],
+}
 
 impl ServerHandshakeState for NewServerHandshake {}
 impl ServerHandshakeState for ClientHandshakeReceived {}
@@ -228,17 +251,20 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
 }
 
 impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
-    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<ServerHandshake<'a, ServerHandshakeSuccess>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
     {
+
+        let client_hs = &mut self._h_state.client_hs;
+
         // derive key materials
         let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
             &client_hs.get_public(),
-            &self.session.session_keys,
-            &self.session.identity_keys,
-            &self.session.node_id,
+            self.materials.session_keys,
+            self.materials.identity_keys,
+            &self.materials.node_id,
         )
         .into()
         {
@@ -262,8 +288,10 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             .try_into()
             .unwrap();
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        self.session
-            .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
+
+
+        // self.set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
+        let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
 
         let mut codec = Obfs4Codec::new(ekm, dkm);
 
@@ -296,7 +324,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let pkt = framing::build_and_marshall(
             &mut prng_pkt_buf,
             PacketType::PrngSeed,
-            &self.len_seed.as_bytes(),
+            &self.materials.len_seed,
             0,
         )?;
 
@@ -305,17 +333,19 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
 
         debug!(
             "{} writing server handshake {}B",
-            self.session.session_id(),
+            self.session_id(),
             buf.len()
         );
 
         stream.write(&mut buf).await?;
 
-        // success!
-        info!("{} handshake complete", self.session_id());
-        codec.handshake_complete();
-        let mut o4 = O4Stream::new(&mut stream, codec, Session::Server(self.materials));
-        Ok(Obfs4Stream::from_o4(o4))
+        Ok(ServerHandshake {
+            materials: self.materials,
+            _h_state: ServerHandshakeSuccess{
+                session_id,
+                codec,
+            },
+        })
     }
 }
 
