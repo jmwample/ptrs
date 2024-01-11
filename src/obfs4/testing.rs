@@ -4,7 +4,7 @@ use crate::Result;
 use crate::test_utils::init_subscriber;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::{debug, info, trace};
+use tracing::debug;
 
 use std::time::Duration;
 
@@ -18,11 +18,11 @@ async fn public_handshake() -> Result<()> {
 
     tokio::spawn(async move {
         let o4s_stream = o4_server.wrap(&mut s).await.unwrap();
-        let (mut r, mut w) = tokio::io::split(o4s_stream);
+        let _ = tokio::io::split(o4s_stream);
     });
 
     let o4_client = proto::Client::from_params(client_config);
-    let o4c_stream = o4_client.wrap(&mut c).await?;
+    let _o4c_stream = o4_client.wrap(&mut c).await?;
 
     Ok(())
 }
@@ -67,11 +67,12 @@ async fn public_iface() -> Result<()> {
     Ok(())
 }
 
+#[allow(non_snake_case)]
 #[tokio::test]
 async fn transfer_100M() -> Result<()> {
     init_subscriber();
 
-    let (mut c, mut s) = tokio::io::duplex(1024 * 1000);
+    let (c, mut s) = tokio::io::duplex(1024 * 1000);
 
     let mut o4_server = proto::Server::new_from_random();
     let client_config = o4_server.client_params();
@@ -83,7 +84,7 @@ async fn transfer_100M() -> Result<()> {
     });
 
     let o4_client = proto::Client::from_params(client_config);
-    let mut o4c_stream = o4_client.wrap(c).await?;
+    let o4c_stream = o4_client.wrap(c).await?;
 
     let (mut r, mut w) = tokio::io::split(o4c_stream);
 
@@ -106,7 +107,7 @@ async fn transfer_100M() -> Result<()> {
                 received += res?;
             }
             _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
-                panic!("client failed to read: timeout");
+                panic!("client failed to read after {i} iterations: timeout");
             }
         }
     }
@@ -121,7 +122,7 @@ async fn transfer_100M() -> Result<()> {
 async fn transfer_2_x() -> Result<()> {
     init_subscriber();
 
-    let (mut c, mut s) = tokio::io::duplex(1024 * 1000);
+    let (c, mut s) = tokio::io::duplex(1024 * 1000);
 
     let mut o4_server = proto::Server::new_from_random();
     let client_config = o4_server.client_params();
@@ -133,7 +134,7 @@ async fn transfer_2_x() -> Result<()> {
     });
 
     let o4_client = proto::Client::from_params(client_config);
-    let mut o4c_stream = o4_client.wrap(c).await?;
+    let o4c_stream = o4_client.wrap(c).await?;
 
     let (mut r, mut w) = tokio::io::split(o4c_stream);
 
@@ -152,9 +153,10 @@ async fn transfer_2_x() -> Result<()> {
     let expected_total: usize = (0..23).map(|i| base.pow(i)).sum();
     let mut received = 0;
 
-    while let res_timeout =
-        tokio::time::timeout(Duration::from_millis(1000), r.read(&mut buf)).await
-    {
+    loop {
+        let res_timeout =
+        tokio::time::timeout(Duration::from_millis(1000), r.read(&mut buf)).await;
+
         let res = res_timeout.unwrap();
         let n = res?;
         if n == 0 {
