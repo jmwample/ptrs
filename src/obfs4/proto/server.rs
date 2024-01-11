@@ -13,7 +13,7 @@ use crate::{
         proto::{
             sessions::Session,
             client::ClientParams,
-            handshake_client::ClientHandshakeMessage,
+            handshake_server,
         },
     },
     stream::Stream,
@@ -53,9 +53,14 @@ impl Server {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let session = self.new_session();
+        let session = sessions::new_server_session(
+            &self.identity_keys,
+            self.node_id.clone(),
+            self.iat_mode,
+            &mut self.replay_filter,
+        )?;
         tokio::select! {
-            r = ServerHandshake::new(session).complete(stream) => r,
+            r = session.handshake(stream) => r,
             e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
         }
     }
@@ -77,25 +82,6 @@ impl Server {
             station_pubkey: self.identity_keys.public,
             node_id: self.node_id.clone(),
             iat_mode: self.iat_mode.clone(),
-        }
-    }
-
-    pub fn new_session(&mut self) -> ServerSession {
-        let session_keys = ntor::SessionKeyPair::new(true);
-
-        ServerSession {
-            session_id: session_keys.public.to_bytes()[..SESSION_ID_LEN]
-                .try_into()
-                .unwrap(),
-
-            session_keys,
-            identity_keys: &self.identity_keys,
-
-            iat_mode: self.iat_mode.clone(),
-            node_id: self.node_id.clone(),
-            len_seed: drbg::Seed::new().unwrap(),
-            iat_seed: drbg::Seed::new().unwrap(),
-            replay_filter: &mut self.replay_filter,
         }
     }
 }

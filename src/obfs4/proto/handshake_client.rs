@@ -10,7 +10,7 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage},
+        proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage, utils::find_mac_mark},
     },
     stream::Stream,
     Error, Result,
@@ -31,8 +31,8 @@ use std::sync::{Arc, Mutex};
 // trait ClientSessionState {}
 
 #[derive(Debug)]
-pub(crate) struct ClientHandshake<S: ClientHandshakeState> {
-    materials: HandshakeMaterials,
+pub(crate) struct ClientHandshake<'a, S: ClientHandshakeState> {
+    materials: HandshakeMaterials<'a>,
     _h_state: S,
 }
 
@@ -68,7 +68,7 @@ impl ClientHandshakeState for ClientHandshakeSent {}
 impl ClientHandshakeState for ServerHandshakeReceived {}
 impl ClientHandshakeState for ClientHandshakeSuccess {}
 
-impl ClientHandshake<ClientHandshakeSuccess> {
+impl<'a> ClientHandshake<'a, ClientHandshakeSuccess> {
     pub(crate) fn to_inner(self) -> ClientHandshakeSuccess {
         self._h_state
     }
@@ -76,19 +76,18 @@ impl ClientHandshake<ClientHandshakeSuccess> {
 
 /// materials required to initiate a handshake from the client role.
 #[derive(Debug)]
-pub(crate) struct HandshakeMaterials {
-    pub(crate) session_keys: SessionKeyPair,
+pub(crate) struct HandshakeMaterials<'a> {
+    pub(crate) session_keys: &'a SessionKeyPair,
     pub(crate) node_id: ntor::ID,
     pub(crate) node_pubkey: PublicKey,
     pub(crate) pad_len: usize,
     pub(crate) session_id: [u8; SESSION_ID_LEN],
 }
 
-impl HandshakeMaterials {
-
-    pub(crate) fn  new(session_keys: &SessionKeyPair, node_id: &ntor::ID, node_pubkey: ntor::PublicKey, session_id: [u8;SESSION_ID_LEN]) -> Self {
+impl<'a> HandshakeMaterials<'a> {
+    pub(crate) fn  new(session_keys: &'a SessionKeyPair, node_id: &ntor::ID, node_pubkey: ntor::PublicKey, session_id: [u8;SESSION_ID_LEN]) -> Self {
         HandshakeMaterials {
-            session_keys: *session_keys.clone(),
+            session_keys,
             node_id: node_id.clone(),
             node_pubkey,
             session_id,
@@ -114,11 +113,11 @@ pub(crate) fn new(
 
 }
 
-impl ClientHandshake<NewClientHandshake> {
+impl<'a> ClientHandshake<'a, NewClientHandshake> {
     pub(crate) async fn start<T>(
         mut self,
         mut stream: T,
-    ) -> Result<ClientHandshake<ClientHandshakeSent>>
+    ) -> Result<ClientHandshake<'a, ClientHandshakeSent>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -141,7 +140,7 @@ impl ClientHandshake<NewClientHandshake> {
         // hs_materials.pad_len = ch_msg.pad_len;
 
         let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-        letmut key = self.materials.node_pubkey.as_bytes().to_vec();
+        let mut key = self.materials.node_pubkey.as_bytes().to_vec();
         key.append(&mut self.materials.node_id.to_bytes().to_vec());
         let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
         ch_msg.marshall(&mut buf, h)?;
@@ -166,17 +165,17 @@ impl ClientHandshake<NewClientHandshake> {
         })
     }
 }
-impl<S: ClientHandshakeState> ClientHandshake<S> {
+impl<'a, S: ClientHandshakeState> ClientHandshake<'a, S> {
     pub fn session_id(&self) -> String {
         String::from("c-") + &colorize(&self.materials.session_id)
     }
 }
 
-impl ClientHandshake<ClientHandshakeSent> {
+impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
     pub(crate) async fn retrieve_server_response<T>(
         mut self,
         mut stream: T,
-    ) -> Result<ClientHandshake<ServerHandshakeReceived>>
+    ) -> Result<ClientHandshake<'a, ServerHandshakeReceived>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -222,12 +221,74 @@ impl ClientHandshake<ClientHandshakeSent> {
     }
 
     fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<(ServerHandshakeMessage, usize)> {
-        todo!();
+        let buf = buf.as_ref();
+        trace!(
+            "{} parsing server handshake {}",
+            self.session_id(),
+            buf.len()
+        );
+
+        if buf.len() < SERVER_MIN_HANDSHAKE_LENGTH {
+            Err(Error::Obfs4Framing(FrameError::EAgain))?
+        }
+
+        let repres_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let server_repres = Representative::from(repres_bytes);
+        let server_auth: [u8; AUTH_LENGTH] =
+            buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?;
+
+        // derive the server mark
+        let mut key = self.materials.node_pubkey.as_bytes().to_vec();
+        key.append(&mut self.materials.node_id.to_bytes().to_vec());
+        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
+        h.reset(); // disambiguate reset() implementations Mac v digest
+        h.update(server_repres.as_bytes().as_ref());
+        let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
+
+        //attempt to find the mark + MAC
+        let start_pos = REPRESENTATIVE_LENGTH + AUTH_LENGTH + SERVER_MIN_PAD_LENGTH;
+        let pos = match find_mac_mark(server_mark, buf, start_pos, MAX_HANDSHAKE_LENGTH, false) {
+            Some(p) => p,
+            None => {
+                if buf.len() > MAX_HANDSHAKE_LENGTH {
+                    Err(Error::Obfs4Framing(FrameError::InvalidHandshake))?
+                }
+                Err(Error::Obfs4Framing(FrameError::EAgain))?
+            }
+        };
+
+        // validate the MAC
+        h.reset(); // disambiguate `reset()` implementations Mac v digest
+        h.update(&buf[..pos + MARK_LENGTH]);
+        h.update(&self._h_state.epoch_hour.as_bytes());
+        let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
+        let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
+        trace!(
+            "client mac check {}-{}",
+            hex::encode(mac_calculated),
+            hex::encode(mac_received)
+        );
+        if mac_calculated.ct_eq(mac_received).into() {
+            return Ok((
+                ServerHandshakeMessage::new(
+                    server_repres,
+                    server_auth,
+                    self.materials.session_keys.representative.clone().unwrap(),
+                    server_mark,
+                    Some(pos + MARK_LENGTH + MAC_LENGTH),
+                    self._h_state.epoch_hour.clone(),
+                ),
+                pos + MARK_LENGTH + MAC_LENGTH,
+            ));
+        }
+
+        // received the incorrect mac
+        Err(Error::Obfs4Framing(FrameError::TagMismatch))
     }
 }
 
-impl ClientHandshake<ServerHandshakeReceived> {
-    pub(crate) async fn complete(mut self) -> Result<ClientHandshake<ClientHandshakeSuccess>> {
+impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
+    pub(crate) async fn complete(mut self) -> Result<ClientHandshake<'a, ClientHandshakeSuccess>> {
         let ntor_hs_failed: Option<ntor::HandShakeResult> =
             ntor::HandShakeResult::client_handshake(
                 &self.materials.session_keys,
@@ -387,72 +448,6 @@ impl ClientHandshake {
         let mut o4 = O4Stream::new(stream, codec, Session::Client(self.session));
 
         Ok(Obfs4Stream::from_o4(o4))
-    }
-
-    fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<(ServerHandshakeMessage, usize)> {
-        let buf = buf.as_ref();
-        trace!(
-            "{} parsing server handshake {}",
-            self.session.session_id(),
-            buf.len()
-        );
-
-        if buf.len() < SERVER_MIN_HANDSHAKE_LENGTH {
-            Err(Error::Obfs4Framing(FrameError::EAgain))?
-        }
-
-        let repres_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
-        let server_repres = Representative::from(repres_bytes);
-        let server_auth: [u8; AUTH_LENGTH] =
-            buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTH_LENGTH].try_into()?;
-
-        // derive the server mark
-        let mut key = self.session.node_pubkey.as_bytes().to_vec();
-        key.append(&mut self.session.node_id.to_bytes().to_vec());
-        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
-        h.reset(); // disambiguate reset() implementations Mac v digest
-        h.update(server_repres.as_bytes().as_ref());
-        let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
-
-        //attempt to find the mark + MAC
-        let start_pos = REPRESENTATIVE_LENGTH + AUTH_LENGTH + SERVER_MIN_PAD_LENGTH;
-        let pos = match find_mac_mark(server_mark, buf, start_pos, MAX_HANDSHAKE_LENGTH, false) {
-            Some(p) => p,
-            None => {
-                if buf.len() > MAX_HANDSHAKE_LENGTH {
-                    Err(Error::Obfs4Framing(FrameError::InvalidHandshake))?
-                }
-                Err(Error::Obfs4Framing(FrameError::EAgain))?
-            }
-        };
-
-        // validate the MAC
-        h.reset(); // disambiguate `reset()` implementations Mac v digest
-        h.update(&buf[..pos + MARK_LENGTH]);
-        h.update(&self.session.epoch_hour.as_bytes());
-        let mac_calculated = &h.finalize_reset().into_bytes()[..MAC_LENGTH];
-        let mac_received = &buf[pos + MARK_LENGTH..pos + MARK_LENGTH + MAC_LENGTH];
-        trace!(
-            "client mac check {}-{}",
-            hex::encode(mac_calculated),
-            hex::encode(mac_received)
-        );
-        if mac_calculated.ct_eq(mac_received).into() {
-            return Ok((
-                ServerHandshakeMessage::new(
-                    server_repres,
-                    server_auth,
-                    self.session.session_keys.representative.clone().unwrap(),
-                    server_mark,
-                    Some(pos + MARK_LENGTH + MAC_LENGTH),
-                    self.session.epoch_hour.clone(),
-                ),
-                pos + MARK_LENGTH + MAC_LENGTH,
-            ));
-        }
-
-        // received the incorrect mac
-        Err(Error::Obfs4Framing(FrameError::TagMismatch))
     }
 }
 */

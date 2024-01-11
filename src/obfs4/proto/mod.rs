@@ -33,9 +33,9 @@ use std::{
 };
 
 mod client;
-pub(super) use client::{Client, ClientSession};
+pub(super) use client::Client;
 mod server;
-pub(super) use server::{Server, ServerHandshake}; //, ServerSession};
+pub(super) use server::Server;
 mod utils;
 pub(crate) use utils::*;
 
@@ -54,31 +54,6 @@ enum IAT {
     Enabled,
     Paranoid,
 }
-
-// // pub(super) enum Session<'a> {
-// //     Server(ServerSession<'a>),
-// //     Client(ClientSession),
-// // }
-// 
-// impl<'a> Session<'a> {
-//     fn id(&self) -> String {
-//         match self {
-//             Session::Client(cs) => format!("c{}", cs.session_id()),
-//             Session::Server(ss) => format!("s{}", ss.session_id()),
-//         }
-//     }
-//     pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
-//         debug!(
-//             "{} setting length seed {}",
-//             self.id(),
-//             hex::encode(seed.as_bytes())
-//         );
-//         match self {
-//             Session::Client(cs) => cs.set_len_seed(seed),
-//             _ => {} // pass}
-//         }
-//     }
-// }
 
 #[pin_project]
 pub struct Obfs4Stream<'a, T>
@@ -108,7 +83,7 @@ where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     #[pin]
-    pub stream: Framed<&'a mut T, framing::Obfs4Codec>,
+    pub stream: Framed<T, framing::Obfs4Codec>,
 
     pub session: Session<'a>,
 }
@@ -119,10 +94,10 @@ where
 {
     fn new(
         // inner: &'a mut dyn Stream<'a>,
-        inner: &mut T,
+        mut inner: T,
         codec: framing::Obfs4Codec,
         session: Session<'a>,
-    ) -> Self {
+    ) -> O4Stream<'a, T> {
         let stream = codec.framed(inner);
         Self {
             stream,

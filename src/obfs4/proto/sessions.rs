@@ -41,10 +41,10 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 /// Initial state for a Session, created with any params.
-struct Initialized;
+pub(crate) struct Initialized;
 
 /// A session has completed the handshake and made it to steady state transfer.
-struct Established;
+pub(crate) struct Established;
 
 /// The session broke due to something like a timeout, reset, lost connection, etc.
 trait Fault {}
@@ -67,7 +67,7 @@ impl<'a> Session<'a> {
 //                       Client States                              //
 // ================================================================ //
 
-struct ClientSession<S: ClientSessionState> {
+pub(crate) struct ClientSession<S: ClientSessionState> {
     node_id: ntor::ID,
     node_pubkey: ntor::PublicKey,
     session_keys: ntor::SessionKeyPair,
@@ -162,19 +162,19 @@ pub fn new_client_session(
 }
 
 impl ClientSession<Initialized> {
-    pub async fn handshake<'a, T>(mut self, mut stream: &'a mut T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn handshake<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let materials = CHSMaterials::new(
-            &self.session_keys,
-            &self.node_id,
-            self.node_pubkey,
-            self.session_id,
-        );
-
         // set up for handshake
         let mut session = self.transition(ClientHandshaking { });
+
+        let materials = CHSMaterials::new(
+            &session.session_keys,
+            &session.node_id,
+            session.node_pubkey,
+            session.session_id,
+        );
 
         // complete handshake
         let handshake = handshake_client::new(materials)?;
@@ -211,6 +211,7 @@ impl ClientSession<Initialized> {
 }
 
 impl ClientSession<ClientHandshaking> {
+    // // TODO: Is this done as part of the client handshake somewhere?
     // pub(crate) fn handle_server_response(&mut self, server_hs: ServerHandshakeMessage, remainder: BytesMut) -> Result<Obfs4Codec> {
     //     let ntor_hs_result: HandShakeResult = match ntor::HandShakeResult::client_handshake(
     //         &self.session_keys,
@@ -280,7 +281,7 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 //                          Server States                           //
 // ================================================================ //
 
-struct ServerSession<'a, S: ServerSessionState> {
+pub(crate) struct ServerSession<'a, S: ServerSessionState> {
     // fixed by server
     iat_mode: IAT,
     node_id: ntor::ID,
@@ -296,13 +297,13 @@ struct ServerSession<'a, S: ServerSessionState> {
     _state: S,
 }
 
-struct ServerHandshaking {}
+pub(crate) struct ServerHandshaking {}
 
-struct ServerHandshakeFailed {
+pub(crate) struct ServerHandshakeFailed {
     details: String,
 }
 
-trait ServerSessionState {}
+pub(crate) trait ServerSessionState {}
 impl ServerSessionState for Initialized {}
 impl ServerSessionState for ServerHandshaking {}
 impl ServerSessionState for Established {}
@@ -325,7 +326,10 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 
     /// Helper function to perform state transitions.
-    fn transition<'s, T: ServerSessionState>(mut self, _state: T) -> ServerSession<'s, T> {
+    fn transition<'s, T: ServerSessionState>(mut self, _state: T) -> ServerSession<'s, T>
+    where
+        'a:'s
+    {
         ServerSession {
             // fixed by server
             node_id: self.node_id,
@@ -344,7 +348,10 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 
     /// Helper function to perform state transitions.
-    fn fault<'s, F: Fault + ServerSessionState>(mut self, f: F) -> ServerSession<'s, F> {
+    fn fault<'s, F: Fault + ServerSessionState>(mut self, f: F) -> ServerSession<'s, F>
+    where
+        'a:'s
+    {
         ServerSession {
             // fixed by server
             node_id: self.node_id,
@@ -400,33 +407,34 @@ impl<'b> ServerSession<'b, Initialized> {
         T: AsyncRead + AsyncWrite + Unpin,
     {
 
-        let materials = SHSMaterials::new(
-            self.node_id,
-            &self.identity_keys,
-            &self.session_keys,
-            &self.replay_filter,
-            self.session_id,
-            self.len_seed.to_bytes(),
-        );
-
         // set up for handshake
         let mut session = self.transition(ServerHandshaking { });
+
+        let materials = SHSMaterials::new(
+            session.node_id.clone(),
+            &session.identity_keys,
+            &session.session_keys,
+            &mut session.replay_filter,
+            session.session_id,
+            session.len_seed.to_bytes(),
+        );
+
 
         // complete handshake
         let handshake = handshake_server::new(materials)?;
         let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
-        let handshake = handshake.process_client_handshake(&mut stream).await?;
-        let handshake = handshake.complete().await?;
+        // let handshake = handshake.process_client_handshake(&mut stream).await?;
+        let handshake = handshake.complete(&mut stream).await?;
 
         // retrieve handshake artifacts on success
         let handshake_artifacts = handshake.to_inner();
         let mut codec = handshake_artifacts.codec;
-        let mut remainder = handshake_artifacts.remainder;
+        // let mut remainder = handshake_artifacts.remainder;
 
         // post handshake state updates
         session.set_session_id(handshake_artifacts.session_id);
-        let res = codec.decode(&mut remainder);
 
+        // let res = codec.decode(&mut remainder);
         // if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
         //     // try to parse the remainder of the server hello packet as a
         //     // PrngSeed since it should be there.
@@ -441,7 +449,7 @@ impl<'b> ServerSession<'b, Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let mut o4 = O4Stream::new(&mut stream, codec, Session::Server(session_state));
+        let mut o4 = O4Stream::new(stream, codec, Session::Server(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
     }

@@ -39,7 +39,7 @@ pub(crate) struct HandshakeMaterials<'a> {
     node_id: ntor::ID,
     identity_keys: &'a ntor::IdentityKeyPair,
     session_keys: &'a ntor::SessionKeyPair,
-    replay_filter: &'a replay_filter::ReplayFilter,
+    replay_filter: &'a mut replay_filter::ReplayFilter,
 
     session_id: [u8;SESSION_ID_LEN],
     len_seed: [u8;SEED_LENGTH]
@@ -56,10 +56,13 @@ impl<'a> HandshakeMaterials<'a> {
         node_id: ntor::ID,
         identity_keys: &'b ntor::IdentityKeyPair,
         session_keys: &'b ntor::SessionKeyPair,
-        replay_filter: &'b replay_filter::ReplayFilter,
+        replay_filter: &'b mut replay_filter::ReplayFilter,
         session_id: [u8;SESSION_ID_LEN],
         len_seed: [u8; SEED_LENGTH],
-    ) -> Self {
+    ) -> Self
+    where
+        'b:'a
+    {
         HandshakeMaterials {
             node_id,
             identity_keys,
@@ -84,16 +87,21 @@ impl<'a, S: ServerHandshakeState> ServerHandshake<'a, S> {
     }
 }
 
+impl<'a> ServerHandshake<'a, ServerHandshakeSuccess> {
+    pub(crate) fn to_inner(self) -> ServerHandshakeSuccess {
+        self._h_state
+    }
+}
 
-trait ServerHandshakeState {}
+pub(crate) trait ServerHandshakeState {}
 
 pub(crate) struct NewServerHandshake {}
 
-struct ClientHandshakeReceived {
+pub(crate) struct ClientHandshakeReceived {
     client_hs: ClientHandshakeMessage,
 }
 
-struct ServerHandshakeSuccess {
+pub(crate) struct ServerHandshakeSuccess {
     pub(crate) codec: Obfs4Codec,
     pub(crate) session_id: [u8; SESSION_ID_LEN],
 }
@@ -213,11 +221,7 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
             if mac_calculated.ct_eq(mac_received).into() {
                 trace!("correct mac");
                 // Ensure that this handshake has not been seen previously.
-                if self
-                    .materials
-                    .replay_filter
-                    .test_and_set(Instant::now(), mac_received)
-                {
+                if self.materials.replay_filter.test_and_set(Instant::now(), mac_received) {
                     // The client either happened to generate exactly the same
                     // session key and padding, or someone is replaying a previous
                     // handshake.  In either case, fuck them.
