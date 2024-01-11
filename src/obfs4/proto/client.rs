@@ -43,12 +43,16 @@ impl Client {
         Ok(self)
     }
 
-    pub async fn wrap<'a, T>(&self, stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn wrap<'a, T>(&self, mut stream: &'a mut T) -> Result<Obfs4Stream<'a, &'a mut T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
+
+        let session = sessions::new_client_session(self.id.clone(), self.station_pubkey.clone(), self.iat_mode);
+
         tokio::select! {
-            r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
+            r = session.handshake(&mut stream) => r,
+            // r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
             e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
         }
     }

@@ -1,18 +1,19 @@
-
-
 use crate::{
-    Result, Error,
     common::{
         colorize,
-        ntor::{self, SessionKeyPair, PublicKey, HandShakeResult, AUTH_LENGTH, Representative, REPRESENTATIVE_LENGTH},
+        ntor::{
+            self, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH,
+            REPRESENTATIVE_LENGTH,
+        },
         HmacSha256,
     },
     obfs4::{
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        proto::{server::ServerHandshakeMessage, make_pad, get_epoch_hour},
         constants::*,
+        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
+        proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage},
     },
     stream::Stream,
+    Error, Result,
 };
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -23,42 +24,58 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, info, trace};
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::sync::{Arc, Mutex};
 use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 
-
-
-/// PlaceHolder
-trait ClientSessionState {}
+// /// PlaceHolder
+// trait ClientSessionState {}
 
 #[derive(Debug)]
-pub(crate) struct ClientHandshake<S:ClientHandshakeState> {
-    session_id: [u8; SESSION_ID_LEN],
+pub(crate) struct ClientHandshake<S: ClientHandshakeState> {
+    materials: HandshakeMaterials,
     _h_state: S,
 }
 
-impl<S:ClientHandshakeState> ClientSessionState for ClientHandshake<S> {}
+// impl<S: ClientHandshakeState> ClientSessionState for ClientHandshake<S> {}
 
 pub(crate) trait ClientHandshakeState {}
+
+
+#[derive(Debug)]
+pub(crate) struct NewClientHandshake {}
 
 #[derive(Debug)]
 pub(crate) struct ClientHandshakeSent {
     epoch_hour: String,
 }
-pub(crate) struct ServerHandshakeReceived {}
-pub(crate) struct ClientHandshakeSuccess {}
 
+// #[derive(Debug)]
+pub(crate) struct ServerHandshakeReceived {
+    remainder: BytesMut,
+    server_hs: ServerHandshakeMessage,
+}
+
+// #[derive(Debug)]
+pub(crate) struct ClientHandshakeSuccess {
+    pub(crate) remainder: BytesMut,
+    pub(crate) codec: Obfs4Codec,
+    pub(crate) session_id: [u8; SESSION_ID_LEN],
+}
+
+
+impl ClientHandshakeState for NewClientHandshake {}
 impl ClientHandshakeState for ClientHandshakeSent {}
 impl ClientHandshakeState for ServerHandshakeReceived {}
 impl ClientHandshakeState for ClientHandshakeSuccess {}
 
-impl<S:ClientHandshakeState> ClientHandshake<S> {
-    pub(crate) fn to_inner(self) -> impl ClientHandshakeState {
+impl ClientHandshake<ClientHandshakeSuccess> {
+    pub(crate) fn to_inner(self) -> ClientHandshakeSuccess {
         self._h_state
     }
 }
 
 /// materials required to initiate a handshake from the client role.
+#[derive(Debug)]
 pub(crate) struct HandshakeMaterials {
     pub(crate) session_keys: SessionKeyPair,
     pub(crate) node_id: ntor::ID,
@@ -67,66 +84,100 @@ pub(crate) struct HandshakeMaterials {
     pub(crate) session_id: [u8; SESSION_ID_LEN],
 }
 
-pub(crate) async fn start<T>(mut stream: T, hs_materials: HandshakeMaterials) -> Result<ClientHandshake<ClientHandshakeSent>>
-where
-    T: AsyncRead + AsyncWrite + Unpin,
+impl HandshakeMaterials {
+
+    pub(crate) fn  new(session_keys: &SessionKeyPair, node_id: &ntor::ID, node_pubkey: ntor::PublicKey, session_id: [u8;SESSION_ID_LEN]) -> Self {
+        HandshakeMaterials {
+            session_keys: *session_keys.clone(),
+            node_id: node_id.clone(),
+            node_pubkey,
+            session_id,
+            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
+        }
+    }
+}
+
+
+pub(crate) fn new(
+    hs_materials: HandshakeMaterials,
+) -> Result<ClientHandshake<NewClientHandshake>>
 {
 
     if hs_materials.session_keys.representative.is_none() {
         return Err(Error::Other("Bad session keys".into()));
     }
-    let mut handshake = ClientHandshake{
-        session_id: hs_materials.session_id,
-        _h_state: ClientHandshakeSent {
-            epoch_hour: "".into(),
-        }
-    };
 
-    // build client handshake message
-    let mut ch_msg = ClientHandshakeMessage::new(
-        hs_materials.session_keys.representative.clone().unwrap(),
-        hs_materials.pad_len,
-        "".into(),
-        [0_u8; MARK_LENGTH],
-    );
+    Ok(ClientHandshake {
+        materials: hs_materials,
+        _h_state: NewClientHandshake { },
+    })
 
-    // TODO: is this needed later? why are we writing this into state?
-    //   - if it is needed we can add it to the ClientHandshakeSent state.
-    // hs_materials.pad_len = ch_msg.pad_len;
-
-    let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-    let mut key = hs_materials.node_pubkey.as_bytes().to_vec();
-    key.append(&mut hs_materials.node_id.to_bytes().to_vec());
-    let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
-    ch_msg.marshall(&mut buf, h)?;
-    handshake._h_state.epoch_hour = ch_msg.epoch_hour;
-
-    trace!("{:?}", handshake);
-    // let mut file = tokio::fs::File::create("message.hex").await?;
-    // file.write_all(&buf).await?;
-
-    // send client Handshake
-    stream.write_all(&buf).await?;
-    debug!(
-    "{} handshake sent {}B, waiting for sever response",
-    handshake.session_id(),
-        buf.len()
-    );
-
-    // Wait for and attempt to consume server handshake
-    Ok(handshake)
 }
 
-impl<S:ClientHandshakeState> ClientHandshake<S> {
+impl ClientHandshake<NewClientHandshake> {
+    pub(crate) async fn start<T>(
+        mut self,
+        mut stream: T,
+    ) -> Result<ClientHandshake<ClientHandshakeSent>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+
+        // build client handshake message
+        let mut ch_msg = ClientHandshakeMessage::new(
+            self
+                .materials
+                .session_keys
+                .representative
+                .clone()
+                .unwrap(),
+            self.materials.pad_len,
+            "".into(),
+            [0_u8; MARK_LENGTH],
+        );
+
+        // TODO: is this needed later? why are we writing this into state?
+        //   - if it is needed we can add it to the ClientHandshakeSent state.
+        // hs_materials.pad_len = ch_msg.pad_len;
+
+        let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
+        letmut key = self.materials.node_pubkey.as_bytes().to_vec();
+        key.append(&mut self.materials.node_id.to_bytes().to_vec());
+        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
+        ch_msg.marshall(&mut buf, h)?;
+        let epoch_hour = ch_msg.epoch_hour;
+
+        trace!("{:?}", self);
+        // let mut file = tokio::fs::File::create("message.hex").await?;
+        // file.write_all(&buf).await?;
+
+        // send client Handshake
+        stream.write_all(&buf).await?;
+        debug!(
+            "{} handshake sent {}B, waiting for sever response",
+            self.session_id(),
+            buf.len()
+        );
+
+
+        Ok(ClientHandshake {
+            materials: self.materials,
+            _h_state: ClientHandshakeSent { epoch_hour }
+        })
+    }
+}
+impl<S: ClientHandshakeState> ClientHandshake<S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(&self.session_id)
+        String::from("c-") + &colorize(&self.materials.session_id)
     }
 }
 
-
 impl ClientHandshake<ClientHandshakeSent> {
-    pub(crate) async fn retrieve_server_response<T>(mut self, mut stream: T) -> Result<ClientHandshake<ServerHandshakeReceived>>
-    where 
+    pub(crate) async fn retrieve_server_response<T>(
+        mut self,
+        mut stream: T,
+    ) -> Result<ClientHandshake<ServerHandshakeReceived>>
+    where
         T: AsyncRead + AsyncWrite + Unpin,
     {
         // Wait for and attempt to consume server handshake
@@ -162,36 +213,58 @@ impl ClientHandshake<ClientHandshakeSent> {
         }
 
         Ok(ClientHandshake {
-            session_id:self.session_id,
-            _h_state: ServerHandshakeReceived {}
+            materials: self.materials,
+            _h_state: ServerHandshakeReceived {
+                remainder,
+                server_hs,
+            },
         })
     }
 
     fn try_parse(&mut self, buf: impl AsRef<[u8]>) -> Result<(ServerHandshakeMessage, usize)> {
-
         todo!();
     }
 }
 
 impl ClientHandshake<ServerHandshakeReceived> {
     pub(crate) async fn complete(mut self) -> Result<ClientHandshake<ClientHandshakeSuccess>> {
-        // currently there is no post server hello message for the obfs protocol
-        // so this is just decorative for now. You could maybe imagine something like
-        // a cipherspec change happening here though.
-        //
-        // Or this will be removed :shrug:
+        let ntor_hs_failed: Option<ntor::HandShakeResult> =
+            ntor::HandShakeResult::client_handshake(
+                &self.materials.session_keys,
+                &self._h_state.server_hs.server_pubkey(),
+                &self.materials.node_pubkey,
+                &self.materials.node_id,
+            )
+            .into();
+        let ntor_hs_result: HandShakeResult = ntor_hs_failed.ok_or(Error::NtorError(
+            ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
+        ))?;
+
+        // use the derived seed value to bootstrap Read / Write crypto codec.
+        let okm = ntor::kdf(
+            ntor_hs_result.key_seed,
+            KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
+        );
+        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
+        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
+            .try_into()
+            .unwrap();
+
+        let hs_complete_session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
+        self.materials.session_id = hs_complete_session_id;
+
+        let mut codec = Obfs4Codec::new(ekm, dkm);
+
         Ok(ClientHandshake {
-            session_id: self.session_id,
-            _h_state: ClientHandshakeSuccess {},
+            materials: self.materials,
+            _h_state: ClientHandshakeSuccess {
+                codec,
+                remainder: self._h_state.remainder,
+                session_id: hs_complete_session_id,
+            },
         })
     }
 }
-
-
-//pub struct ClientHandshake {
-//     session: ClientSession,
-// }
-
 
 /*
 impl ClientHandshake {
@@ -382,7 +455,7 @@ impl ClientHandshake {
         Err(Error::Obfs4Framing(FrameError::TagMismatch))
     }
 }
-*/ 
+*/
 
 pub struct ClientHandshakeMessage {
     pad_len: usize,
@@ -417,7 +490,7 @@ impl ClientHandshakeMessage {
             Some(pk) => pk,
             None => {
                 let pk = ntor::PublicKey::from(&self.repres);
-                self.pubkey = Some(pk); 
+                self.pubkey = Some(pk);
                 pk
             }
         }
@@ -472,4 +545,3 @@ impl ClientHandshakeMessage {
         Ok(())
     }
 }
-

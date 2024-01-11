@@ -83,7 +83,7 @@ async fn transfer_100M() -> Result<()> {
     });
 
     let o4_client = proto::Client::from_params(client_config);
-    let mut o4c_stream = o4_client.wrap(c).await?;
+    let mut o4c_stream = o4_client.wrap(&mut c).await?;
 
     let (mut r, mut w) = tokio::io::split(o4c_stream);
 
@@ -133,7 +133,7 @@ async fn transfer_2_x() -> Result<()> {
     });
 
     let o4_client = proto::Client::from_params(client_config);
-    let mut o4c_stream = o4_client.wrap(c).await?;
+    let mut o4c_stream = o4_client.wrap(&mut c).await?;
 
     let (mut r, mut w) = tokio::io::split(o4c_stream);
 

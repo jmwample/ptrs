@@ -33,14 +33,17 @@ use std::{
 };
 
 mod client;
-pub(super) use client::{Client, ClientHandshake, ClientSession};
+pub(super) use client::{Client, ClientSession};
 mod server;
 pub(super) use server::{Server, ServerHandshake}; //, ServerSession};
 mod utils;
 pub(crate) use utils::*;
 
-mod state;
+mod sessions;
+pub(crate) use sessions::Session;
+
 mod handshake_client;
+mod handshake_server;
 
 use super::framing::LENGTH_LENGTH;
 
@@ -80,7 +83,7 @@ enum IAT {
 #[pin_project]
 pub struct Obfs4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     // s: Arc<Mutex<O4Stream<'a, T>>>,
     #[pin]
@@ -89,7 +92,7 @@ where
 
 impl<'a, T> Obfs4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     pub(crate) fn from_o4(o4: O4Stream<'a, T>) -> Self {
         Obfs4Stream {
@@ -102,12 +105,12 @@ where
 #[pin_project]
 struct O4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     #[pin]
-    pub stream: Framed<T, framing::Obfs4Codec>,
+    pub stream: Framed<&'a mut T, framing::Obfs4Codec>,
 
-    pub session: state::Session<'a>,
+    pub session: Session<'a>,
 }
 
 impl<'a, T> O4Stream<'a, T>
@@ -116,9 +119,9 @@ where
 {
     fn new(
         // inner: &'a mut dyn Stream<'a>,
-        inner: T,
+        inner: &mut T,
         codec: framing::Obfs4Codec,
-        session: state::Session<'a>,
+        session: Session<'a>,
     ) -> Self {
         let stream = codec.framed(inner);
         Self {
@@ -157,10 +160,17 @@ where
 
     fn try_handle_non_payload_message(&mut self, msg: framing::Message) -> Result<()> {
         match msg {
-            framing::Message::PrngSeed(len_seed) => {
-                self.session.set_len_seed(drbg::Seed::from(len_seed));
-            }
+            // // PrngSeed Messages should only be sent during the handshake and are handled by
+            // // the session (i.e. `ClientSession<ClientHandshaking>.set_len_seed()` )
+            // framing::Message::PrngSeed(len_seed) => {
+            //     self.session.set_len_seed(drbg::Seed::from(len_seed));
+            // }
+
+            // Ignore unknown messages - this allows new messages to be added in
+            // future versions as older versions will simply ignore them.
             _ => {}
+
+            // TODO: Add a liveness heartbeat ping / pong messages
         }
 
         Ok(())
@@ -232,7 +242,7 @@ where
 
 impl<'a, T> AsyncWrite for O4Stream<'a, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_write(
         mut self: Pin<&mut Self>,
