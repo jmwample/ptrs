@@ -44,7 +44,7 @@ impl Seed {
     }
 
     pub fn to_bytes(&self) -> [u8; SEED_LENGTH] {
-        self.0.clone()
+        self.0
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -104,7 +104,7 @@ impl TryFrom<&[u8]> for Seed {
             return Err(Error::Other(e.into()));
         }
 
-        seed.0 = (&arr[..])
+        seed.0 = arr
             .try_into()
             .map_err(|e| Error::Other(format!("{e}").into()))?;
 
@@ -190,7 +190,8 @@ impl RngCore for Drbg {
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), RandError> {
-        Ok(self.fill_bytes(dest))
+        self.fill_bytes(dest);
+        Ok(())
     }
 }
 
@@ -230,12 +231,12 @@ mod test {
         assert_eq!(Seed::try_from(input.clone()).unwrap(), expected);
         assert_eq!(Seed::from_hex(input.clone()).unwrap(), expected);
         assert_eq!(Seed::try_from(&input.clone()).unwrap(), expected);
-        assert_eq!(Seed::from_hex(&input.clone()).unwrap(), expected);
+        assert_eq!(Seed::from_hex(input.clone()).unwrap(), expected);
         assert_eq!(Seed::from_str(&input.clone()).unwrap(), expected);
 
         let input = [0_u8; SEED_LENGTH];
-        assert_eq!(Seed::try_from(input.clone()).unwrap(), expected);
-        assert_eq!(Seed::try_from(&input.clone()[..]).unwrap(), expected);
+        assert_eq!(Seed::from(input), expected);
+        assert_eq!(Seed::try_from(&input[..]).unwrap(), expected);
 
         let input = vec![0_u8; SEED_LENGTH];
         assert_eq!(Seed::try_from(input.clone()).unwrap(), expected);
@@ -317,21 +318,17 @@ mod test {
             },
         ];
 
-        let mut j: usize = 0;
-        for c in cases.into_iter() {
+        for (j, c) in cases.into_iter().enumerate() {
             let seed = Seed::try_from(c.seed)?;
             let drbg = &mut Drbg::new(Some(seed))?;
             // println!();
             // println!("{:?}", drbg.hash);
 
-            let mut k: usize = 0;
-            for expected in c.out.into_iter() {
+            for (k, expected) in c.out.into_iter().enumerate() {
                 let i = drbg.int63();
                 // println!("{:?}", drbg.hash);
                 assert_eq!(i, expected, "[{},{}]\n0x{i:x}\n0x{expected:x}", j, k);
-                k += 1;
             }
-            j += 1;
         }
 
         Ok(())

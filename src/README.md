@@ -29,3 +29,19 @@ TODO:
 - end-to-end socks proxy
 - server / client compatibility test go-to-rust and rust-to-go.
 
+---
+
+Obfs4
+
+Loose Ends:
+- length distribution things
+- iat mode handling
+- tracking resets / injections / replays
+- geoip for obvious signs of censorship
+- kyber negotiation frames
+- params frame
+
+Performance
+- comparison to golang
+- comparison when kyber is enabled
+

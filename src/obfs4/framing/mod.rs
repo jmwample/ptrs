@@ -44,14 +44,13 @@ use crate::common::drbg::{self, Drbg, Seed};
 
 use bytes::{Buf, BufMut, BytesMut};
 use crypto_secretbox::{
-    aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit, OsRng},
-    Nonce, XSalsa20Poly1305,
+    aead::{generic_array::GenericArray, Aead, KeyInit}, XSalsa20Poly1305,
 };
-use futures::{Sink, SinkExt, Stream, StreamExt};
 use rand::prelude::*;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
+
+use std::cmp::min;
 
 mod packet;
 pub use packet::*;
@@ -102,6 +101,8 @@ pub struct Obfs4Codec {
     // key: [u8; KEY_LENGTH],
     encoder: Obfs4Encoder,
     decoder: Obfs4Decoder,
+
+    pub(crate) handshake_complete: bool,
 }
 
 impl Obfs4Codec {
@@ -114,7 +115,12 @@ impl Obfs4Codec {
             // key,
             encoder: Obfs4Encoder::new(encoder_key_material),
             decoder: Obfs4Decoder::new(decoder_key_material),
+            handshake_complete: false,
         }
+    }
+
+    pub(crate) fn handshake_complete(&mut self) {
+        self.handshake_complete = true;
     }
 }
 
@@ -133,8 +139,8 @@ impl Obfs4Decoder {
     // Creates a new Decoder instance.  It must be supplied a slice
     // containing exactly KeyLength bytes of keying material.
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        trace!("new decoder key_material: {}", hex::encode(&key_material));
-        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        trace!("new decoder key_material: {}", hex::encode(key_material));
+        let key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
@@ -149,6 +155,7 @@ impl Obfs4Decoder {
             next_length_invalid: false,
         }
     }
+
 }
 
 impl Decoder for Obfs4Codec {
@@ -246,10 +253,10 @@ impl Decoder for Obfs4Codec {
 
         // Unseal the frame
         let key = GenericArray::from_slice(&self.decoder.key);
-        let cipher = XSalsa20Poly1305::new(&key);
+        let cipher = XSalsa20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
 
-        let res = cipher.decrypt(&nonce, data.as_ref());
+        let res = cipher.decrypt(nonce, data.as_ref());
         if res.is_err() {
             let e = res.unwrap_err();
             trace!("failed to decrypt result: {e}");
@@ -281,8 +288,8 @@ impl Obfs4Encoder {
     /// Creates a new Encoder instance. It must be supplied a slice
     /// containing exactly KeyLength bytes of keying material.  
     fn new(key_material: [u8; KEY_MATERIAL_LENGTH]) -> Self {
-        trace!("new encoder key_material: {}", hex::encode(&key_material));
-        let mut key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
+        trace!("new encoder key_material: {}", hex::encode(key_material));
+        let key: [u8; KEY_LENGTH] = key_material[..KEY_LENGTH].try_into().unwrap();
         let nonce = NonceBox::new(&key_material[KEY_LENGTH..(KEY_LENGTH + NONCE_PREFIX_LENGTH)]);
         let seed = Seed::try_from(&key_material[(KEY_LENGTH + NONCE_PREFIX_LENGTH)..]).unwrap();
         let d = Drbg::new(Some(seed)).unwrap();
@@ -303,17 +310,30 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
     /// treated as fatal and the session aborted.
     fn encode(
         &mut self,
-        mut plaintext: T,
+        plaintext: T,
         dst: &mut BytesMut,
     ) -> std::result::Result<(), Self::Error> {
         trace!(
-            "encoding {}/{MAX_FRAME_PAYLOAD_LENGTH}",
+            "encoding {}/{MAX_PACKET_PAYLOAD_LENGTH}",
             plaintext.remaining()
         );
 
-        // Don't send a string if it is longer than the other end will accept.
-        if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
-            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
+        let mut plaintext_frame = BytesMut::new();
+        if self.handshake_complete {
+            // from write buf -> Paylad and serialize it
+            let num_bytes = min(MAX_PACKET_PAYLOAD_LENGTH, plaintext.remaining());
+            let mut plaintext_u8 = vec![0_u8; MAX_PACKET_PAYLOAD_LENGTH];
+            plaintext_u8.put(plaintext.take(num_bytes));
+            Message::Payload(plaintext_u8).marshall(&mut plaintext_frame)?;
+        } else {
+
+            // Don't send a handshake message if it is longer than the other
+            // end will accept.
+            if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
+                return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
+            }
+
+            plaintext_frame.put(plaintext);
         }
 
         // Generate a new nonce
@@ -321,12 +341,10 @@ impl<T: Buf> Encoder<T> for Obfs4Codec {
 
         // Encrypt and MAC payload
         let key = GenericArray::from_slice(&self.encoder.key);
-        let cipher = XSalsa20Poly1305::new(&key);
+        let cipher = XSalsa20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        let mut plaintext_u8 = vec![0_u8; plaintext.remaining()];
-        plaintext.copy_to_slice(&mut plaintext_u8[..]);
-        let mut ciphertext = cipher.encrypt(&nonce, plaintext_u8.as_ref())?;
+        let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
         trace!("[encode] finished encrypting");
 
         // Obfuscate the length
@@ -375,7 +393,7 @@ impl NonceBox {
             return Err(FrameError::NonceCounterWrapped);
         }
         let mut nonce = self.prefix.clone().to_vec();
-        nonce.append(&mut self.counter.clone().to_be_bytes().to_vec());
+        nonce.append(&mut self.counter.to_be_bytes().to_vec());
 
         let nonce_l: [u8; NONCE_LENGTH] = nonce[..].try_into().unwrap();
 
@@ -462,6 +480,12 @@ impl From<crypto_secretbox::Error> for FrameError {
 impl From<std::io::Error> for FrameError {
     fn from(value: std::io::Error) -> Self {
         FrameError::IO(value.to_string())
+    }
+}
+
+impl From<FrameError> for std::io::Error {
+    fn from(value: FrameError) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("{}", value))
     }
 }
 

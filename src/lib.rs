@@ -1,7 +1,7 @@
 #![doc = include_str!("../doc/crate.md")]
 #![feature(trait_alias)]
-#![allow(dead_code)]
-#![allow(warnings)]
+// #![allow(dead_code)]
+// #![allow(warnings)]
 #![feature(slice_flatten)]
 
 pub mod ident;

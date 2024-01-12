@@ -12,6 +12,12 @@ pub const NODE_ID_LENGTH: usize = 20;
 #[derive(Debug, PartialEq, Clone)]
 pub struct ID([u8; NODE_ID_LENGTH]);
 
+impl Default for ID {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ID {
     pub fn new() -> Self {
         let mut id = [0_u8; NODE_ID_LENGTH];
@@ -81,7 +87,7 @@ impl TryFrom<&[u8]> for ID {
             return Err(Error::Other(e.into()));
         }
 
-        seed.0 = (&arr[..])
+        seed.0 = arr
             .try_into()
             .map_err(|e| Error::Other(format!("{e}").into()))?;
 
@@ -128,12 +134,12 @@ mod test {
         assert_eq!(ID::try_from(input.clone()).unwrap(), expected);
         assert_eq!(ID::from_hex(input.clone()).unwrap(), expected);
         assert_eq!(ID::try_from(&input.clone()).unwrap(), expected);
-        assert_eq!(ID::from_hex(&input.clone()).unwrap(), expected);
+        assert_eq!(ID::from_hex(input.clone()).unwrap(), expected);
         assert_eq!(ID::from_str(&input.clone()).unwrap(), expected);
 
         let input = [0_u8; NODE_ID_LENGTH];
-        assert_eq!(ID::try_from(input.clone()).unwrap(), expected);
-        assert_eq!(ID::try_from(&input.clone()[..]).unwrap(), expected);
+        assert_eq!(ID::try_from(input).unwrap(), expected);
+        assert_eq!(ID::try_from(&input[..]).unwrap(), expected);
 
         let input = vec![0_u8; NODE_ID_LENGTH];
         assert_eq!(ID::try_from(input.clone()).unwrap(), expected);

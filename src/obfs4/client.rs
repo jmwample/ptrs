@@ -1,8 +1,8 @@
 use super::{Cfg, NAME};
-use futures::Future;
+
 
 use super::proto::Client as InnerClient;
-use crate::{stream::Stream, traits::*, Error, Result};
+use crate::{traits::*, Error, Result};
 
 #[derive(Default)]
 pub struct Client {
@@ -43,12 +43,13 @@ impl TryConfigure for Client {
     }
 }
 
-impl Transport for Client {
-    // async fn wrap<'a>(&self, s: impl Stream<'a>) -> Result<impl Stream<'a>> {
-    fn wrap<'a>(
-        &self,
-        s: impl Stream<'a>,
-    ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
-        async { Ok(s) }
-    }
-}
+// // TODO: Fix client transport impl
+// impl Transport for Client {
+//     // async fn wrap<'a>(&self, s: impl Stream<'a>) -> Result<impl Stream<'a>> {
+//     fn wrap<'a>(
+//         &self,
+//         s: impl Stream<'a>,
+//     ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
+//         async { Ok(s) }
+//     }
+// }

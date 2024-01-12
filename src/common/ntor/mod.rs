@@ -30,11 +30,11 @@ pub(crate) const AUTH_LENGTH: usize = 32; //sha256.Size;
 
 /// The key material that results from a handshake (KEY_SEED).
 #[derive(Default, Debug, Clone)]
-pub(crate) struct KeySeed([u8; KEY_SEED_LENGTH]);
+pub struct KeySeed([u8; KEY_SEED_LENGTH]);
 
 /// The verifier that results from a handshake (AUTH).
 #[derive(Default, Debug, Clone)]
-pub(crate) struct Auth([u8; AUTH_LENGTH]);
+pub struct Auth([u8; AUTH_LENGTH]);
 impl Auth {
     pub fn new(b: [u8; AUTH_LENGTH]) -> Self {
         Self(b)
@@ -47,7 +47,7 @@ impl Auth {
         Ok(Auth(b.as_ref().try_into()?))
     }
     pub fn to_bytes(&self) -> [u8; AUTH_LENGTH] {
-        return self.0.clone();
+        self.0
     }
 }
 
@@ -100,6 +100,12 @@ impl Debug for SessionKeyPair {
             ),
             None => write!(f, "{}->None", hex::encode(self.public.to_bytes())),
         }
+    }
+}
+
+impl Default for IdentityKeyPair {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -160,7 +166,7 @@ impl SessionKeyPair {
 /// Constant time compare of a Auth and a byte slice
 /// (presumably received over a network).
 pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> u8 {
-    auth1.0[..].ct_eq(&auth2.as_ref()[..]).unwrap_u8()
+    auth1.0[..].ct_eq(auth2.as_ref()).unwrap_u8()
 }
 
 // Provides a Key Derivation Function (KDF) that extracts and expands KEY_SEED
@@ -217,7 +223,7 @@ impl HandShakeResult {
         not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
         secret_input.append(&mut exp.as_bytes().to_vec());
 
-        let exp = (&client_keys.private).diffie_hellman(id_public);
+        let exp = client_keys.private.diffie_hellman(id_public);
         not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
         secret_input.append(&mut exp.as_bytes().to_vec());
 
@@ -244,11 +250,11 @@ impl HandShakeResult {
         let mut secret_input: Vec<u8> = vec![];
 
         // Server side uses EXP(X,y) | EXP(X,b)
-        let exp = (&server_keys.private).diffie_hellman(client_public);
+        let exp = server_keys.private.diffie_hellman(client_public);
         not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
         secret_input.append(&mut exp.as_bytes().to_vec());
 
-        let exp = (&id_keys.private).diffie_hellman(client_public);
+        let exp = id_keys.private.diffie_hellman(client_public);
         not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
         secret_input.append(&mut exp.as_bytes().to_vec());
 
@@ -256,7 +262,7 @@ impl HandShakeResult {
             secret_input,
             id,
             &id_keys.public,
-            &client_public,
+            client_public,
             &server_keys.public,
         );
 

@@ -134,6 +134,15 @@ impl From<obfs4::framing::FrameError> for Error {
     }
 }
 
+impl From<Error> for std::io::Error {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::IOError(io_err) => io_err,
+            e => std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

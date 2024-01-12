@@ -12,16 +12,14 @@ use super::*;
 use crate::test_utils::init_subscriber;
 use crate::Result;
 
-use bytes::{Buf, Bytes, BytesMut};
-use futures::{Sink, SinkExt, Stream, StreamExt};
-use rand::prelude::*;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use bytes::{Bytes, BytesMut};
+use futures::{SinkExt, StreamExt};
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 fn random_key_material() -> [u8; KEY_MATERIAL_LENGTH] {
     let mut r = [0_u8; KEY_MATERIAL_LENGTH];
-    getrandom::getrandom(&mut r);
+    getrandom::getrandom(&mut r).unwrap();
     r
 }
 
@@ -32,11 +30,11 @@ fn encode_decode() -> Result<()> {
     let mut key_material = [0_u8; KEY_MATERIAL_LENGTH];
     rand::thread_rng().fill(&mut key_material[..]);
 
-    let mut codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+    let mut codec = Obfs4Codec::new(key_material, key_material);
 
     let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + PACKET_OVERHEAD + message.len());
     let mut input = BytesMut::new();
-    build_and_marshall(&mut input, PacketType::Payload, message.clone(), 0);
+    build_and_marshall(&mut input, PacketType::Payload, message.clone(), 0)?;
     codec.encode(&mut input, &mut b)?;
 
     let Message::Payload(plaintext) = codec.decode(&mut b)?.expect("failed to decode") else {
@@ -64,7 +62,7 @@ async fn oversized_flow() -> Result<()> {
     let key_material = [0_u8; KEY_MATERIAL_LENGTH];
 
     let mut b = bytes::BytesMut::with_capacity(2_usize.pow(13));
-    let mut codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+    let mut codec = Obfs4Codec::new(key_material, key_material);
     let mut src = Bytes::from(oversized_messsage);
     let res = codec.encode(&mut src, &mut b);
 
@@ -100,7 +98,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     let msg_s = msg.clone();
 
     tokio::spawn(async move {
-        let codec = Obfs4Codec::new(key_material.clone(), key_material.clone());
+        let codec = Obfs4Codec::new(key_material, key_material);
         let message = &msg_s;
 
         let (mut sink, mut input) = codec.framed(s).split();
@@ -111,7 +109,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
                 trace!("Event {:?}", String::from_utf8(m.clone()).unwrap());
 
                 let mut b = BytesMut::new();
-                build_and_marshall(&mut b, PacketType::Payload, &m, 0);
+                build_and_marshall(&mut b, PacketType::Payload, &m, 0).unwrap();
                 sink.send(b).await.expect("server response failed");
             } else {
                 panic!("failed while reading from codec");
@@ -120,7 +118,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     });
 
     let mut message = BytesMut::new();
-    build_and_marshall(&mut message, super::PacketType::Payload, &msg, 0);
+    build_and_marshall(&mut message, super::PacketType::Payload, &msg, 0)?;
 
     let client_codec = Obfs4Codec::new(key_material, key_material);
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
@@ -131,11 +129,9 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     if let Message::Payload(m) = c_stream
         .next()
         .await
-        .expect(&format!(
-            "you were supposed to call me back!, {} (max={})",
+        .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
             message.len(),
-            MAX_FRAME_PAYLOAD_LENGTH
-        ))
+            MAX_FRAME_PAYLOAD_LENGTH))
         .expect("an error occured when you called back")
     {
         // skip over length field in the Payload message
@@ -165,7 +161,7 @@ async fn double_encode_decode() -> Result<()> {
     let msg = b"j dkja ;ae ;awena woea;wfel rfawe";
     let plain_msg = Message::Payload(msg.to_vec());
     let mut pkt1 = BytesMut::new();
-    plain_msg.marshall(&mut pkt1);
+    plain_msg.marshall(&mut pkt1)?;
     let mut pkt2 = pkt1.clone();
 
     let key_material = random_key_material();
@@ -183,7 +179,7 @@ async fn double_encode_decode() -> Result<()> {
         };
         if let Message::Payload(m) = event {
             assert_eq!(&m, &msg.clone());
-            trace!("Event {:?}", String::from_utf8(m.clone()).unwrap());
+            trace!("Event-{i} {:?}", String::from_utf8(m.clone()).unwrap());
 
             send_payload(&mut s_sink, &m)
                 .await
@@ -197,16 +193,14 @@ async fn double_encode_decode() -> Result<()> {
         if let Message::Payload(m) = c_stream
             .next()
             .await
-            .expect(&format!(
-                "you were supposed to call me back!, {} (max={})",
+            .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
                 msg.len(),
-                MAX_FRAME_PAYLOAD_LENGTH
-            ))
+                MAX_FRAME_PAYLOAD_LENGTH))
             .expect("an error occured when you called back")
         {
             // skip over length field in the Payload message
             assert_eq!(&m, &msg);
-            trace!("client read success");
+            trace!("client read {i} success");
         } else {
             panic!("failed while reading from codec");
         }

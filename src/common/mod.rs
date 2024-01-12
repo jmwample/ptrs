@@ -1,8 +1,8 @@
 use crate::Result;
 
 use colored::Colorize;
-use hmac::{digest::Reset, Hmac, Mac};
-use sha2::{Sha256, Sha256VarCore};
+use hmac::{Hmac};
+use sha2::{Sha256};
 
 mod skip;
 pub use skip::AsyncDiscard;
@@ -28,8 +28,8 @@ pub(crate) fn colorize(b: impl AsRef<[u8]>) -> String {
     if id.len() < 3 {
         return hex::encode(id);
     }
-    let r = 0xff & id[0];
-    let g = 0xff & id[1];
-    let b = 0xff & id[2];
+    let r = id[0];
+    let g = id[1];
+    let b = id[2];
     hex::encode(id).truecolor(r, g, b).to_string()
 }

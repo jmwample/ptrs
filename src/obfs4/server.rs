@@ -1,7 +1,7 @@
 use super::{Cfg, NAME};
-use futures::Future;
 
-use crate::{stream::Stream, traits::*, Error, Result};
+
+use crate::{traits::*, Error, Result};
 
 #[derive(Default, Clone, Debug)]
 pub struct Server {
@@ -40,12 +40,13 @@ impl TryConfigure for Server {
     }
 }
 
-impl Transport for Server {
-    // async fn wrap<'a>(&self, s: impl Stream<'a>) -> Result<impl Stream<'a>> {
-    fn wrap<'a>(
-        &self,
-        s: impl Stream<'a>,
-    ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
-        async { Ok(s) }
-    }
-}
+// // TODO: fix Transport impl for server
+// impl Transport for Server {
+//     // async fn wrap<'a>(&self, s: impl Stream<'a>) -> Result<impl Stream<'a>> {
+//     fn wrap<'a>(
+//         &self,
+//         s: impl Stream<'a>,
+//     ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
+//         async { Ok(s) }
+//     }
+// }
