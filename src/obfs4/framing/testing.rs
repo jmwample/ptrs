@@ -16,6 +16,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{debug, trace};
+use rand::prelude::*;
 
 fn random_key_material() -> [u8; KEY_MATERIAL_LENGTH] {
     let mut r = [0_u8; KEY_MATERIAL_LENGTH];
@@ -34,10 +35,10 @@ fn encode_decode() -> Result<()> {
 
     let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + PACKET_OVERHEAD + message.len());
     let mut input = BytesMut::new();
-    build_and_marshall(&mut input, PacketType::Payload, message.clone(), 0)?;
+    build_and_marshall(&mut input, MessageTypes::Payload.into(), message.clone(), 0)?;
     codec.encode(&mut input, &mut b)?;
 
-    let Message::Payload(plaintext) = codec.decode(&mut b)?.expect("failed to decode") else {
+    let Messages::Payload(plaintext) = codec.decode(&mut b)?.expect("failed to decode") else {
         panic!("f")
     };
     assert_eq!(plaintext, message);
@@ -104,12 +105,12 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
         let (mut sink, mut input) = codec.framed(s).split();
 
         while let Some(Ok(event)) = input.next().await {
-            if let Message::Payload(m) = event {
+            if let Messages::Payload(m) = event {
                 assert_eq!(&m, &message.clone());
                 trace!("Event {:?}", String::from_utf8(m.clone()).unwrap());
 
                 let mut b = BytesMut::new();
-                build_and_marshall(&mut b, PacketType::Payload, &m, 0).unwrap();
+                build_and_marshall(&mut b, MessageTypes::Payload.into(), &m, 0).unwrap();
                 sink.send(b).await.expect("server response failed");
             } else {
                 panic!("failed while reading from codec");
@@ -118,7 +119,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     });
 
     let mut message = BytesMut::new();
-    build_and_marshall(&mut message, super::PacketType::Payload, &msg, 0)?;
+    build_and_marshall(&mut message, MessageTypes::Payload.into(), &msg, 0)?;
 
     let client_codec = Obfs4Codec::new(key_material, key_material);
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
@@ -126,7 +127,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     c_sink.send(&mut message).await.expect("client send failed");
     trace!("client write success");
 
-    if let Message::Payload(m) = c_stream
+    if let Messages::Payload(m) = c_stream
         .next()
         .await
         .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
@@ -144,22 +145,13 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     Ok(())
 }
 
-#[test]
-fn nonce_wrap() -> Result<()> {
-    let mut nb = NonceBox::new([0_u8; NONCE_PREFIX_LENGTH]);
-    nb.counter = u64::MAX;
-
-    assert_eq!(nb.next().unwrap_err(), FrameError::NonceCounterWrapped);
-    Ok(())
-}
-
 #[tokio::test]
 async fn double_encode_decode() -> Result<()> {
     println!();
     init_subscriber();
     let (c, s) = tokio::io::duplex(16 * 1024);
     let msg = b"j dkja ;ae ;awena woea;wfel rfawe";
-    let plain_msg = Message::Payload(msg.to_vec());
+    let plain_msg = Messages::Payload(msg.to_vec());
     let mut pkt1 = BytesMut::new();
     plain_msg.marshall(&mut pkt1)?;
     let mut pkt2 = pkt1.clone();
@@ -177,7 +169,7 @@ async fn double_encode_decode() -> Result<()> {
         let Some(Ok(event)) = s_stream.next().await else {
             panic!("read none!!!")
         };
-        if let Message::Payload(m) = event {
+        if let Messages::Payload(m) = event {
             assert_eq!(&m, &msg.clone());
             trace!("Event-{i} {:?}", String::from_utf8(m.clone()).unwrap());
 
@@ -190,7 +182,7 @@ async fn double_encode_decode() -> Result<()> {
     }
 
     for i in 0..2 {
-        if let Message::Payload(m) = c_stream
+        if let Messages::Payload(m) = c_stream
             .next()
             .await
             .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",

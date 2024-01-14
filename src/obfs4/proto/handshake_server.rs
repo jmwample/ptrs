@@ -10,17 +10,17 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{
-            self, FrameError, Marshall, Obfs4Codec, KEY_MATERIAL_LENGTH,
+            self, FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH,
         },
         proto::{
-            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad, PacketType,
+            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad, MessageTypes,
         },
     },
     Error, Result,
 };
 
 use bytes::{BufMut, BytesMut};
-use hmac::{Mac};
+use hmac::Mac;
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -325,7 +325,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let mut prng_pkt_buf = BytesMut::new();
         framing::build_and_marshall(
             &mut prng_pkt_buf,
-            PacketType::PrngSeed,
+            MessageTypes::PrngSeed.into(),
             self.materials.len_seed,
             0,
         )?;

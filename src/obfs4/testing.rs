@@ -7,7 +7,7 @@ use crate::{
 
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use std::cmp::Ordering;
 use std::time::Duration;
@@ -68,6 +68,57 @@ async fn public_iface() -> Result<()> {
         String::from_utf8(message.to_vec())?
     );
 
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[tokio::test]
+async fn transfer_10k_x1() -> Result<()> {
+    init_subscriber();
+
+    let (c, mut s) = tokio::io::duplex(1024 * 1000);
+
+    let mut o4_server = Server::new_from_random();
+    let client_config = o4_server.client_params();
+
+    tokio::spawn(async move {
+        let o4s_stream = o4_server.wrap(&mut s).await.unwrap();
+        let (mut r, mut w) = tokio::io::split(o4s_stream);
+        tokio::io::copy(&mut r, &mut w).await.unwrap();
+    });
+
+    let o4_client = proto::Client::from_params(client_config);
+    let o4c_stream = o4_client.wrap(c).await?;
+
+    let (mut r, mut w) = tokio::io::split(o4c_stream);
+
+    tokio::spawn(async move {
+        let msg = [0_u8; 10240];
+        w.write_all(&msg)
+            .await
+            .unwrap_or_else(|e| panic!("failed on write {e}"));
+    });
+
+    let expected_total = 10240;
+    let mut buf = vec![0_u8; 1024 * 11];
+    let mut received: usize = 0;
+    for i in 0..4 {
+        debug!("client read: {i}");
+        tokio::select! {
+            res = r.read(&mut buf) => {
+                let n = res?;
+                received += n;
+                trace!("received: {n}: total:{received}");
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
+                panic!("client failed to read after {i} iterations: timeout");
+            }
+        }
+    }
+
+    if received != expected_total {
+        panic!("incorrect amount received {received} != {expected_total}");
+    }
     Ok(())
 }
 

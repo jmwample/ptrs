@@ -2,7 +2,7 @@ use crate::{
     common::AsyncDiscard,
     obfs4::{
         constants::*,
-        framing::{self, PacketType},
+        framing::{self, MessageType, MessageTypes},
     },
     Result,
 };
@@ -110,8 +110,8 @@ where
             return Ok(());
         }
 
-        let proto_type = PacketType::try_from(buf[0])?;
-        if proto_type == PacketType::Payload {
+        let proto_type = MessageTypes::try_from(buf[0])?;
+        if proto_type == MessageTypes::Payload {
             return Ok(());
         }
 
@@ -123,12 +123,12 @@ where
         }
 
         // we have enough bytes. advance past the header and try to parse the frame.
-        let m = framing::Message::try_parse(buf)?;
+        let m = framing::Messages::try_parse(buf)?;
         self.try_handle_non_payload_message(m)
     }
 
 
-    pub(crate) fn try_handle_non_payload_message(&mut self, _msg: framing::Message) -> Result<()> {
+    pub(crate) fn try_handle_non_payload_message(&mut self, _msg: framing::Messages) -> Result<()> {
         {}
 
         Ok(())
@@ -174,21 +174,21 @@ where
             // pad_len > 19
             Ok(framing::build_and_marshall(
                 buf,
-                PacketType::Payload,
+                MessageTypes::Payload.into(),
                 vec![],
                 pad_len - HEADER_LENGTH,
             )?)
         } else if pad_len > 0 {
             framing::build_and_marshall(
                 buf,
-                PacketType::Payload,
+                MessageTypes::Payload.into(),
                 vec![],
                 framing::MAX_PACKET_PAYLOAD_LENGTH,
             )?;
             // } else {
             Ok(framing::build_and_marshall(
                 buf,
-                PacketType::Payload,
+                MessageTypes::Payload.into(),
                 vec![],
                 pad_len,
             )?)
@@ -291,7 +291,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
-        trace!("{} reading", self.session.id());
+        // trace!("{} reading", self.session.id());
 
         // If there is no payload from the previous Read() calls, consume data off
         // the network.  Not all data received is guaranteed to be usable payload,
@@ -318,7 +318,7 @@ where
                 }
             };
 
-            if let framing::Message::Payload(message) = msg {
+            if let framing::Messages::Payload(message) = msg {
                 buf.put_slice(&message);
                 return Poll::Ready(Ok(()));
             }

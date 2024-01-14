@@ -20,19 +20,9 @@ use crate::{
     }, Result,
 };
 
-
-use hmac::{Mac};
-
-
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::{
-    codec::{Decoder},
-};
+use tokio_util::codec::Decoder;
 use tracing::{debug, info};
-
-
-
-
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -184,7 +174,7 @@ impl ClientSession<Initialized> {
         // post handshake state updates
         session.set_session_id(handshake_artifacts.session_id);
         let res = codec.decode(&mut remainder);
-        if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
+        if let Ok(Some(framing::Messages::PrngSeed(seed))) = res {
             // try to parse the remainder of the server hello packet as a
             // PrngSeed since it should be there.
             let len_seed = drbg::Seed::from(seed);

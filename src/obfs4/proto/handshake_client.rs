@@ -9,7 +9,7 @@ use crate::{
     },
     obfs4::{
         constants::*,
-        framing::{FrameError, Obfs4Codec, TryParse, KEY_MATERIAL_LENGTH},
+        framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
         proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage, utils::find_mac_mark},
     },
     Error, Result,
