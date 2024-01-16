@@ -201,7 +201,7 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
                 Ok((shs, _len)) => {
                     // TODO: make sure bytes after server hello get put back
                     // into the read buffer for message handling
-                    remainder.put(&buf[n - SEED_PACKET_LENGTH..n]);
+                    remainder.put(&buf[n - SEED_MESSAGE_LENGTH..n]);
                     shs
                 }
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,
@@ -397,7 +397,7 @@ impl ClientHandshake {
                 Ok((shs, len)) => {
                     // TODO: make sure bytes after server hello get put back
                     // into the read buffer for message handling
-                    remainder.put(&buf[n - SEED_PACKET_LENGTH..n]);
+                    remainder.put(&buf[n - SEED_MESSAGE_LENGTH..n]);
                     shs
                 }
                 Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,

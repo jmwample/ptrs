@@ -1,8 +1,10 @@
 use crate::{
-    common::AsyncDiscard,
+    common::{
+        AsyncDiscard, probdist::{self, WeightedDist}, drbg,
+    },
     obfs4::{
         constants::*,
-        framing::{self, MessageType, MessageTypes},
+        framing::{self, MessageTypes},
     },
     Result,
 };
@@ -10,6 +12,7 @@ use crate::{
 use bytes::{Buf, BytesMut};
 use futures::{Sink, Stream};
 use pin_project::pin_project;
+use sha2::{Sha256, Digest};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio_util::codec::{Decoder, Framed};
 use tracing::{debug, trace, warn};
@@ -78,6 +81,9 @@ where
     #[pin]
     pub stream: Framed<T, framing::Obfs4Codec>,
 
+    pub length_dist: probdist::WeightedDist,
+    pub iat_dist: probdist::WeightedDist,
+
     pub session: Session<'a>,
 }
 
@@ -90,14 +96,25 @@ where
         inner: T,
         codec: framing::Obfs4Codec,
         session: Session<'a>,
-    ) -> O4Stream<'a, T> {
+    ) -> Result<O4Stream<'a, T>> {
         let stream = codec.framed(inner);
-        Self {
+        let len_seed = session.len_seed();
+
+        let mut hasher = Sha256::new();
+        hasher.update(len_seed.as_bytes());
+        // the result of a sha256 haash is 32 bytes (256 bits) so we will
+        // always have enough for a seed here.
+        let iat_seed = drbg::Seed::try_from(&hasher.finalize()[..SEED_LENGTH])?;
+
+        let length_dist = WeightedDist::new(len_seed, 0, framing::MAX_SEGMENT_LENGTH as i32, session.biased());
+        let iat_dist = WeightedDist::new(iat_seed, 0, framing::MAX_SEGMENT_LENGTH as i32, session.biased());
+
+        Ok(Self {
             stream,
-            // reader: &StreamReader::new(&mut stream),
-            // writer: &SinkWriter::new(&mut stream),
             session,
-        }
+            length_dist,
+            iat_dist,
+        })
     }
 
 
@@ -106,7 +123,7 @@ where
 
         if !buf.has_remaining() {
             return Ok(());
-        } else if buf.remaining() < PACKET_OVERHEAD {
+        } else if buf.remaining() < MESSAGE_OVERHEAD {
             return Ok(());
         }
 
@@ -117,7 +134,7 @@ where
 
         let length = u16::from_be_bytes(buf[1..3].try_into().unwrap()) as usize;
 
-        if length > buf.remaining() - PACKET_OVERHEAD {
+        if length > buf.remaining() - MESSAGE_OVERHEAD {
             // somehow we don't have the full packet yet.
             return Ok(());
         }
@@ -183,7 +200,7 @@ where
                 buf,
                 MessageTypes::Payload.into(),
                 vec![],
-                framing::MAX_PACKET_PAYLOAD_LENGTH,
+                framing::MAX_MESSAGE_PAYLOAD_LENGTH,
             )?;
             // } else {
             Ok(framing::build_and_marshall(
@@ -216,49 +233,52 @@ where
         }
         debug!("here 1");
 
-        // put the buf into the send queue for the framed to each chunks off and
-        // send one piece at a time.
-        match this.stream.as_mut().start_send(buf) {
-            Ok(()) => {} // return Poll::Ready(Ok(buf.len())),
-            Err(e) => return Poll::Ready(Err(e.into())),
-        };
+        // // put the buf into the send queue for the framed to each chunks off and
+        // // send one piece at a time.
+        // match this.stream.as_mut().start_send(buf) {
+        //     Ok(()) => {} // return Poll::Ready(Ok(buf.len())),
+        //     Err(e) => return Poll::Ready(Err(e.into())),
+        // };
 
-        debug!("here 2");
-        match  self.poll_flush(cx) {
-            Poll::Ready(Ok(())) => Poll::Ready(Ok(buf.len())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-
-        /*
-        let mut this = self.as_mut().project();
-
+        // debug!("here 2");
+        // match  self.poll_flush(cx) {
+        //     Poll::Ready(Ok(())) => Poll::Ready(Ok(buf.len())),
+        //     Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+        //     Poll::Pending => Poll::Pending,
+        // }
 
         let msg_len = buf.len();
 
-        // while we have bytes in the buffer write MAX_FRAME_PAYLOAD_LENGTH
+        // while we have bytes in the buffer write MAX_MESSAGE_PAYLOAD_LENGTH
         // chunks until we have less than that amount left.
         // TODO: asyncwrite - apply length_dist instead of just full payloads
         let mut len_sent: usize = 0;
-        let mut out_buf = BytesMut::with_capacity(framing::MAX_FRAME_PAYLOAD_LENGTH);
-        while msg_len - len_sent > framing::MAX_FRAME_PAYLOAD_LENGTH {
-            let payload = framing::Message::Payload(
-                buf[len_sent..len_sent + framing::MAX_FRAME_PAYLOAD_LENGTH].to_vec(),
+        let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
+        while msg_len - len_sent > framing::MAX_MESSAGE_PAYLOAD_LENGTH {
+            let payload = framing::Messages::Payload(
+                buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH].to_vec(),
             );
 
-            // payload.marshall(&mut out_buf);
-            this.stream.as_mut().start_send(&buf[len_sent..len_sent + framing::MAX_FRAME_PAYLOAD_LENGTH])?;
+            payload.marshall(&mut out_buf)?;
+            // this.stream.as_mut().start_send(&buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH])?;
+            this.stream.as_mut().start_send(&mut out_buf)?;
 
-            len_sent += framing::MAX_FRAME_PAYLOAD_LENGTH;
+            len_sent += framing::MAX_MESSAGE_PAYLOAD_LENGTH;
             out_buf.clear();
         }
 
-        let payload = framing::Message::Payload(buf[len_sent..].to_vec());
+        let payload = framing::Messages::Payload(buf[len_sent..].to_vec());
 
         let mut out_buf = BytesMut::new();
-        payload.marshall(&mut out_buf);
+        payload.marshall(&mut out_buf)?;
         this.stream.as_mut().start_send(out_buf)?;
-        */
+
+        match self.poll_flush(cx) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(result) => result?,
+        }
+
+         Poll::Ready(Ok(msg_len))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {

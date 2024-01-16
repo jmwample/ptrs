@@ -33,7 +33,7 @@ fn encode_decode() -> Result<()> {
 
     let mut codec = Obfs4Codec::new(key_material, key_material);
 
-    let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + PACKET_OVERHEAD + message.len());
+    let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + MESSAGE_OVERHEAD + message.len());
     let mut input = BytesMut::new();
     build_and_marshall(&mut input, MessageTypes::Payload.into(), message.clone(), 0)?;
     codec.encode(&mut input, &mut b)?;
@@ -77,7 +77,7 @@ async fn oversized_flow() -> Result<()> {
 #[tokio::test]
 async fn many_sizes_flow() -> Result<()> {
     init_subscriber();
-    for l in MAX_FRAME_PAYLOAD_LENGTH - 6..(MAX_FRAME_PAYLOAD_LENGTH - PACKET_OVERHEAD) {
+    for l in MAX_FRAME_PAYLOAD_LENGTH - 6..(MAX_FRAME_PAYLOAD_LENGTH - MESSAGE_OVERHEAD) {
         let key_material = random_key_material();
         let message = vec![65_u8; l];
         debug!("\n\n{l}, {}", message.len());

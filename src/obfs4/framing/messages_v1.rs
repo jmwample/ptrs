@@ -19,7 +19,7 @@
 //! cross compatibility.
 
 use crate::obfs4::{
-    framing::{FrameError, PACKET_OVERHEAD},
+    framing::{FrameError, MESSAGE_OVERHEAD},
     constants::*,
 };
 
@@ -146,7 +146,7 @@ impl Messages {
     }
 
     pub(crate) fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
-        if buf.remaining() < PACKET_OVERHEAD {
+        if buf.remaining() < MESSAGE_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
         let pt: MessageTypes = buf.get_u8().try_into()?;

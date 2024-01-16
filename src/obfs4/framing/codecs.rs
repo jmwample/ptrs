@@ -255,31 +255,27 @@ impl EncryptingEncoder {
 impl<T: Buf> Encoder<T> for EncryptingCodec {
     type Error = FrameError;
 
-    /// Encode encodes a single frame worth of payload and returns
+    /// Encode encodes a single frame worth of payload and returns. Plaintext
+    /// should either be a handshake message OR a buffer containing one or more
+    /// [`Message`]s already properly marshalled. The proided plaintext can
+    /// be no longer than [`MAX_FRAME_PAYLOAD_LENGTH`].
+    ///
     /// [`InvalidPayloadLength`] is recoverable, all other errors MUST be
     /// treated as fatal and the session aborted.
     fn encode(&mut self, plaintext: T, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
         trace!(
-            "encoding {}/{MAX_PACKET_PAYLOAD_LENGTH}",
+            "encoding {}/{MAX_FRAME_PAYLOAD_LENGTH}",
             plaintext.remaining()
         );
 
-        let mut plaintext_frame = BytesMut::new();
-        if self.handshake_complete {
-            // from write buf -> Paylad and serialize it
-            let num_bytes = min(MAX_PACKET_PAYLOAD_LENGTH, plaintext.remaining());
-            let mut plaintext_u8 = vec![0_u8; MAX_PACKET_PAYLOAD_LENGTH];
-            plaintext_u8.put(plaintext.take(num_bytes));
-            Messages::Payload(plaintext_u8).marshall(&mut plaintext_frame)?;
-        } else {
-            // Don't send a handshake message if it is longer than the other
-            // end will accept.
-            if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
-                return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
-            }
-
-            plaintext_frame.put(plaintext);
+        // Don't send a frame if it is longer than the other end will accept.
+        if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
+            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
         }
+
+        let mut plaintext_frame = BytesMut::new();
+
+        plaintext_frame.put(plaintext);
 
         // Generate a new nonce
         let nonce_bytes = self.encoder.nonce.next()?;

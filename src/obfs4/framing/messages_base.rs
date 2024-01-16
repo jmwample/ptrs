@@ -10,11 +10,11 @@ use futures::sink::{Sink, SinkExt};
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::trace;
 
-pub(crate) const PACKET_OVERHEAD: usize = 2 + 1;
-pub(crate) const MAX_PACKET_PAYLOAD_LENGTH: usize =
-    framing::MAX_FRAME_PAYLOAD_LENGTH - PACKET_OVERHEAD;
-pub(crate) const MAX_PACKET_PADDING_LENGTH: usize = MAX_PACKET_PAYLOAD_LENGTH;
-pub(crate) const SEED_PACKET_PAYLOAD_LENGTH: usize = drbg::SEED_LENGTH;
+pub(crate) const MESSAGE_OVERHEAD: usize = 2 + 1;
+pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =
+    framing::MAX_FRAME_PAYLOAD_LENGTH - MESSAGE_OVERHEAD;
+pub(crate) const MAX_MESSAGE_PADDING_LENGTH: usize = MAX_MESSAGE_PAYLOAD_LENGTH;
+pub(crate) const SEED_MESSAGE_PAYLOAD_LENGTH: usize = drbg::SEED_LENGTH;
 
 pub(crate) const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
@@ -54,12 +54,12 @@ pub fn build_and_marshall<T: BufMut>(
     let buf = data.as_ref();
     let total_size = buf.len() + pad_len;
     trace!(
-        "building: total size = {}+{}={} / {MAX_PACKET_PAYLOAD_LENGTH}",
+        "building: total size = {}+{}={} / {MAX_MESSAGE_PAYLOAD_LENGTH}",
         buf.len(),
         pad_len,
         total_size,
     );
-    if total_size >= MAX_PACKET_PAYLOAD_LENGTH {
+    if total_size >= MAX_MESSAGE_PAYLOAD_LENGTH {
         Err(FrameError::InvalidPayloadLength(total_size))?
     }
 

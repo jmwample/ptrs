@@ -102,7 +102,7 @@ async fn transfer_10k_x1() -> Result<()> {
     let expected_total = 10240;
     let mut buf = vec![0_u8; 1024 * 11];
     let mut received: usize = 0;
-    for i in 0..4 {
+    for i in 0..8 {
         debug!("client read: {i}");
         tokio::select! {
             res = r.read(&mut buf) => {
