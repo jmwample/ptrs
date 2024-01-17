@@ -28,10 +28,10 @@ use std::{
 };
 
 mod client;
-pub(super) use client::Client;
+pub use client::{Client, ClientParams};
 mod server;
 #[allow(unused)]
-pub(super) use server::Server;
+pub use server::Server;
 
 mod utils;
 pub(crate) use utils::*;
@@ -44,7 +44,7 @@ mod handshake_server;
 
 #[allow(dead_code, unused)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IAT {
+pub enum IAT {
     #[default]
     Off,
     Enabled,

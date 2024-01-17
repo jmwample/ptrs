@@ -49,7 +49,6 @@ impl Client {
 
         tokio::select! {
             r = session.handshake(stream) => r,
-            // r = ClientHandshake::new(&self.id, &self.station_pubkey, self.iat_mode).complete(stream) => r,
             e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
         }
     }
