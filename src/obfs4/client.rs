@@ -1,6 +1,5 @@
 use super::{Cfg, NAME};
 
-
 use super::proto::Client as InnerClient;
 use crate::{traits::*, Error, Result};
 

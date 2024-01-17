@@ -1,9 +1,6 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
-    obfs4::{
-        constants::*,
-        framing::{FrameError, Messages},
-    },
+    obfs4::framing::{FrameError, Messages},
 };
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -14,8 +11,6 @@ use crypto_secretbox::{
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
-
-use std::cmp::min;
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -350,8 +345,8 @@ impl NonceBox {
 
 #[cfg(test)]
 mod testing {
-    use crate::Result;
     use super::*;
+    use crate::Result;
 
     #[test]
     fn nonce_wrap() -> Result<()> {

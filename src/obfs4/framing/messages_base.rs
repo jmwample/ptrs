@@ -1,11 +1,9 @@
 use crate::{
-    common:: drbg,
+    common::drbg,
     obfs4::framing::{self, FrameError, Messages},
 };
 
-
 use futures::sink::{Sink, SinkExt};
-
 
 use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::trace;
@@ -13,8 +11,7 @@ use tracing::trace;
 pub(crate) const MESSAGE_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =
     framing::MAX_FRAME_PAYLOAD_LENGTH - MESSAGE_OVERHEAD;
-pub(crate) const MAX_MESSAGE_PADDING_LENGTH: usize = MAX_MESSAGE_PAYLOAD_LENGTH;
-pub(crate) const SEED_MESSAGE_PAYLOAD_LENGTH: usize = drbg::SEED_LENGTH;
+// pub(crate) const MAX_MESSAGE_PADDING_LENGTH: usize = MAX_MESSAGE_PAYLOAD_LENGTH;
 
 pub(crate) const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
@@ -82,4 +79,3 @@ where
 
     sink.send(m.freeze()).await
 }
-

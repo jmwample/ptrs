@@ -14,9 +14,9 @@ use crate::Result;
 
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
+use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{debug, trace};
-use rand::prelude::*;
 
 fn random_key_material() -> [u8; KEY_MATERIAL_LENGTH] {
     let mut r = [0_u8; KEY_MATERIAL_LENGTH];
@@ -130,9 +130,13 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     if let Messages::Payload(m) = c_stream
         .next()
         .await
-        .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
-            message.len(),
-            MAX_FRAME_PAYLOAD_LENGTH))
+        .unwrap_or_else(|| {
+            panic!(
+                "you were supposed to call me back!, {} (max={})",
+                message.len(),
+                MAX_FRAME_PAYLOAD_LENGTH
+            )
+        })
         .expect("an error occured when you called back")
     {
         // skip over length field in the Payload message
@@ -185,9 +189,13 @@ async fn double_encode_decode() -> Result<()> {
         if let Messages::Payload(m) = c_stream
             .next()
             .await
-            .unwrap_or_else(|| panic!("you were supposed to call me back!, {} (max={})",
-                msg.len(),
-                MAX_FRAME_PAYLOAD_LENGTH))
+            .unwrap_or_else(|| {
+                panic!(
+                    "you were supposed to call me back!, {} (max={})",
+                    msg.len(),
+                    MAX_FRAME_PAYLOAD_LENGTH
+                )
+            })
             .expect("an error occured when you called back")
         {
             // skip over length field in the Payload message

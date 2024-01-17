@@ -2,8 +2,7 @@ use crate::{obfs4::constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-
-use rand_core::{RngCore};
+use rand_core::RngCore;
 use subtle::ConstantTimeEq;
 
 use tracing::debug; // , trace};
@@ -90,10 +89,6 @@ pub fn find_mac_mark(
 mod test {
     use super::*;
     use bytes::Bytes;
-    
-    
-
-    
 
     struct MacMarkTest {
         mark: [u8; MARK_LENGTH],

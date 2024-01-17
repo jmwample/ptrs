@@ -47,13 +47,13 @@ mod messages_base;
 pub use messages_base::*;
 
 mod messages_v1;
-pub use messages_v1::{Messages, MessageTypes};
+pub use messages_v1::{MessageTypes, Messages};
 
 mod codecs;
 pub use codecs::EncryptingCodec as Obfs4Codec;
 
-mod frame_builder;
-pub use frame_builder::FrameBuilder;
+// mod frame_builder;
+// pub use frame_builder::FrameBuilder;
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -69,20 +69,24 @@ pub(crate) const FRAME_OVERHEAD: usize = LENGTH_LENGTH + SECRET_BOX_OVERHEAD;
 /// per frame.
 pub(crate) const MAX_FRAME_PAYLOAD_LENGTH: usize = MAX_SEGMENT_LENGTH - FRAME_OVERHEAD;
 
-pub(crate) const MAX_FRAME_LENGTH: usize = MAX_SEGMENT_LENGTH - LENGTH_LENGTH;
-pub(crate) const MIN_FRAME_LENGTH: usize = FRAME_OVERHEAD - LENGTH_LENGTH;
+// pub(crate) const MAX_FRAME_LENGTH: usize = MAX_SEGMENT_LENGTH - LENGTH_LENGTH;
+// pub(crate) const MIN_FRAME_LENGTH: usize = FRAME_OVERHEAD - LENGTH_LENGTH;
 
 pub(crate) const NONCE_PREFIX_LENGTH: usize = 16;
-pub(crate) const NONCE_COUNTER_LENGTH: usize = 8;
-pub(crate) const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
+// pub(crate) const NONCE_COUNTER_LENGTH: usize = 8;
+// pub(crate) const NONCE_LENGTH: usize = NONCE_PREFIX_LENGTH + NONCE_COUNTER_LENGTH;
 
+/// length in bytes of the `Length` field at the front of a Frame. Converted to
+/// big-endian u16 when decoding.
 pub(crate) const LENGTH_LENGTH: usize = 2;
 
 /// KEY_LENGTH is the length of the Encoder/Decoder secret key.
 pub(crate) const KEY_LENGTH: usize = 32;
 
+/// Size of the HMAC tag used for the frame security.
 pub(crate) const TAG_SIZE: usize = 16;
 
+///
 pub(crate) const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
 
 pub trait Marshall {
@@ -95,7 +99,6 @@ pub trait TryParse {
     where
         Self: Sized;
 }
-
 
 impl std::error::Error for FrameError {}
 

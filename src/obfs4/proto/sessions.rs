@@ -4,20 +4,16 @@
 use super::{IAT, SESSION_ID_LEN};
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{
-        colorize, drbg, ntor,
-        replay_filter::ReplayFilter,
-    },
+    common::{colorize, drbg, ntor, replay_filter::ReplayFilter},
     obfs4::{
-        framing::{
-            self,
-        },
+        framing::{self},
         proto::{
             handshake_client::{self, HandshakeMaterials as CHSMaterials},
             handshake_server::{self, HandshakeMaterials as SHSMaterials},
             O4Stream, Obfs4Stream,
         },
-    }, Result,
+    },
+    Result,
 };
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -170,7 +166,7 @@ impl ClientSession<Initialized> {
         T: AsyncRead + AsyncWrite + Unpin,
     {
         // set up for handshake
-        let mut session = self.transition(ClientHandshaking { });
+        let mut session = self.transition(ClientHandshaking {});
 
         let materials = CHSMaterials::new(
             &session.session_keys,
@@ -203,7 +199,7 @@ impl ClientSession<Initialized> {
         }
 
         // mark session as Established
-        let session_state: ClientSession<Established> = session.transition(Established{});
+        let session_state: ClientSession<Established> = session.transition(Established {});
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
@@ -290,7 +286,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     /// Helper function to perform state transitions.
     fn transition<'s, T: ServerSessionState>(self, _state: T) -> ServerSession<'s, T>
     where
-        'a:'s
+        'a: 's,
     {
         ServerSession {
             // fixed by server
@@ -313,7 +309,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     /// Helper function to perform state transitions.
     fn fault<'s, F: Fault + ServerSessionState>(self, f: F) -> ServerSession<'s, F>
     where
-        'a:'s
+        'a: 's,
     {
         ServerSession {
             // fixed by server
@@ -340,7 +336,6 @@ pub fn new_server_session<'a>(
     iat_mode: IAT,
     replay_filter: &'a mut ReplayFilter,
 ) -> Result<ServerSession<'a, Initialized>> {
-
     let session_keys = ntor::SessionKeyPair::new(true);
 
     Ok(ServerSession {
@@ -363,17 +358,14 @@ pub fn new_server_session<'a>(
     })
 }
 
-
 impl<'b> ServerSession<'b, Initialized> {
-
     pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
     {
-
         // set up for handshake
-        let mut session = self.transition(ServerHandshaking { });
+        let mut session = self.transition(ServerHandshaking {});
 
         let materials = SHSMaterials::new(
             session.node_id.clone(),
@@ -383,7 +375,6 @@ impl<'b> ServerSession<'b, Initialized> {
             session.session_id,
             session.len_seed.to_bytes(),
         );
-
 
         // complete handshake
         let handshake = handshake_server::new(materials)?;
@@ -410,7 +401,7 @@ impl<'b> ServerSession<'b, Initialized> {
         // }
 
         // mark session as Established
-        let session_state: ServerSession<Established> = session.transition(Established{});
+        let session_state: ServerSession<Established> = session.transition(Established {});
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();

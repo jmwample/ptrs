@@ -3,12 +3,10 @@
 use crate::{
     common::{
         colorize,
-        ntor::{self, HandShakeResult, AUTH_LENGTH, Representative, REPRESENTATIVE_LENGTH},
+        ntor::{self, HandShakeResult, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::{
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    },
+    obfs4::framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
     stream::Stream,
     Error, Result,
 };
@@ -46,8 +44,8 @@ impl Client {
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
-
-        let session = sessions::new_client_session(self.id.clone(), self.station_pubkey, self.iat_mode);
+        let session =
+            sessions::new_client_session(self.id.clone(), self.station_pubkey, self.iat_mode);
 
         tokio::select! {
             r = session.handshake(stream) => r,
@@ -64,4 +62,3 @@ impl Client {
         }
     }
 }
-

@@ -10,7 +10,10 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
-        proto::{get_epoch_hour, make_pad, handshake_server::ServerHandshakeMessage, utils::find_mac_mark},
+        proto::{
+            get_epoch_hour, handshake_server::ServerHandshakeMessage, make_pad,
+            utils::find_mac_mark,
+        },
     },
     Error, Result,
 };
@@ -24,8 +27,6 @@ use tracing::{debug, trace};
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-
-
 // /// PlaceHolder
 // trait ClientSessionState {}
 
@@ -38,7 +39,6 @@ pub(crate) struct ClientHandshake<'a, S: ClientHandshakeState> {
 // impl<S: ClientHandshakeState> ClientSessionState for ClientHandshake<S> {}
 
 pub(crate) trait ClientHandshakeState {}
-
 
 #[derive(Debug)]
 pub(crate) struct NewClientHandshake {}
@@ -60,7 +60,6 @@ pub(crate) struct ClientHandshakeSuccess {
     pub(crate) codec: Obfs4Codec,
     pub(crate) session_id: [u8; SESSION_ID_LEN],
 }
-
 
 impl ClientHandshakeState for NewClientHandshake {}
 impl ClientHandshakeState for ClientHandshakeSent {}
@@ -84,7 +83,12 @@ pub(crate) struct HandshakeMaterials<'a> {
 }
 
 impl<'a> HandshakeMaterials<'a> {
-    pub(crate) fn  new(session_keys: &'a SessionKeyPair, node_id: &ntor::ID, node_pubkey: ntor::PublicKey, session_id: [u8;SESSION_ID_LEN]) -> Self {
+    pub(crate) fn new(
+        session_keys: &'a SessionKeyPair,
+        node_id: &ntor::ID,
+        node_pubkey: ntor::PublicKey,
+        session_id: [u8; SESSION_ID_LEN],
+    ) -> Self {
         HandshakeMaterials {
             session_keys,
             node_id: node_id.clone(),
@@ -95,21 +99,15 @@ impl<'a> HandshakeMaterials<'a> {
     }
 }
 
-
-pub(crate) fn new(
-    hs_materials: HandshakeMaterials,
-) -> Result<ClientHandshake<NewClientHandshake>>
-{
-
+pub(crate) fn new(hs_materials: HandshakeMaterials) -> Result<ClientHandshake<NewClientHandshake>> {
     if hs_materials.session_keys.representative.is_none() {
         return Err(Error::Other("Bad session keys".into()));
     }
 
     Ok(ClientHandshake {
         materials: hs_materials,
-        _h_state: NewClientHandshake { },
+        _h_state: NewClientHandshake {},
     })
-
 }
 
 impl<'a> ClientHandshake<'a, NewClientHandshake> {
@@ -120,15 +118,9 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-
         // build client handshake message
         let mut ch_msg = ClientHandshakeMessage::new(
-            self
-                .materials
-                .session_keys
-                .representative
-                .clone()
-                .unwrap(),
+            self.materials.session_keys.representative.clone().unwrap(),
             self.materials.pad_len,
             "".into(),
             [0_u8; MARK_LENGTH],
@@ -157,10 +149,9 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
             buf.len()
         );
 
-
         Ok(ClientHandshake {
             materials: self.materials,
-            _h_state: ClientHandshakeSent { epoch_hour }
+            _h_state: ClientHandshakeSent { epoch_hour },
         })
     }
 }
@@ -326,131 +317,8 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
     }
 }
 
-/*
-impl ClientHandshake {
-    pub fn new(id: &ntor::ID, station_pubkey: &ntor::PublicKey, iat_mode: IAT) -> Self {
-        Self {
-            session: ClientSession::new(id.clone(), *station_pubkey, iat_mode),
-        }
-    }
-
-    pub fn for_session(session: ClientSession) -> Result<Self> {
-        Ok(Self { session })
-    }
-
-    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
-    where
-        T: AsyncRead + AsyncWrite + Unpin,
-    {
-        if self.session.session_keys.representative.is_none() {
-            return Err(Error::Other("Bad session keys".into()));
-        }
-
-        // build client handshake message
-        let mut ch_msg = ClientHandshakeMessage::new(
-            self.session.session_keys.representative.clone().unwrap(),
-            self.session.pad_len,
-            "".into(),
-            [0_u8; MARK_LENGTH],
-        );
-        self.session.pad_len = ch_msg.pad_len;
-
-        let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-        let mut key = self.session.node_pubkey.as_bytes().to_vec();
-        key.append(&mut self.session.node_id.to_bytes().to_vec());
-        let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
-        ch_msg.marshall(&mut buf, h)?;
-        self.session.epoch_hour = ch_msg.epoch_hour;
-
-        trace!("{:?}", self.session);
-        // let mut file = tokio::fs::File::create("message.hex").await?;
-        // file.write_all(&buf).await?;
-
-        // send client Handshake
-        stream.write_all(&buf).await?;
-        debug!(
-            "{} handshake sent {}B, waiting for sever response",
-            self.session.session_id(),
-            buf.len()
-        );
-
-        // Wait for and attempt to consume server handshake
-        let mut remainder = BytesMut::new();
-        let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let mut server_hs: ServerHandshakeMessage;
-        loop {
-            let n = stream.read(&mut buf).await?;
-            if n == 0 {
-                Err(Error::IOError(IoError::new(
-                    IoErrorKind::UnexpectedEof,
-                    "read 0B in client handshake",
-                )))?
-            }
-            debug!(
-                "{} read {n}/{}B of server handshake",
-                self.session.session_id(),
-                buf.len()
-            );
-
-            // validate sever
-            server_hs = match self.try_parse(&mut buf[..n]) {
-                Ok((shs, len)) => {
-                    // TODO: make sure bytes after server hello get put back
-                    // into the read buffer for message handling
-                    remainder.put(&buf[n - SEED_MESSAGE_LENGTH..n]);
-                    shs
-                }
-                Err(Error::Obfs4Framing(FrameError::EAgain)) => continue,
-                Err(e) => return Err(e)?,
-            };
-            break;
-        }
-
-        let ntor_hs_result: HandShakeResult = match ntor::HandShakeResult::client_handshake(
-            &self.session.session_keys,
-            &server_hs.server_pubkey(),
-            &self.session.node_pubkey,
-            &self.session.node_id,
-        )
-        .into()
-        {
-            Some(r) => r,
-            None => Err(Error::NtorError(ntor::NtorError::HSFailure(
-                "failed to derive sharedsecret".into(),
-            )))?,
-        };
-
-        // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(
-            ntor_hs_result.key_seed,
-            KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
-        );
-        let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-        let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
-            .try_into()
-            .unwrap();
-        self.session
-            .set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
-
-        info!("{} handshake complete", self.session.session_id());
-
-        let mut codec = Obfs4Codec::new(ekm, dkm);
-        let res = codec.decode(&mut remainder);
-        if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
-            // try to parse the remainder of the server hello packet as a
-            // PrngSeed since it should be there.
-            self.session.set_len_seed(drbg::Seed::from(seed));
-        } else {
-            debug!("NOPE {res:?}");
-        }
-        codec.handshake_complete();
-        let mut o4 = O4Stream::new(stream, codec, Session::Client(self.session));
-
-        Ok(Obfs4Stream::from_o4(o4))
-    }
-}
-*/
-
+/// Preliminary message sent in an obfs4 handshake attempting to open a
+/// connection from a client to a potential server.
 pub struct ClientHandshakeMessage {
     pad_len: usize,
     repres: Representative,

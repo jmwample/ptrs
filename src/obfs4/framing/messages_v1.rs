@@ -12,19 +12,19 @@
 //!
 //! Client - When operating as a client we want to support the option to connect
 //! with either v0 or v1 servers. when running as a v1 client the server will
-//! ignore the unknown frames including [`ClientParams`] and [`CryptoOffer`]. 
+//! ignore the unknown frames including [`ClientParams`] and [`CryptoOffer`].
 //! This means that the `SevrerHandshake` will not include [`ServerParams`] or
 //! [`CryptoAccept`] frames which indicates to a v1 client that it is speaking
 //! with a server unwilling or incapable of speaking v1. This should allow
 //! cross compatibility.
 
 use crate::obfs4::{
-    framing::{FrameError, MESSAGE_OVERHEAD},
     constants::*,
+    framing::{FrameError, MESSAGE_OVERHEAD},
 };
 
-use tracing::trace;
 use tokio_util::bytes::{Buf, BufMut};
+use tracing::trace;
 
 #[derive(Debug, PartialEq)]
 pub enum MessageTypes {
@@ -168,37 +168,21 @@ impl Messages {
                 Ok(Messages::PrngSeed(seed))
             }
 
-            MessageTypes::Padding => {
-                Ok(Messages::Padding(length as u16))
-            }
+            MessageTypes::Padding => Ok(Messages::Padding(length as u16)),
 
-            MessageTypes::HeartbeatPing => {
-                Ok(Messages::HeartbeatPing)
-            }
+            MessageTypes::HeartbeatPing => Ok(Messages::HeartbeatPing),
 
-            MessageTypes::HeartbeatPong => {
-                Ok(Messages::HeartbeatPong)
-            }
+            MessageTypes::HeartbeatPong => Ok(Messages::HeartbeatPong),
 
-            MessageTypes::ClientParams => {
-                Ok(Messages::ClientParams)
-            }
+            MessageTypes::ClientParams => Ok(Messages::ClientParams),
 
-            MessageTypes::ServerParams => {
-                Ok(Messages::ServerParams)
-            }
+            MessageTypes::ServerParams => Ok(Messages::ServerParams),
 
-            MessageTypes::CryptoOffer => {
-                Ok(Messages::CryptoOffer)
-            }
+            MessageTypes::CryptoOffer => Ok(Messages::CryptoOffer),
 
-            MessageTypes::CryptoAccept => {
-                Ok(Messages::CryptoAccept)
-            }
+            MessageTypes::CryptoAccept => Ok(Messages::CryptoAccept),
 
-            MessageTypes::HandshakeEnd => {
-                Ok(Messages::HandshakeEnd)
-            }
+            MessageTypes::HandshakeEnd => Ok(Messages::HandshakeEnd),
         }
     }
 
@@ -230,8 +214,8 @@ impl Messages {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::init_subscriber;
     use crate::obfs4::framing::*;
+    use crate::test_utils::init_subscriber;
 
     use rand::prelude::*;
     use tokio_util::bytes::BytesMut;

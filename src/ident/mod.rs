@@ -1,11 +1,10 @@
 use crate::{
-    traits::{self}, Result,
+    traits::{self},
+    Result,
 };
 
 pub mod handler;
 pub mod wrapper;
-
-
 
 const NAME: &str = "identity";
 

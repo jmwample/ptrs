@@ -121,6 +121,8 @@ mod testing {
     use super::*;
     use tokio::io::AsyncWriteExt;
 
+    const MAX_FRAME_LENGTH: usize = MAX_SEGMENT_LENGTH - LENGTH_LENGTH;
+
     #[tokio::test]
     async fn build_frame_v0() {
         let test_msg_lengths = [0, 1, 2, MAX_FRAME_PAYLOAD_LENGTH, MAX_FRAME_LENGTH, MAX_SEGMENT_LENGTH,];
