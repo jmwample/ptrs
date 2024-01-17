@@ -8,11 +8,11 @@ pub use id::{ID, NODE_ID_LENGTH};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use x25519_dalek::{ReusableSecret, SharedSecret, StaticSecret, PublicRepresentative, x25519};
+use x25519_dalek::{x25519, PublicRepresentative, ReusableSecret, SharedSecret, StaticSecret};
 
+use std::convert::From;
 use std::error::Error as StdError;
 use std::fmt::{self, Debug, Display};
-use std::convert::From;
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;
 

@@ -1,34 +1,27 @@
 use crate::{
     common::{
         colorize,
-        ntor::{
-            self, Representative, AUTH_LENGTH,
-            REPRESENTATIVE_LENGTH,
-        },
-        HmacSha256, replay_filter,
+        ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
+        replay_filter, HmacSha256,
     },
     obfs4::{
         constants::*,
-        framing::{
-            self, FrameError, Marshall, Obfs4Codec, KEY_MATERIAL_LENGTH,
-        },
+        framing::{self, FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
         proto::{
-            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad, PacketType,
+            find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad,
+            MessageTypes,
         },
     },
     Error, Result,
 };
 
 use bytes::{BufMut, BytesMut};
-use hmac::{Mac};
+use hmac::Mac;
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
 use tracing::{debug, trace};
-
-
-
 
 use std::time::Instant;
 
@@ -39,8 +32,8 @@ pub(crate) struct HandshakeMaterials<'a> {
     session_keys: &'a ntor::SessionKeyPair,
     replay_filter: &'a mut replay_filter::ReplayFilter,
 
-    session_id: [u8;SESSION_ID_LEN],
-    len_seed: [u8;SEED_LENGTH]
+    session_id: [u8; SESSION_ID_LEN],
+    len_seed: [u8; SEED_LENGTH],
 }
 
 impl<'a> HandshakeMaterials<'a> {
@@ -55,11 +48,11 @@ impl<'a> HandshakeMaterials<'a> {
         identity_keys: &'b ntor::IdentityKeyPair,
         session_keys: &'b ntor::SessionKeyPair,
         replay_filter: &'b mut replay_filter::ReplayFilter,
-        session_id: [u8;SESSION_ID_LEN],
+        session_id: [u8; SESSION_ID_LEN],
         len_seed: [u8; SEED_LENGTH],
     ) -> Self
     where
-        'b:'a
+        'b: 'a,
     {
         HandshakeMaterials {
             node_id,
@@ -67,11 +60,10 @@ impl<'a> HandshakeMaterials<'a> {
             session_keys,
             replay_filter,
             session_id,
-            len_seed
+            len_seed,
         }
     }
 }
-
 
 // #[derive(Debug)]
 pub(crate) struct ServerHandshake<'a, S: ServerHandshakeState> {
@@ -109,18 +101,20 @@ impl ServerHandshakeState for ClientHandshakeReceived {}
 impl ServerHandshakeState for ServerHandshakeSuccess {}
 
 pub fn new(materials: HandshakeMaterials<'_>) -> Result<ServerHandshake<'_, NewServerHandshake>> {
-    Ok( ServerHandshake {
+    Ok(ServerHandshake {
         materials,
         _h_state: NewServerHandshake {},
     })
 }
 
 impl<'b> ServerHandshake<'b, NewServerHandshake> {
-
-    pub async fn retrieve_client_handshake<'a, T>(mut self, stream: &mut T) -> Result<ServerHandshake<'a, ClientHandshakeReceived>>
+    pub async fn retrieve_client_handshake<'a, T>(
+        mut self,
+        stream: &mut T,
+    ) -> Result<ServerHandshake<'a, ClientHandshakeReceived>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
-        'b:'a,
+        'b: 'a,
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
@@ -147,18 +141,12 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
             break;
         }
 
-        debug!(
-            "{} successfully parsed client handshake",
-            self.session_id()
-        );
+        debug!("{} successfully parsed client handshake", self.session_id());
 
         Ok(ServerHandshake {
             materials: self.materials,
-            _h_state: ClientHandshakeReceived {
-                client_hs,
-            },
+            _h_state: ClientHandshakeReceived { client_hs },
         })
-
     }
 
     fn try_parse_client_handshake(
@@ -219,7 +207,11 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
             if mac_calculated.ct_eq(mac_received).into() {
                 trace!("correct mac");
                 // Ensure that this handshake has not been seen previously.
-                if self.materials.replay_filter.test_and_set(Instant::now(), mac_received) {
+                if self
+                    .materials
+                    .replay_filter
+                    .test_and_set(Instant::now(), mac_received)
+                {
                     // The client either happened to generate exactly the same
                     // session key and padding, or someone is replaying a previous
                     // handshake.  In either case, fuck them.
@@ -249,16 +241,17 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
             [0_u8; MARK_LENGTH],
         ))
     }
-
 }
 
 impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
-    pub async fn complete<'a, T>(mut self, mut stream: T) -> Result<ServerHandshake<'a, ServerHandshakeSuccess>>
+    pub async fn complete<'a, T>(
+        mut self,
+        mut stream: T,
+    ) -> Result<ServerHandshake<'a, ServerHandshakeSuccess>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
     {
-
         let client_hs = &mut self._h_state.client_hs;
 
         // derive key materials
@@ -290,7 +283,6 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             .try_into()
             .unwrap();
         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-
 
         // self.set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
         let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
@@ -325,7 +317,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let mut prng_pkt_buf = BytesMut::new();
         framing::build_and_marshall(
             &mut prng_pkt_buf,
-            PacketType::PrngSeed,
+            MessageTypes::PrngSeed.into(),
             self.materials.len_seed,
             0,
         )?;
@@ -342,10 +334,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
 
         Ok(ServerHandshake {
             materials: self.materials,
-            _h_state: ServerHandshakeSuccess{
-                session_id,
-                codec,
-            },
+            _h_state: ServerHandshakeSuccess { session_id, codec },
         })
     }
 }

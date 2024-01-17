@@ -108,8 +108,6 @@ fn keypair() -> Result<()> {
     Ok(())
 }
 
-
-
 /*
 // Benchmark Client/Server handshake.  The actual time taken that will be
 // observed on either the Client or Server is half the reported time per

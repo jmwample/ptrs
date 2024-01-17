@@ -1,8 +1,8 @@
 use crate::Result;
 
 use colored::Colorize;
-use hmac::{Hmac};
-use sha2::{Sha256};
+use hmac::Hmac;
+use sha2::Sha256;
 
 mod skip;
 pub use skip::AsyncDiscard;

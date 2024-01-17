@@ -1,6 +1,5 @@
 use super::{Cfg, NAME};
 
-
 use crate::{traits::*, Error, Result};
 
 #[derive(Default, Clone, Debug)]

@@ -4,35 +4,21 @@
 use super::{IAT, SESSION_ID_LEN};
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{
-        colorize, drbg, ntor,
-        replay_filter::ReplayFilter,
-    },
+    common::{colorize, drbg, ntor, replay_filter::ReplayFilter},
     obfs4::{
-        framing::{
-            self,
-        },
+        framing::{self},
         proto::{
             handshake_client::{self, HandshakeMaterials as CHSMaterials},
             handshake_server::{self, HandshakeMaterials as SHSMaterials},
             O4Stream, Obfs4Stream,
         },
-    }, Result,
+    },
+    Result,
 };
-
-
-use hmac::{Mac};
-
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::{
-    codec::{Decoder},
-};
+use tokio_util::codec::Decoder;
 use tracing::{debug, info};
-
-
-
-
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -55,6 +41,20 @@ impl<'a> Session<'a> {
             Session::Server(ss) => format!("s{}", ss.session_id()),
         }
     }
+
+    pub fn biased(&self) -> bool {
+        match self {
+            Session::Client(cs) => cs.biased,
+            Session::Server(ss) => ss.biased,
+        }
+    }
+
+    pub fn len_seed(&self) -> drbg::Seed {
+        match self {
+            Session::Client(cs) => cs.len_seed.clone(),
+            Session::Server(ss) => ss.len_seed.clone(),
+        }
+    }
 }
 
 // ================================================================ //
@@ -69,7 +69,9 @@ pub(crate) struct ClientSession<S: ClientSessionState> {
     iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
 
-    len_seed: drbg::Seed, // TODO: initialize the distributions using the seed
+    biased: bool,
+
+    len_seed: drbg::Seed,
 
     _state: S,
 }
@@ -111,6 +113,7 @@ impl<S: ClientSessionState> ClientSession<S> {
             session_id: self.session_id,
             iat_mode: self.iat_mode,
             epoch_hour: self.epoch_hour,
+            biased: self.biased,
 
             len_seed: self.len_seed,
             _state: t,
@@ -126,6 +129,7 @@ impl<S: ClientSessionState> ClientSession<S> {
             session_id: self.session_id,
             iat_mode: self.iat_mode,
             epoch_hour: self.epoch_hour,
+            biased: self.biased,
 
             len_seed: self.len_seed,
             _state: f,
@@ -149,6 +153,7 @@ pub fn new_client_session(
         session_id,
         iat_mode,
         epoch_hour: "".into(),
+        biased: false,
 
         len_seed: drbg::Seed::new().unwrap(),
         _state: Initialized,
@@ -161,7 +166,7 @@ impl ClientSession<Initialized> {
         T: AsyncRead + AsyncWrite + Unpin,
     {
         // set up for handshake
-        let mut session = self.transition(ClientHandshaking { });
+        let mut session = self.transition(ClientHandshaking {});
 
         let materials = CHSMaterials::new(
             &session.session_keys,
@@ -184,7 +189,7 @@ impl ClientSession<Initialized> {
         // post handshake state updates
         session.set_session_id(handshake_artifacts.session_id);
         let res = codec.decode(&mut remainder);
-        if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
+        if let Ok(Some(framing::Messages::PrngSeed(seed))) = res {
             // try to parse the remainder of the server hello packet as a
             // PrngSeed since it should be there.
             let len_seed = drbg::Seed::from(seed);
@@ -194,59 +199,17 @@ impl ClientSession<Initialized> {
         }
 
         // mark session as Established
-        let session_state: ClientSession<Established> = session.transition(Established{});
+        let session_state: ClientSession<Established> = session.transition(Established {});
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Client(session_state));
+        let o4 = O4Stream::new(stream, codec, Session::Client(session_state))?;
 
         Ok(Obfs4Stream::from_o4(o4))
     }
 }
 
 impl ClientSession<ClientHandshaking> {
-    // // TODO: Is this done as part of the client handshake somewhere?
-    // pub(crate) fn handle_server_response(&mut self, server_hs: ServerHandshakeMessage, remainder: BytesMut) -> Result<Obfs4Codec> {
-    //     let ntor_hs_result: HandShakeResult = match ntor::HandShakeResult::client_handshake(
-    //         &self.session_keys,
-    //         &server_hs.server_pubkey(),
-    //         &self.node_pubkey,
-    //         &self.node_id,
-    //     )
-    //     .into()
-    //     {
-    //         Some(r) => r,
-    //         None => {
-    //             self.fault();
-    //             Err(Error::NtorError(ntor::NtorError::HSFailure(
-    //             "failed to derive sharedsecret".into(),
-    //         )))?
-    //         }
-    //     };
-
-    //     // use the derived seed value to bootstrap Read / Write crypto codec.
-    //     let okm = ntor::kdf(
-    //         ntor_hs_result.key_seed,
-    //         KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
-    //     );
-    //     let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-    //     let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
-    //         .try_into()
-    //         .unwrap();
-    //     self.set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
-
-    //     let mut codec = Obfs4Codec::new(ekm, dkm);
-    //     let res = codec.decode(&mut remainder);
-    //     if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
-    //         // try to parse the remainder of the server hello packet as a
-    //         // PrngSeed since it should be there.
-    //         self.set_len_seed(params.len_seed);
-    //     } else {
-    //         debug!("NOPE {res:?}");
-    //     }
-    //     Ok(codec)
-    // }
-
     pub(crate) fn set_len_seed(&mut self, seed: drbg::Seed) {
         debug!(
             "{} setting length seed {}",
@@ -281,6 +244,7 @@ pub(crate) struct ServerSession<'a, S: ServerSessionState> {
     node_id: ntor::ID,
     identity_keys: &'a ntor::IdentityKeyPair,
     replay_filter: &'a mut ReplayFilter,
+    biased: bool,
 
     // generated per session
     session_keys: ntor::SessionKeyPair,
@@ -322,7 +286,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     /// Helper function to perform state transitions.
     fn transition<'s, T: ServerSessionState>(self, _state: T) -> ServerSession<'s, T>
     where
-        'a:'s
+        'a: 's,
     {
         ServerSession {
             // fixed by server
@@ -330,6 +294,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
             iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
             replay_filter: self.replay_filter,
+            biased: self.biased,
 
             // generated per session
             session_keys: self.session_keys,
@@ -344,7 +309,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     /// Helper function to perform state transitions.
     fn fault<'s, F: Fault + ServerSessionState>(self, f: F) -> ServerSession<'s, F>
     where
-        'a:'s
+        'a: 's,
     {
         ServerSession {
             // fixed by server
@@ -352,6 +317,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
             iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
             replay_filter: self.replay_filter,
+            biased: self.biased,
 
             // generated per session
             session_keys: self.session_keys,
@@ -370,7 +336,6 @@ pub fn new_server_session<'a>(
     iat_mode: IAT,
     replay_filter: &'a mut ReplayFilter,
 ) -> Result<ServerSession<'a, Initialized>> {
-
     let session_keys = ntor::SessionKeyPair::new(true);
 
     Ok(ServerSession {
@@ -379,6 +344,7 @@ pub fn new_server_session<'a>(
         iat_mode,
         identity_keys,
         replay_filter,
+        biased: false,
 
         // generated per session
         session_id: session_keys.public.to_bytes()[..SESSION_ID_LEN]
@@ -392,17 +358,14 @@ pub fn new_server_session<'a>(
     })
 }
 
-
 impl<'b> ServerSession<'b, Initialized> {
-
     pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
     {
-
         // set up for handshake
-        let mut session = self.transition(ServerHandshaking { });
+        let mut session = self.transition(ServerHandshaking {});
 
         let materials = SHSMaterials::new(
             session.node_id.clone(),
@@ -412,7 +375,6 @@ impl<'b> ServerSession<'b, Initialized> {
             session.session_id,
             session.len_seed.to_bytes(),
         );
-
 
         // complete handshake
         let handshake = handshake_server::new(materials)?;
@@ -439,11 +401,11 @@ impl<'b> ServerSession<'b, Initialized> {
         // }
 
         // mark session as Established
-        let session_state: ServerSession<Established> = session.transition(Established{});
+        let session_state: ServerSession<Established> = session.transition(Established {});
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
+        let o4 = O4Stream::new(stream, codec, Session::Server(session_state))?;
 
         Ok(Obfs4Stream::from_o4(o4))
     }

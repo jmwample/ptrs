@@ -3,18 +3,14 @@
 use crate::{
     common::{
         colorize, drbg,
-        ntor::{self, AUTH_LENGTH, Representative, REPRESENTATIVE_LENGTH},
+        ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
         replay_filter::{self, ReplayFilter},
         HmacSha256,
     },
     obfs4::{
         constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_MATERIAL_LENGTH},
-        proto::{
-            sessions::Session,
-            client::ClientParams,
-            handshake_server,
-        },
+        framing::{FrameError, Marshall, Obfs4Codec, TryParse},
+        proto::{client::ClientParams, handshake_server, sessions::Session},
     },
     stream::Stream,
     Error, Result,
@@ -61,7 +57,7 @@ impl Server {
         )?;
         tokio::select! {
             r = session.handshake(stream) => r,
-            e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
+            e = tokio::time::sleep(SERVER_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
         }
     }
 
@@ -85,6 +81,3 @@ impl Server {
         }
     }
 }
-
-
-
