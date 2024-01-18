@@ -11,6 +11,7 @@
     <meta name="description" content="Every byte of a Obfs4 connection explained and reproduced" />
     <link rel="stylesheet" href="frombootstrap.css?b1" />
     <link rel="stylesheet" href="illustrated.css?b1" />
+    <link rel="stylesheet" href="iat.css?b1" />
     <script src="illustrated.js?b1"></script>
 
     <!-- favicons -->
@@ -44,11 +45,32 @@
                 exploring.</p>
         </div>
 
-        <div class="open-close-all rec-outer">
-            <button id="openCloseAll" class="annotate-toggle" data-lbl-state="open" data-lbl-toggle="Close All"
-                onclick="ill.openCloseAll(this, event)">Open All</button>
-        </div>
+        <div class="rec-outer">
+            <div class="rec-horiz", style="overflow-y: hidden;">
+                <div class="open-close-all" style="float:left; margin-top: 20px;">
+                <button id="openCloseAll" class="annotate-toggle" data-lbl-state="open" data-lbl-toggle="Close All"
+                    onclick="ill.openCloseAll(this, event)">Open All</button>
+                </div>
+                <div class="flight-types" style="float: right;margin-top: 20px;">
+                    <input type="radio" name="flight-type" value="disabled" id="disabled" checked />
+                    <label for="disabled">
+                        Disabled
+                    </label>
 
+                    <input type="radio" name="flight-type" value="enabled" id="enabled" />
+                    <label for="enabled">
+                        Enabled
+                    </label>
+
+                    <input type="radio" name="flight-type" value="paranoid" id="paranoid" />
+                    <label for="paranoid">
+                        Paranoid
+                    </label>
+                </div>
+                <h3 style="float: right">IAT Mode<sup class="iat-tooltip">&#9432;</sup>:</h3>
+
+            </div>
+        </div>
         <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Key Exchange Generation</div>
@@ -710,7 +732,6 @@ pub:
             </div>
         </div>
 
-
         <div class="rec-outer">
             <div class="record server">
                 <div class="rec-label">Server Handshake</div>
@@ -935,7 +956,6 @@ pub:
             </div>
         </div>
 
-
         <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Session Keys Calc</div>
@@ -986,10 +1006,9 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
-
         <div class="rec-outer">
             <div class="record client">
-                <div class="rec-label">Wrapped Record</div>
+                <div class="rec-label">Encrypted Frame</div>
                 <div class="rec-explanation">
                     To reduce issues with middleboxes that block unrecognized
                     TLS protocols, TLS 1.3 records are disguised as TLS 1.2
@@ -1083,7 +1102,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     </div>
 
                     <span class="string decrypted">
-                        <span class="label">Client Application Data</span>
+                        <span class="label">Client Payload Message</span>
                         <span class="bytes">
                             70 69 6e 67
                         </span>
@@ -1112,7 +1131,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="rec-outer">
             <div class="record client embedded">
-                <div class="rec-label">Client Application Data</div>
+                <div class="rec-label">Client Payload Message</div>
                 <div class="rec-explanation">
                     The client sends the data "ping".
                 </div>
@@ -1132,7 +1151,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="rec-outer">
             <div class="record server">
-                <div class="rec-label">Wrapped Record</div>
+                <div class="rec-label">Encrypted Frame</div>
                 <div class="rec-explanation">
                     To reduce issues with middleboxes that block unrecognized
                     TLS protocols, TLS 1.3 records are disguised as TLS 1.2
@@ -1226,7 +1245,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     </div>
 
                     <span class="string decrypted">
-                        <span class="label">Server Application Data</span>
+                        <span class="label">Server Payload Message</span>
                         <span class="bytes">
                             70 6f 6e 67
                         </span>
@@ -1255,7 +1274,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="rec-outer">
             <div class="record server embedded">
-                <div class="rec-label">Server Application Data</div>
+                <div class="rec-label">Server Payload Message</div>
                 <div class="rec-explanation">
                     The server replies with the data "pong".
                 </div>
