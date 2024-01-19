@@ -1,4 +1,5 @@
 /***** iat mode toggles ******/
+
 .flight-types {
   display: flex;
   max-width: 336px;
@@ -18,7 +19,7 @@
   display: none;
 }
 .flight-types > input:checked + label {
-  color: #3395DE;
+  color: #000000;
 }
 .flight-types > input:nth-of-type(1):checked ~ label:last-of-type:before {
   transform: translateX(calc(0% + 0px));
@@ -55,7 +56,7 @@
   transition: color 250ms cubic-bezier(0, 0.95, 0.38, 0.98);
 }
 .flight-types label:before {
-  background: #fff;
+  background: #8ac351;
   transition: all 250ms cubic-bezier(0, 0.95, 0.38, 0.98);
 }
 .flight-types label:not(:last-child) {
