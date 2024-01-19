@@ -47,33 +47,33 @@
 
         <div class="rec-outer">
             <div class="rec-horiz", style="overflow-y: hidden;">
-                <div class="open-close-all" style="float:left; margin-top: 20px;">
+                <div class="open-close-all" style="float:left; margin-top: 5px;">
                 <button id="openCloseAll" class="annotate-toggle" data-lbl-state="open" data-lbl-toggle="Close All"
                     onclick="ill.openCloseAll(this, event)">Open All</button>
                 </div>
-                <div class="flight-types" style="float: right;margin-top: 20px;">
-                    <input type="radio" name="flight-type" value="disabled" id="disabled" checked />
+                <div class="iat-strategies" style="float: right;margin-top: 5px;margin-left: 10px;">
+                    <input type="radio" name="iat-strategy" value="disabled" id="disabled" checked />
                     <label for="disabled">
                         Disabled
                     </label>
 
-                    <input type="radio" name="flight-type" value="enabled" id="enabled" />
+                    <input type="radio" name="iat-strategy" value="enabled" id="enabled" />
                     <label for="enabled">
                         Enabled
                     </label>
 
-                    <input type="radio" name="flight-type" value="paranoid" id="paranoid" />
+                    <input type="radio" name="iat-strategy" value="paranoid" id="paranoid" />
                     <label for="paranoid">
                         Paranoid
                     </label>
                 </div>
-                <h3 style="float: right">IAT Mode
+                <h4 style="float: right">IAT Mode
                     <sup title="Inter-Arrival Traits for packet size and timing distribution.
 Disabled = pass-though
 Enabled = ~MTU,
 Paranoid = throw performance out the window and
     sample the distributions on every write.">&#9432;</sup>:
-                </h3>
+                </h4>
             </div>
         </div>
         <div class="rec-outer">
