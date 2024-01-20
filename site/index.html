@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>The Illustrated Obfs4 Connection: Every Byte Explained</title>
+    <title>Obfs4 Illustrated</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <meta name="format-detection" content="telephone=no" />
@@ -11,7 +11,6 @@
     <meta name="description" content="Every byte of a Obfs4 connection explained and reproduced" />
     <link rel="stylesheet" href="frombootstrap.css?b1" />
     <link rel="stylesheet" href="illustrated.css?b1" />
-    <link rel="stylesheet" href="iat.css?b1" />
     <script src="illustrated.js?b1"></script>
 
     <!-- favicons -->
@@ -39,10 +38,12 @@
         <h3>Every byte explained and reproduced</h3>
 
         <div class="outerblock">
-            <p>In this demonstration a client connects to a server,
-                negotiates a Obfs4 session, sends "ping", receives "pong",
-                and then terminates the session. Click below to begin
-                exploring.</p>
+            <p>
+                In this demonstration a client connects to a server,
+                negotiates an Obfs4 session, sends 1450 bytes of "lorem ipsum"
+                text, receives the same text reversed, and then terminates the
+                session. Click below to begin exploring.
+            </p>
         </div>
 
         <div class="rec-outer">
@@ -70,12 +71,13 @@
                 <h4 style="float: right">IAT Mode
                     <sup title="Inter-Arrival Traits for packet size and timing distribution.
 Disabled = pass-though
-Enabled = ~MTU,
-Paranoid = throw performance out the window and
-    sample the distributions on every write.">&#9432;</sup>:
+Enabled = pad to ~MTU,
+Paranoid = throw performance out the window and sample
+    length and time distributions on every write.">&#9432;</sup>:
                 </h4>
             </div>
         </div>
+
         <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Key Exchange Generation</div>
@@ -608,7 +610,6 @@ pub:
             </div>
         </div>
 
-
         <div class="rec-outer">
             <div class="calculation server">
                 <div class="rec-label">Server Session Keys Calc</div>
@@ -927,34 +928,40 @@ pub:
             <div class="record server embedded">
                 <div class="rec-label">Length Distribution Seed Message</div>
                 <div class="rec-explanation">
-                    Any extensions that aren't needed for negotiating encryption
-                    keys should be listed here so that they can be hidden from
-                    eavesdroppers and middleboxes.
+                    The server sends a message to the client that will be used
+                    to seed the randomized distribution of lengths of lengths
+                    for future Frames sent by the client.
                 </div>
                 <span class="record-data">
                     <span class="string">
-                        <span class="label">Handshake Header</span>
+                        <span class="label">Message Type: DRBG Length Seed</span>
                         <span class="bytes">
-                            08 00 00 02
+                            01
                         </span>
                         <div class="explanation">
-                            Each handshake message starts with a type and a length.
-                            <ul>
-                                <li><tt>08</tt> - handshake message type 0x08 (encrypted extensions)
-                                <li><tt>00 00 02</tt> - 2 bytes of handshake message data follows
-                            </ul>
+                            A 1-byte message type field. 0x01 = DRBG Length Seed.
                         </div>
                     </span>
 
                     <span class="string">
-                        <span class="label">Extensions</span>
+                        <span class="label">Message Length</span>
                         <span class="bytes">
-                            00 00
+                            00 18
                         </span>
                         <div class="explanation">
-                            <ul>
-                                <li><tt>00 00</tt> - 0 bytes of extension data follows
-                            </ul>
+                            2-byte (u16) length field.
+                        </div>
+                    </span>
+
+                    <span class="string">
+                        <span class="label">DRBG Length Seed</span>
+                        <span class="bytes">
+                            f6 de 0e a1 f2 61 c8 1f bf e8 54 5b 23 91 60 9c 7d 2b fe bc be 45 9e 34
+                        </span>
+                        <div class="explanation">
+                            24 byte seed for the deterministic random bit
+                            generator used for selecting random padded frame
+                            lengths.
                         </div>
                     </span>
                 </span>
@@ -1015,35 +1022,35 @@ $ ./curve25519-mult client-ephemeral-private.key \
             <div class="record client">
                 <div class="rec-label">Encrypted Frame</div>
                 <div class="rec-explanation">
-                    To reduce issues with middleboxes that block unrecognized
-                    TLS protocols, TLS 1.3 records are disguised as TLS 1.2
-                    application data records.
+                    To reduce the fingerprint-ability of the protocol the
+                    entire packet is encrypted or obfuscated to be
+                    indistinguishable from uniform random. Once the outer frame
+                    and encrypted data are decrypted, the inner data can be
+                    parsed into one of several Message types, or (\x0x00..) padding.
                     <br /><br />
-                    The wrapped record is discussed in its own section below this one.
+                    The internal messages are discussed in their own sections below this one.
                 </div>
                 <span class="record-data">
-                    <span class="string">
-                        <span class="label">Record Header</span>
+                    <span class="string encrypted">
+                        <span class="label">Obfuscated Frame Length</span>
                         <span class="bytes">
-                            17 03 03 00 15
+                            fb 15
                         </span>
                         <div class="explanation">
-                            The TLS 1.3 record is encrypted into a TLS
-                            1.2 record "wrapper" that looks like
-                            application data.
-                            <ul>
-                                <li><tt>17</tt> - type is 0x17 (application data)
-                                <li><tt>03 03</tt> - legacy protocol version of "3,3" (TLS 1.2)
-                                <li><tt>00 15</tt> - the length of the record payload is 0x15 (21) bytes
-                            </ul>
-                            All data following this header is the encrypted form of the actual record.
+                            Obfs4 Frames begin with a 2-byte length field that
+                            is encrypted based on a NaCl secretbox nonce. The
+                            length can extend beyond one packet to account for
+                            network fragmentation.
+                            <br /><br />
+                            The data following this length is encrypted obfs4
+                            <span class="texttt">Messages</span> as well as padding.
                         </div>
                     </span>
 
                     <span class="string encrypted">
                         <span class="label">Encrypted Data</span>
                         <span class="bytes">
-                            82 81 39 cb 7b
+                            30 a8 06 82 81 39 cb 7b
                         </span>
                         <div class="explanation">
                             This data is encrypted with the client application key.
@@ -1109,25 +1116,10 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     <span class="string decrypted">
                         <span class="label">Client Payload Message</span>
                         <span class="bytes">
-                            70 69 6e 67
+                            00 00 04 70 6f 6e 67
                         </span>
                         <div class="explanation">
                             This application data is represented in its own section below.
-                        </div>
-                    </span>
-
-                    <span class="string decrypted">
-                        <span class="label">Record Type</span>
-                        <span class="bytes">
-                            17
-                        </span>
-                        <div class="explanation">
-                            Each TLS 1.3 record disguised as TLS 1.2
-                            application data has a final byte
-                            which indicates its actual record type.
-                            <ul>
-                                <li><tt>17</tt> - type is 0x17 (application data)
-                            </ul>
                         </div>
                     </span>
                 </span>
@@ -1141,6 +1133,26 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     The client sends the data "ping".
                 </div>
                 <span class="record-data">
+                    <span class="string">
+                        <span class="label">Message Type: Payload</span>
+                        <span class="bytes">
+                            00
+                        </span>
+                        <div class="explanation">
+                            A 1-byte message type field. 0x00 = data payload.
+                        </div>
+                    </span>
+
+                    <span class="string">
+                        <span class="label">Message Length</span>
+                        <span class="bytes">
+                            00 04
+                        </span>
+                        <div class="explanation">
+                            2-byte (u16) length field.
+                        </div>
+                    </span>
+
                     <span class="string">
                         <span class="label">Application Data</span>
                         <span class="bytes">
@@ -1158,35 +1170,35 @@ $ ./curve25519-mult client-ephemeral-private.key \
             <div class="record server">
                 <div class="rec-label">Encrypted Frame</div>
                 <div class="rec-explanation">
-                    To reduce issues with middleboxes that block unrecognized
-                    TLS protocols, TLS 1.3 records are disguised as TLS 1.2
-                    application data records.
+                    To reduce the fingerprint-ability of the protocol the
+                    entire packet is encrypted or obfuscated to be
+                    indistinguishable from uniform random. Once the outer frame
+                    and encrypted data are decrypted, the inner data can be
+                    parsed into one of several Message types, or (\x0x00..) padding.
                     <br /><br />
-                    The wrapped record is discussed in its own section below this one.
+                    The internal messages are discussed in their own sections below this one.
                 </div>
                 <span class="record-data">
-                    <span class="string">
-                        <span class="label">Record Header</span>
+                    <span class="string encrypted">
+                        <span class="label">Obfuscated Frame Length</span>
                         <span class="bytes">
-                            17 03 03 00 15
+                            A6 21
                         </span>
                         <div class="explanation">
-                            The TLS 1.3 record is encrypted into a TLS
-                            1.2 record "wrapper" that looks like
-                            application data.
-                            <ul>
-                                <li><tt>17</tt> - type is 0x17 (application data)
-                                <li><tt>03 03</tt> - legacy protocol version of "3,3" (TLS 1.2)
-                                <li><tt>00 15</tt> - the length of the record payload is 0x15 (21) bytes
-                            </ul>
-                            All data following this header is the encrypted form of the actual record.
+                            Obfs4 Frames begin with a 2-byte length field that
+                            is encrypted based on a NaCl secretbox nonce. The
+                            length can extend beyond one packet to account for
+                            network fragmentation.
+                            <br /><br />
+                            The data following this length is encrypted obfs4
+                            <span class="texttt">Messages</span> as well as padding.
                         </div>
                     </span>
 
                     <span class="string encrypted">
                         <span class="label">Encrypted Data</span>
                         <span class="bytes">
-                            0c da 85 f1 44
+                            5c 71 16 0c da 85 f1 44
                         </span>
                         <div class="explanation">
                             This data is encrypted with the server application key.
@@ -1252,25 +1264,10 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     <span class="string decrypted">
                         <span class="label">Server Payload Message</span>
                         <span class="bytes">
-                            70 6f 6e 67
+                            00 00 04 70 6f 6e 67
                         </span>
                         <div class="explanation">
                             This application data is represented in its own section below.
-                        </div>
-                    </span>
-
-                    <span class="string decrypted">
-                        <span class="label">Record Type</span>
-                        <span class="bytes">
-                            17
-                        </span>
-                        <div class="explanation">
-                            Each TLS 1.3 record disguised as TLS 1.2
-                            application data has a final byte
-                            which indicates its actual record type.
-                            <ul>
-                                <li><tt>17</tt> - type is 0x17 (application data)
-                            </ul>
                         </div>
                     </span>
                 </span>
@@ -1284,6 +1281,26 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     The server replies with the data "pong".
                 </div>
                 <span class="record-data">
+                    <span class="string">
+                        <span class="label">Message Type: Payload</span>
+                        <span class="bytes">
+                            00
+                        </span>
+                        <div class="explanation">
+                            A 1-byte message type field. 0x00 = data payload.
+                        </div>
+                    </span>
+
+                    <span class="string">
+                        <span class="label">Message Length</span>
+                        <span class="bytes">
+                            00 04
+                        </span>
+                        <div class="explanation">
+                            2-byte (u16) length field.
+                        </div>
+                    </span>
+
                     <span class="string">
                         <span class="label">Application Data</span>
                         <span class="bytes">
@@ -1299,7 +1316,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="outerblock">
             <p>The code for this project can be found
-                <a href="https://github.com/jmwample/o7">on GitHub</a>.
+                <a href="https://github.com/jmwample/o7/tree/site">on GitHub</a>.
             </p>
         </div>
         <div class="outerblock">
@@ -1330,3 +1347,10 @@ $ ./curve25519-mult client-ephemeral-private.key \
 </body>
 
 </html>
+<!--
+    TODO:
+        - Description of Encryption / Decryption with example programs
+        - Colors and monospace font for "Frames", and "Messages"
+        - Add IAT mode modal so it switches the packet lengths / paddings
+        - real flow bytes.
+-->
