@@ -79,6 +79,73 @@ Paranoid = throw performance out the window and sample
         </div>
 
         <div class="rec-outer">
+            <div class="calculation server">
+                <div class="rec-label">Server Identity Key & ID Generation</div>
+                <img class="illustration" src="images/key4.png" width="106" height="250" />
+                <div class="rec-explanation">
+                    <p>The server generates a private/public "identity" key-pair
+                    for long term use. This allows the server to distribute its
+                    long term public key out of band so that a client can
+                    perform a key exchange to obfuscate it's first message. Key
+                    exchange is a technique where two parties can agree on the
+                    same number without an eavesdropper being able to tell what
+                    it is.
+                    <p>
+                        An explanation of the key exchange can be found on
+                        <a href="https://x25519.xargs.org/">https://x25519.xargs.org</a>,
+                        but doesn't need to be understood in depth for the rest
+                        of this page.
+                    <p>
+                        The private key is chosen by selecting an integer between
+                        0 and 2<sup>256</sup>-1. The server does this by generating 32
+                        bytes (256 bits) of random data. The
+                        <a href="files/server-ephemeral-private.key" download="server-ephemeral-private.key">private
+                            key</a>
+                        selected is:
+
+                    <pre class="ind2"><tt class="longboi"
+    >909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf</tt></pre>
+
+                    The <a href="files/server-ephemeral-public.key" download="server-ephemeral-public.key">public
+                        key</a>
+                    is created from the private key as explained on <a
+                        href="https://x25519.xargs.org/">https://x25519.xargs.org</a>.
+                    The public key calculated is:
+
+                    <pre class="ind2"><tt class="longboi"
+    >9fd7ad6dcff4298dd3f96d5b1b2af910a0535b1488d7f8fabb349a982880b615</tt></pre>
+
+                    The public key calculation can be confirmed at the command line:
+                    <codesample>
+                        <pre><code>### requires openssl 1.1.0 or higher
+$ openssl pkey -noout -text &lt; server-ephemeral-private.key
+
+X25519 Private-Key:
+priv:
+    90:91:92:93:94:95:96:97:98:99:9a:9b:9c:9d:9e:
+    9f:a0:a1:a2:a3:a4:a5:a6:a7:a8:a9:aa:ab:ac:ad:
+    ae:af
+pub:
+    9f:d7:ad:6d:cf:f4:29:8d:d3:f9:6d:5b:1b:2a:f9:
+    10:a0:53:5b:14:88:d7:f8:fa:bb:34:9a:98:28:80:
+    b6:15
+</code></pre>
+                    </codesample>
+                    <p>The "Node ID" is a random 20-byte long term value chosen to
+                    identify this specific obfs4 server.
+
+                    <p>
+                        The Node ID is chosen by selecting an integer between
+                        0 and 2<sup>160</sup>-1. The server does this by generating 20
+                        bytes (160 bits) of random data. The Node ID
+                        selected is:
+                    <pre class="ind2"><tt class="longboi"
+                        >9fd7ad6dcff4298dd3f96d5b1b2af910a0535b14</tt></pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Key Exchange Generation</div>
                 <img class="illustration" src="images/key6.png" width="105" height="250" />
@@ -558,7 +625,7 @@ pub:
 
         <div class="rec-outer">
             <div class="calculation server">
-                <div class="rec-label">Server Key Exchange Generation</div>
+                <div class="rec-label">Server Session Key Generation</div>
                 <img class="illustration" src="images/key4.png" width="106" height="250" />
                 <div class="rec-explanation">
                     <p>The server generates a private/public keypair
@@ -612,7 +679,7 @@ pub:
 
         <div class="rec-outer">
             <div class="calculation server">
-                <div class="rec-label">Server Session Keys Calc</div>
+                <div class="rec-label">Server Session Secrets Calc</div>
                 <img class="illustration" src="images/key9.png" width="97" height="250" />
                 <div class="rec-explanation">
                     The server now has the information to calculate the
