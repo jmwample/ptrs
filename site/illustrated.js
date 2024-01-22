@@ -82,6 +82,21 @@
         if (event) { event.stopPropagation(); }
     };
 
+    ill.toggleIATDisplayed = (el, event) => {
+        let desired_label = ".iat-" + el.value;
+        let all_label = ".iatswitch";
+        let desired = document.querySelectorAll(desired_label);
+        let all_iat = document.querySelectorAll(all_label);
+        console.log(desired, all_iat);
+        [].forEach.call(all_iat, (el) => {
+            el.classList.remove("iat-shown");
+            el.classList.add("iat-hidden");
+        });
+        [].forEach.call(desired, (el) => {
+            el.classList.add("iat-shown");
+        });
+    }
+
     // injections
 
     ill.addShowCode = (el) => {

@@ -53,17 +53,17 @@
                     onclick="ill.openCloseAll(this, event)">Open All</button>
                 </div>
                 <div class="iat-strategies" style="float: right;margin-top: 5px;margin-left: 10px;">
-                    <input type="radio" name="iat-strategy" value="disabled" id="disabled" checked />
+                    <input type="radio" name="iat-strategy" value="disabled" id="disabled"  onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="disabled">
                         Disabled
                     </label>
 
-                    <input type="radio" name="iat-strategy" value="enabled" id="enabled" />
+                    <input type="radio" name="iat-strategy" value="enabled" id="enabled" onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="enabled">
                         Enabled
                     </label>
 
-                    <input type="radio" name="iat-strategy" value="paranoid" id="paranoid" />
+                    <input type="radio" name="iat-strategy" value="paranoid" id="paranoid"  onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="paranoid">
                         Paranoid
                     </label>
@@ -77,7 +77,6 @@ Paranoid = throw performance out the window and sample
                 </h4>
             </div>
         </div>
-
         <div class="rec-outer">
             <div class="calculation server">
                 <div class="rec-label">Server Identity Key & ID Generation</div>
@@ -201,7 +200,9 @@ pub:
 
         <div class="rec-outer">
             <div class="record client">
-                <div class="rec-label">Client Handshake</div>
+                <div class="rec-label">Client Handshake
+                    <h6 style="float:right">&#x21E5; (6942)</h6>
+                </div>
                 <img class="illustration" src="images/key1.png" width="135" height="250" />
                 <div class="rec-explanation">
                     The session begins with the client saying "Hello".
@@ -739,7 +740,9 @@ pub:
 
         <div class="rec-outer">
             <div class="record client embedded">
-                <div class="rec-label">Padding Message</div>
+                <div class="rec-label">Padding Message
+                    <h6 style="float:right">&#x21E5; (6942)</h6>
+                </div>
                 <div class="rec-explanation">
                     In obfs4+ the client sends a padding as a message format so
                     that there is no longer a need to try to guess at lengths
@@ -965,7 +968,9 @@ pub:
 
         <div class="rec-outer">
             <div class="record server">
-                <div class="rec-label">Server Handshake</div>
+                <div class="rec-label">Server Handshake
+                    <h6 style="float:right">&#x21E5; (4571)</h6>
+                </div>
                 <img class="illustration" src="images/key2.png" width="124" height="250" />
                 <div class="rec-explanation">
                     The server says "Hello" back. The server provides information including the following:
@@ -1363,7 +1368,9 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="rec-outer">
             <div class="record client">
-                <div class="rec-label">Encrypted Frame</div>
+                <div class="rec-label">Encrypted Frame
+                    <h6 class="iatswitch iat-enabled iat-hidden" style="float:right">&#x21E5; (1500)</h6>
+                    <h6 class="iatswitch iat-paranoid iat-hidden" style="float:right">&#x21E5; (1200)</h6>                </div>
                 <div class="rec-explanation">
                     To reduce the fingerprint-ability of the protocol the
                     entire packet is encrypted or obfuscated to be
@@ -1511,7 +1518,10 @@ $ ./curve25519-mult client-ephemeral-private.key \
 
         <div class="rec-outer">
             <div class="record server">
-                <div class="rec-label">Encrypted Frame</div>
+                <div class="rec-label">Encrypted Frame
+                    <h6 class="iatswitch iat-enabled iat-hidden" style="float:right">&#x21E5; (1500)</h6>
+                    <h6 class="iatswitch iat-paranoid iat-hidden" style="float:right">&#x21E5; (1200)</h6>
+                </div>
                 <div class="rec-explanation">
                     To reduce the fingerprint-ability of the protocol the
                     entire packet is encrypted or obfuscated to be

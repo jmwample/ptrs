@@ -44,6 +44,15 @@
                 text, receives the same text reversed, and then terminates the
                 session. Click below to begin exploring.
             </p>
+            <p class="iatswitch iat-disabled iat-shown">
+                Disabled
+            </p>
+            <p class="iatswitch iat-enabled iat-hidden">
+                Enabled
+            </p>
+            <p class="iatswitch iat-paranoid iat-hidden">
+                Paranoid
+            </p>
         </div>
 
         <div class="rec-outer">
@@ -53,17 +62,17 @@
                     onclick="ill.openCloseAll(this, event)">Open All</button>
                 </div>
                 <div class="iat-strategies" style="float: right;margin-top: 5px;margin-left: 10px;">
-                    <input type="radio" name="iat-strategy" value="disabled" id="disabled" checked />
+                    <input type="radio" name="iat-strategy" value="disabled" id="disabled"  onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="disabled">
                         Disabled
                     </label>
 
-                    <input type="radio" name="iat-strategy" value="enabled" id="enabled" />
+                    <input type="radio" name="iat-strategy" value="enabled" id="enabled" onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="enabled">
                         Enabled
                     </label>
 
-                    <input type="radio" name="iat-strategy" value="paranoid" id="paranoid" />
+                    <input type="radio" name="iat-strategy" value="paranoid" id="paranoid"  onclick="ill.toggleIATDisplayed(this, event)" />
                     <label for="paranoid">
                         Paranoid
                     </label>
