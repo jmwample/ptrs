@@ -17,8 +17,6 @@ getrandom = "0.2.11"
 rand = "0.8.5"
 rand_core = "0.6.4"
 
-libc = "0.2.150"
-
 digest = { version = "0.9", default-features = false }
 siphasher = "1.0.0"
 sha2 = "0.10.8"

@@ -23,7 +23,7 @@ use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, info};
 
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::{io::{Error as IoError, ErrorKind as IoErrorKind}, fmt};
 use std::sync::{Arc, Mutex};
 
 pub struct ClientBuilder {
@@ -82,14 +82,20 @@ impl ClientBuilder {
         }
     }
 
-    pub fn dump() -> String {
-        "".into()
-    }
-
-    pub fn dump_opts() -> String {
+    pub fn as_opts(&self) -> String {
+        //TODO: String self as command line options
         "".into()
     }
 }
+
+impl fmt::Display for ClientBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        //TODO: string self
+        write!(f, "")
+    }
+
+}
+
 
 pub struct Client {
     pub iat_mode: IAT,

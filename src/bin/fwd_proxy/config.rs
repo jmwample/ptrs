@@ -55,10 +55,10 @@ impl EntranceConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started local proxy client on {}", self.listen_address);
 
-        let client = ClientBuilder::from_params(self.pt_args)?.build();
         let t_name = "obfs4";
 
         loop {
+            let client = ClientBuilder::from_params(self.pt_args.clone())?.build();
             let (in_stream, socket_addr) = listener.accept().await?;
             trace!("new tcp connection {socket_addr}");
 
@@ -120,8 +120,8 @@ impl ExitConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let server = Server::new_from_random();
-        println!("{}\n{}", server.client_params().dump(), server.client_params().dump_opts());
+        let mut server = Server::new_from_random();
+        println!("{}\n{}", server.client_params(), server.client_params().as_opts());
 
         let t_name = "obfs4";
 

@@ -18,10 +18,12 @@ use tor_socksproto::{SocksAuth, SocksCmd};
 /// Uses `isolation_info` to decide which circuits this connection
 /// may use.  Requires that `isolation_info` is a pair listing the listener
 /// id and the source address for the socks request.
-pub(crate) async fn handle_socks_conn<R, S>(runtime: R, socks_stream: S) -> Result<()>
+///
+/// TODO: This should be an async func that has two await tasks (and maybe a cancel).
+pub(crate) async fn handle_socks_conn<'s, R, S>(runtime: R, socks_stream: S) -> Result<()>
 where
     R: Runtime,
-    S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 's,
 {
     // Part 1: Perform the SOCKS handshake, to learn where we are
     // being asked to connect, and what we're being asked to do once

@@ -20,9 +20,9 @@ pub enum Handler {
 }
 
 impl Handler {
-    pub async fn handle<RW>(self, stream: RW, close_c: CancellationToken) -> Result<()>
+    pub async fn handle<'s, RW>(self, stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 's,
     {
         match self {
             Handler::Socks5 => Socks5Handler::handle(stream.compat(), close_c).await,
@@ -47,9 +47,9 @@ impl FromStr for Handler {
 pub struct Socks5Handler;
 
 impl Socks5Handler {
-    pub async fn handle<RW>(stream: RW, close_c: CancellationToken) -> Result<()>
+    pub async fn handle<'s, RW>(stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + Sync + 'static,
+        RW: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + Sync + 's,
     {
         let rt = PreferredRuntime::current()?;
         tokio::select! {
