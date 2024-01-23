@@ -4,7 +4,7 @@ use std::{convert::TryFrom, default::Default, net, str::FromStr};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use obfs::obfs4::proto::{Client, Server};
+use obfs::obfs4::proto::{ClientBuilder, Server};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},
@@ -55,7 +55,7 @@ impl EntranceConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started local proxy client on {}", self.listen_address);
 
-        let client = Client::from_params(ClientParams::parse()?);
+        let client = ClientBuilder::from_params(self.pt_args)?.build();
         let t_name = "obfs4";
 
         loop {
@@ -120,7 +120,9 @@ impl ExitConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let server = Server::from_params(ServerParams::parse("")?);
+        let server = Server::new_from_random();
+        println!("{}\n{}", server.client_params().dump(), server.client_params().dump_opts());
+
         let t_name = "obfs4";
 
         loop {
@@ -129,7 +131,7 @@ impl ExitConfig {
 
             let close_c = close.clone();
             let handler = self.handler;
-            let stream = match server.wrap(Box::new(stream)) {
+            let stream = match server.wrap(Box::new(stream)).await {
                 Ok(s) => s,
                 Err(e) => {
                     error!("failed to wrap in_stream ->({socket_addr}): {:?}", e);

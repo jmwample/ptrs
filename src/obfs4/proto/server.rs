@@ -3,14 +3,14 @@
 use crate::{
     common::{
         colorize, drbg,
-        ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
+        ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH, NODE_ID_LENGTH},
         replay_filter::{self, ReplayFilter},
         HmacSha256,
     },
     obfs4::{
         constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse},
-        proto::{client::ClientParams, handshake_server, sessions::Session},
+        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
+        proto::{client::ClientBuilder, handshake_server, sessions::Session},
     },
     stream::Stream,
     Error, Result,
@@ -34,6 +34,67 @@ pub struct Server {
     iat_mode: IAT,
     replay_filter: ReplayFilter,
 }
+
+
+
+pub struct ServerBuilder {
+    pub iat_mode: IAT,
+    pub node_id: ntor::ID,
+    pub identity_keys: ntor::IdentityKeyPair,
+    pub statefile_location: Option<String>,
+}
+
+impl ServerBuilder {
+    pub fn from_statefile(location: &str) -> Result<Self> {
+        // TODO: Implement server from statefile
+        Ok(Self {
+            iat_mode: IAT::Off,
+            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
+            identity_keys: ntor::IdentityKeyPair::from([0_u8; KEY_LENGTH*2]),
+            statefile_location: Some(location.into()),
+        })
+
+    }
+
+    pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
+        Ok(Self {
+            iat_mode: IAT::Off,
+            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
+            identity_keys: ntor::IdentityKeyPair::from([0_u8; KEY_LENGTH*2]),
+            statefile_location: None,
+        })
+    }
+
+    pub fn node_pubkey(mut self, privkey: [u8; KEY_LENGTH]) -> Self {
+        self.identity_keys = ntor::IdentityKeyPair::from_privkey(privkey);
+        self
+    }
+
+    pub fn statefile_location(mut self, path: &str) -> Self {
+        self.statefile_location = Some(path.into());
+        self
+    }
+
+    pub fn node_id(mut self, id: [u8;NODE_ID_LENGTH]) -> Self {
+        self.node_id = ntor::ID::from(id);
+        self
+    }
+
+    pub fn iat_mode(mut self, iat: IAT) -> Self {
+        self.iat_mode = iat;
+        self
+    }
+
+    pub fn build(self) -> Server {
+        Server {
+            identity_keys: self.identity_keys,
+            node_id: self.node_id,
+            replay_filter: ReplayFilter::new(REPLAY_TTL),
+            iat_mode: self.iat_mode,
+        }
+    }
+}
+
 
 impl Server {
     pub fn new_from_random() -> Self {
@@ -73,11 +134,12 @@ impl Server {
         Err(Error::NotImplemented)
     }
 
-    pub fn client_params(&self) -> ClientParams {
-        ClientParams {
+    pub fn client_params(&self) -> ClientBuilder {
+        ClientBuilder {
             station_pubkey: self.identity_keys.public,
             node_id: self.node_id.clone(),
             iat_mode: self.iat_mode,
+            statefile_location: None,
         }
     }
 }

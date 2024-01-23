@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::obfs4::framing::KEY_LENGTH;
 use crate::{Error, Result};
 
 mod id;
@@ -70,6 +71,25 @@ impl Display for NtorError {
 pub struct IdentityKeyPair {
     pub private: StaticSecret,
     pub public: PublicKey,
+}
+
+impl IdentityKeyPair {
+    pub fn from_privkey(private_key: [u8; KEY_LENGTH]) -> Self {
+        let private = StaticSecret::from(private_key);
+        let public = x25519_dalek::PublicKey::from(& private);
+        Self { private, public }
+    }
+}
+
+impl From<[u8; KEY_LENGTH * 2]> for  IdentityKeyPair {
+    fn from(value: [u8; KEY_LENGTH * 2]) -> Self {
+        let private: [u8; KEY_LENGTH] = value[0..KEY_LENGTH].try_into().unwrap();
+        let public: [u8; KEY_LENGTH] = value[KEY_LENGTH..].try_into().unwrap();
+        Self {
+            private: StaticSecret::from(private),
+            public: PublicKey::from(public),
+        }
+    }
 }
 
 /// Re-Export the public key type for consistency in usage.

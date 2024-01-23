@@ -57,7 +57,7 @@ fn handshake() -> Result<()> {
     )
     .unwrap();
 
-    println!("\n{}\n{}", client_result, server_result);
+    // println!("\n{}\n{}", client_result, server_result);
 
     // WARNING: Use a constant time comparison in actual code.
     assert_eq!(client_result.auth.0, server_result.auth.0);
