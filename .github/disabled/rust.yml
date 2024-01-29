@@ -9,6 +9,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-D warnings'
+
 
 jobs:
   format:
@@ -42,8 +44,60 @@ jobs:
     - name: Lint
       run: cargo clippy --workspace --all-targets --verbose --all-features
 
+  bench:
+    name: Check that benchmarks compile
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Build u32 bench
+      env:
+        RUSTFLAGS: '--cfg curve25519_dalek_bits="32"'
+      run: cargo build --benches
+    - name: Build u64 bench
+      env:
+        RUSTFLAGS: '--cfg curve25519_dalek_bits="64"'
+      run: cargo build --benches
+    - name: Build default (host native) bench
+      run: cargo build --benches
+
+  test-stable:
+    name: Test 32/64 bit stable
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # 32-bit target
+          - target: i686-unknown-linux-gnu
+            deps: sudo apt update && sudo apt install gcc-multilib
+
+          # 64-bit target
+          - target: x86_64-unknown-linux-gnu
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - run: rustup target add ${{ matrix.target }}
+    - run: ${{ matrix.deps }}
+    - run: cargo test --target ${{ matrix.target }} --no-default-features
+    - run: cargo test --target ${{ matrix.target }}
+    - run: cargo test --target ${{ matrix.target }} --all-features
+    # - name: Test
+    #   run: cargo test --verbose --workspace --all-features
+    #   env:
+    #     CARGO_INCREMENTAL: '0'
+    #     RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+    #     RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+
+  test-nightly:
+    name: Test Nightly
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@nightly
+    - run: cargo test
+
   build:
-    name: Test and Build
+    name: Build
     needs: format
     # needs: [format, lint]
     strategy:
@@ -66,13 +120,6 @@ jobs:
     # Build ptrs proxy PoC
     - name: Build library
       run: cargo build --bin proxy --release
-
-    - name: Test
-      run: cargo test --verbose --workspace --all-features
-      env:
-        CARGO_INCREMENTAL: '0'
-        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
 
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov

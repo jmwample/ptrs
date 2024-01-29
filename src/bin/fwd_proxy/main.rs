@@ -1,3 +1,5 @@
+#![feature(noop_waker)]
+
 mod config;
 mod handler;
 mod socks5;

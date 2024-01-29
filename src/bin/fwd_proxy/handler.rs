@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 use crate::socks5;
 use obfs::{Error, Result};
-use tor_rtcompat::PreferredRuntime;
 
-use async_compat::CompatExt;
 use std::str::FromStr;
 
 use tokio::{
@@ -25,7 +23,7 @@ impl Handler {
         RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 's,
     {
         match self {
-            Handler::Socks5 => Socks5Handler::handle(stream.compat(), close_c).await,
+            Handler::Socks5 => Socks5Handler::handle(stream, close_c).await,
             Handler::Echo(h) => h.handle(stream, close_c).await,
         }
     }
@@ -49,11 +47,10 @@ pub struct Socks5Handler;
 impl Socks5Handler {
     pub async fn handle<'s, RW>(stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: futures::AsyncRead + futures::AsyncWrite + Unpin + Send + Sync + 's,
+        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 's,
     {
-        let rt = PreferredRuntime::current()?;
         tokio::select! {
-            r = socks5::handle_socks_conn(rt, stream) => {
+            r = socks5::handle_socks_conn(stream) => {
                 if let Err(e) = r {
                     tracing::error!("socks connection errored: {}", e);
                 }
