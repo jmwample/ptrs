@@ -95,11 +95,10 @@ impl TryFrom<&[u8]> for ID {
     }
 }
 
-impl TryFrom<[u8; NODE_ID_LENGTH]> for ID {
-    type Error = Error;
+impl From<[u8; NODE_ID_LENGTH]> for ID {
 
-    fn try_from(arr: [u8; NODE_ID_LENGTH]) -> Result<Self> {
-        Ok(ID(arr))
+    fn from(arr: [u8; NODE_ID_LENGTH]) -> Self {
+        ID(arr)
     }
 }
 

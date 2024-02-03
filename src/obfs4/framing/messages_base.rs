@@ -69,13 +69,15 @@ pub fn build_and_marshall<T: BufMut>(
     Ok(())
 }
 
-pub async fn send_payload<S, T>(sink: &mut S, buf: &T) -> Result<(), <S as Sink<Bytes>>::Error>
+/*
+ * pub async fn send_payload<S, T>(sink: &mut S, buf: &T) -> Result<(), <S as Sink<Bytes>>::Error>
 where
     S: Sink<Bytes> + Unpin,
     T: AsRef<[u8]>,
 {
     let mut m = BytesMut::new();
-    Messages::Payload(buf.as_ref().to_vec()).marshall(&mut m);
+    Messages::Payload(buf.as_ref().to_vec()).marshall(&mut m)?;
 
     sink.send(m.freeze()).await
 }
+*/

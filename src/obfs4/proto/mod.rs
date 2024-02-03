@@ -28,10 +28,10 @@ use std::{
 };
 
 mod client;
-pub(super) use client::Client;
+pub use client::{Client, ClientBuilder};
 mod server;
 #[allow(unused)]
-pub(super) use server::Server;
+pub use server::Server;
 
 mod utils;
 pub(crate) use utils::*;
@@ -44,7 +44,7 @@ mod handshake_server;
 
 #[allow(dead_code, unused)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IAT {
+pub enum IAT {
     #[default]
     Off,
     Enabled,
@@ -247,16 +247,23 @@ where
         let mut len_sent: usize = 0;
         let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
         while msg_len - len_sent > framing::MAX_MESSAGE_PAYLOAD_LENGTH {
+
+            // package one chunk of the mesage as a payload
             let payload = framing::Messages::Payload(
                 buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH].to_vec(),
             );
 
+            // send the marshalled payload
             payload.marshall(&mut out_buf)?;
-            // this.stream.as_mut().start_send(&buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH])?;
             this.stream.as_mut().start_send(&mut out_buf)?;
 
             len_sent += framing::MAX_MESSAGE_PAYLOAD_LENGTH;
             out_buf.clear();
+
+            // determine if the stream is ready to send more data. if not back off
+            if futures::Sink::<&[u8]>::poll_ready(this.stream.as_mut(), cx) == Poll::Pending {
+                return Poll::Ready(Ok(len_sent));
+            }
         }
 
         let payload = framing::Messages::Payload(buf[len_sent..].to_vec());
@@ -264,11 +271,6 @@ where
         let mut out_buf = BytesMut::new();
         payload.marshall(&mut out_buf)?;
         this.stream.as_mut().start_send(out_buf)?;
-
-        match self.poll_flush(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(result) => result?,
-        }
 
         Poll::Ready(Ok(msg_len))
     }

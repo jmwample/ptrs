@@ -151,7 +151,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
 
 #[tokio::test]
 async fn double_encode_decode() -> Result<()> {
-    println!();
+    // println!();
     init_subscriber();
     let (c, s) = tokio::io::duplex(16 * 1024);
     let msg = b"j dkja ;ae ;awena woea;wfel rfawe";
@@ -177,9 +177,10 @@ async fn double_encode_decode() -> Result<()> {
             assert_eq!(&m, &msg.clone());
             trace!("Event-{i} {:?}", String::from_utf8(m.clone()).unwrap());
 
-            send_payload(&mut s_sink, &m)
-                .await
-                .expect("server response failed");
+            let mut msg = BytesMut::new();
+            Messages::Payload(m).marshall(&mut msg)?;
+
+            s_sink.send(msg.freeze()).await?;
         } else {
             panic!("failed while reading from codec");
         }

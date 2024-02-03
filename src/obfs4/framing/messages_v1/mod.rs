@@ -18,6 +18,9 @@
 //! with a server unwilling or incapable of speaking v1. This should allow
 //! cross compatibility.
 
+mod crypto;
+use crypto::CryptoExtension;
+
 use crate::obfs4::{
     constants::*,
     framing::{FrameError, MESSAGE_OVERHEAD},
@@ -97,8 +100,8 @@ pub enum Messages {
 
     ClientParams,
     ServerParams,
-    CryptoOffer,
-    CryptoAccept,
+    CryptoOffer(CryptoExtension),
+    CryptoAccept(CryptoExtension),
 
     HandshakeEnd,
 }
@@ -113,8 +116,8 @@ impl Messages {
             Messages::HeartbeatPong => MessageTypes::HeartbeatPong,
             Messages::ClientParams => MessageTypes::ClientParams,
             Messages::ServerParams => MessageTypes::ServerParams,
-            Messages::CryptoOffer => MessageTypes::CryptoOffer,
-            Messages::CryptoAccept => MessageTypes::CryptoAccept,
+            Messages::CryptoOffer(_) => MessageTypes::CryptoOffer,
+            Messages::CryptoAccept(_) => MessageTypes::CryptoAccept,
             Messages::HandshakeEnd => MessageTypes::HandshakeEnd,
         }
     }
@@ -178,9 +181,9 @@ impl Messages {
 
             MessageTypes::ServerParams => Ok(Messages::ServerParams),
 
-            MessageTypes::CryptoOffer => Ok(Messages::CryptoOffer),
+            MessageTypes::CryptoOffer => Ok(Messages::CryptoOffer(CryptoExtension::Kyber)),
 
-            MessageTypes::CryptoAccept => Ok(Messages::CryptoAccept),
+            MessageTypes::CryptoAccept => Ok(Messages::CryptoAccept(CryptoExtension::Kyber)),
 
             MessageTypes::HandshakeEnd => Ok(Messages::HandshakeEnd),
         }
