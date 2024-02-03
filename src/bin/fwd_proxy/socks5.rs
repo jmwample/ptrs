@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context as _, Result};
+use obfs::stream::Stream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::pin;
 use futures::{Future, task::{Context, Waker}};
@@ -18,7 +19,8 @@ use std::str::FromStr;
 /// Uses `isolation_info` to decide which circuits this connection
 /// may use.  Requires that `isolation_info` is a pair listing the listener
 /// id and the source address for the socks request.
-pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Vec<Box<dyn Future<Output=()>>>>
+//pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Vec<Box<dyn Future<Output=()>>>>
+pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Option<(impl Stream<'s>, impl Stream<'s>)>>
 where
     S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 's,
 {
@@ -83,11 +85,12 @@ where
             break handshake.into_request();
         }
     };
+
     let request = match request {
         Some(r) => r,
         None => {
-            warn!("SOCKS handshake succeeded, but couldn't convert into a request.");
-            return Ok(vec![]);
+            warn!("SOCKS handshake succeeded, but couldn't be converted into a request.");
+            return Ok(None);
         }
     };
 
@@ -115,14 +118,11 @@ where
                 .context("Encoding socks reply")?;
             write_all_and_flush(&mut socks_w, &reply[..]).await?;
 
-            let (tor_r, tor_w) = tokio::io::split(covert_stream);
+            // let (tor_r, tor_w) = tokio::io::split(covert_stream);
 
             // Finally, spawn two background tasks to relay traffic between
             // the socks stream and the tor stream.
-            Ok(vec![
-               Box::new(copy_interactive_ignore(socks_r, tor_w)),
-               Box::new(copy_interactive_ignore(tor_r, socks_w)),
-            ])
+            Ok(Some((socks_r.unsplit(socks_w) , covert_stream)))
         }
         _ => {
             // We don't support this SOCKS command.
@@ -131,7 +131,7 @@ where
                 .reply(tor_socksproto::SocksStatus::COMMAND_NOT_SUPPORTED, None)
                 .context("Encoding socks reply")?;
             write_all_and_close(&mut socks_w, &reply[..]).await?;
-            Ok(vec![])
+            Ok(None)
         }
     }
 }

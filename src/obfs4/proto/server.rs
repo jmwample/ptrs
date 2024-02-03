@@ -108,7 +108,7 @@ impl Server {
 
     pub async fn wrap<'a, T>(&'a mut self, stream: T) -> Result<Obfs4Stream<'a, T>>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
         let session = sessions::new_server_session(
             &self.identity_keys,

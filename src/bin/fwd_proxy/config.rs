@@ -1,6 +1,7 @@
 use crate::handler::{EchoHandler, Handler};
 
 use std::{convert::TryFrom, default::Default, net, str::FromStr};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -8,10 +9,10 @@ use obfs::obfs4::proto::{ClientBuilder, Server};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},
-    sync::mpsc::Sender,
+    sync::mpsc::Sender, task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace, Level};
+use tracing::{debug, error, info, trace, warn, Level};
 
 pub const DEFAULT_LISTEN_ADDRESS: &str = "127.0.0.1:9000";
 pub const DEFAULT_SERVER_ADDRESS: &str = "127.0.0.1:9001";
@@ -104,6 +105,7 @@ impl Default for EntranceConfig {
 pub struct ExitConfig {
     pt: String,
     pt_args: Vec<String>,
+
     handler: Handler,
 
     listen_address: net::SocketAddr,
@@ -120,26 +122,56 @@ impl ExitConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let mut server = Server::new_from_random();
+        let server = Server::new_from_random();
         println!("{}\n{}", server.client_params(), server.client_params().as_opts());
 
         let t_name = "obfs4";
+
+        let mut sessions = JoinSet::new();
+
+        let close_c = close.clone();
+        tokio::spawn(async move{
+            loop {
+                tokio::select! {
+                    _ = close_c.cancelled() => {
+                        break
+                    }
+                    r = sessions.join_next() => {
+                        match r {
+                            Some(Err(e)) => {
+                                warn!("handler error: \"{e}\", session closed");
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            sessions.abort_all();
+            let start = std::time::Instant::now();
+            while !sessions.is_empty() && start.elapsed().as_millis() < 3000 {
+                _ = sessions.join_next().await;
+            }
+        });
 
         loop {
             let (stream, socket_addr) = listener.accept().await?;
             trace!("new tcp connection {socket_addr}");
 
             let close_c = close.clone();
-            let handler = self.handler;
-            let stream = match server.wrap(Box::new(stream)).await {
+
+            let stream = match server.wrap(stream).await {
                 Ok(s) => s,
                 Err(e) => {
                     error!("failed to wrap in_stream ->({socket_addr}): {:?}", e);
                     continue;
                 }
             };
+
             debug!("connection successfully revealed ->{t_name}-[{socket_addr}]");
-            tokio::spawn(handler.handle(stream, close_c));
+            let handler = self.handler;
+            sessions.spawn(async move {handler.handle(stream, close_c).await;});
+
+            // let (up, dn) = handler.handle(stream, close_c);
         }
     }
 }
