@@ -318,6 +318,17 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
+///
+/// The client handshake is
+///     X | P_C | M_C | MAC(X | P_C | M_C | E)
+/// where:
+///  * X is the client's ephemeral Curve25519 public key representative.
+///  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
+///  * M_C is HMAC-SHA256-128(serverIdentity | NodeID, X)
+///  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, X .... E)
+///  * E is the string representation of the number of hours since the UNIX
+///    epoch.
+
 pub struct ClientHandshakeMessage {
     pad_len: usize,
     repres: Representative,
@@ -328,7 +339,11 @@ pub struct ClientHandshakeMessage {
 }
 
 impl ClientHandshakeMessage {
-    pub fn new(repres: Representative, pad_len: usize, epoch_hour: String) -> Self {
+    pub fn new(
+        repres: Representative,
+        pad_len: usize,
+        epoch_hour: String,
+    ) -> Self {
         Self {
             pad_len,
             repres,

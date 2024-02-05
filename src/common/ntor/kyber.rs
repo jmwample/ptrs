@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn kyber_handshake_plain() {
+    fn kyber1024x25519_handshake_plain() {
         let mut rng = rand::thread_rng();
 
         // Generate Keypair
@@ -335,5 +335,38 @@ mod tests {
 
         assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
         assert_eq!(shared_secret_bob, shared_secret_alice);
+    }
+
+    #[test]
+    fn kyber1024_ake() {
+        let mut rng = rand::thread_rng();
+
+        // Server generates its keys
+        let mut server = Ake::new();
+        let server_kyber_id_keys = keypair(&mut rng).expect("key generation failed");
+
+        // client generates new keys
+        let mut client = Ake::new();
+        let client_kyber_keys = keypair(&mut rng).expect("key generation failed");
+        // client computes the beginning of it's half of the authenticated key exchange
+        let client_init = client.client_init(&server_kyber_id_keys.public, &mut rng).expect("client handshake failed");
+
+        // client sends the init message, and its public key
+        // client_init, client_kyber_keys.public
+
+        // server computes the authenticated key exchange generating the
+        // necessary materials for the client to compute a matching
+        // authenticated shared secret
+        let server_send = server.server_receive(
+          client_init, &client_kyber_keys.public, &server_kyber_id_keys.secret, &mut rng
+        ).expect("server hands_kyberhake failed");
+
+        // server sends completion materials to client
+
+        // client completes the computation of the authenticated shares secret
+        client.client_confirm(server_send, &client_kyber_keys.secret).expect("client handshake failed");
+
+        // the shared secrets match
+        assert_eq!(client.shared_secret, server.shared_secret);
     }
 }

@@ -332,8 +332,23 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             _h_state: ServerHandshakeSuccess { session_id, codec },
         })
     }
+
+    fn build_response_classic() { }
+
+    fn build_response() { }
 }
 
+
+/// The classic obfs4 server handshake message is
+///     Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E)
+/// where:
+///  * Y is the server's ephemeral Curve25519 public key representative.
+///  * AUTH is the ntor handshake AUTH value.
+///  * P_S is [serverMinPadLength,serverMaxPadLength] bytes of random padding.
+///  * M_S is HMAC-SHA256-128(serverIdentity | NodeID, Y)
+///  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, Y .... E)
+///  * E is the string representation of the number of hours since the UNIX
+///    epoch.
 pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTH_LENGTH],
     pad_len: usize,
