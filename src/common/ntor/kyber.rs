@@ -1,4 +1,35 @@
+//! ## KyberX25519 Ntor Handshake
 //!
+//! ### As Described in draft-tls-westerbaan-xyber768d00-03
+//!
+//! ```
+//! 3.  Construction
+//! 
+//!    We instantiate draft-ietf-tls-hybrid-design-06 with X25519 [rfc7748]
+//!    and Kyber768Draft00 [kyber].  The latter is Kyber as submitted to
+//!    round 3 of the NIST PQC process [KyberV302].
+//! 
+//!    For the client's share, the key_exchange value contains the
+//!    concatenation of the client's X25519 ephemeral share (32 bytes) and
+//!    the client's Kyber768Draft00 public key (1184 bytes).  The resulting
+//!    key_exchange value is 1216 bytes in length.
+//! 
+//!    For the server's share, the key_exchange value contains the
+//!    concatenation of the server's X25519 ephemeral share (32 bytes) and
+//!    the Kyber768Draft00 ciphertext (1088 bytes) returned from
+//!    encapsulation for the client's public key.  The resulting
+//!    key_exchange value is 1120 bytes in length.
+//! 
+//!    The shared secret is calculated as the concatenation of the X25519
+//!    shared secret (32 bytes) and the Kyber768Draft00 shared secret (32
+//!    bytes).  The resulting shared secret value is 64 bytes in length.
+//! 
+//! 4.  Security Considerations
+//! 
+//!    For TLS 1.3, this concatenation approach provides a secure key
+//!    exchange if either component key exchange methods (X25519 or
+//!    Kyber768Draft00) are secure [hybrid].
+//! ```
 
 use crate::{
     common::ntor::{
@@ -160,6 +191,12 @@ impl KyberXIdentityKeys {
     }
 }
 
+/// The client side uses the ntor derived shared secret based on the secret
+/// input created by appending the shared secret derived between the client's
+/// session keys and the server's sessions keys with the shared secret derived
+/// between the clients session keys and the server's identity keys.
+///
+/// secret input = X25519(Y, x) | Kyber(Y, x) | X25519(B, x) | Kyber(B, x)
 pub fn client_handshake(
     client_keys: &KyberXSessionKeys,
     server_public: &KyberXPublicKey,
@@ -169,14 +206,16 @@ pub fn client_handshake(
     let mut not_ok = 0;
     let mut secret_input: Vec<u8> = vec![];
 
-    // Client side uses EXP(Y,x) | EXP(B,x)
+    // EXP(Y,x)
     let exp = client_keys
         .x25519
         .private
         .diffie_hellman(&server_public.x25519);
+
     not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
     secret_input.append(&mut exp.as_bytes().to_vec());
 
+    // EXP(B,x)
     let exp = client_keys.x25519.private.diffie_hellman(&id_public.x25519);
     not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
     secret_input.append(&mut exp.as_bytes().to_vec());
@@ -194,6 +233,12 @@ pub fn client_handshake(
     subtle::CtOption::new(HandshakeResult { key_seed, auth }, not_ok.ct_eq(&0_u8))
 }
 
+/// The server side uses the ntor derived shared secret based on the secret
+/// input created by appending the shared secret derived between the server's
+/// session keys and the client's sessions keys with the shared secret derived
+/// between the server's identity keys and the clients session keys.
+///
+/// secret input = X25519(X, y) | Kyber(X, y) | X25519(X, b) | Kyber(X, b)
 pub fn server_handshake(
     server_keys: &KyberXSessionKeys,
     client_public: &KyberXPublicKey,
@@ -203,7 +248,7 @@ pub fn server_handshake(
     let mut not_ok = 0;
     let mut secret_input: Vec<u8> = vec![];
 
-    // Server side uses EXP(X,y) | EXP(X,b)
+    // EXP(X,y)
     let exp = server_keys
         .x25519
         .private
@@ -211,6 +256,7 @@ pub fn server_handshake(
     not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
     secret_input.append(&mut exp.as_bytes().to_vec());
 
+    // EXP(X,b)
     let exp = id_keys.x25519.private.diffie_hellman(&client_public.x25519);
     not_ok |= _ZERO_EXP[..].ct_eq(exp.as_bytes()).unwrap_u8();
     secret_input.append(&mut exp.as_bytes().to_vec());
@@ -304,69 +350,5 @@ mod tests {
         let shsres = server_hs_res.unwrap();
         assert_eq!(chsres.key_seed, shsres.key_seed);
         assert_eq!(&chsres.auth, &shsres.auth);
-    }
-
-    #[test]
-    fn kyber1024x25519_handshake_plain() {
-        let mut rng = rand::thread_rng();
-
-        // Generate Keypair
-        let alice_secret = EphemeralSecret::random_from_rng(&mut rng);
-        let alice_public = PublicKey::from(&alice_secret);
-        let keys_alice = keypair(&mut rng).expect("kyber keypair generation failed");
-        // alice -> bob public keys
-        let mut kyber1024x_pubkey = alice_public.as_bytes().to_vec();
-        kyber1024x_pubkey.extend_from_slice(&keys_alice.public);
-
-        assert_eq!(kyber1024x_pubkey.len(), 1600);
-
-        let bob_secret = EphemeralSecret::random_from_rng(&mut rng);
-        let bob_public = PublicKey::from(&bob_secret);
-
-        // Bob encapsulates a shared secret using Alice's public key
-        let (ciphertext, shared_secret_bob) =
-            encapsulate(&keys_alice.public, &mut rng).expect("bob encapsulation failed");
-        let bob_shared_secret = bob_secret.diffie_hellman(&alice_public);
-
-        // // Alice decapsulates a shared secret using the ciphertext sent by Bob
-        let shared_secret_alice =
-            decapsulate(&ciphertext, &keys_alice.secret).expect("alice decapsulation failed");
-        let alice_shared_secret = alice_secret.diffie_hellman(&bob_public);
-
-        assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
-        assert_eq!(shared_secret_bob, shared_secret_alice);
-    }
-
-    #[test]
-    fn kyber1024_ake() {
-        let mut rng = rand::thread_rng();
-
-        // Server generates its keys
-        let mut server = Ake::new();
-        let server_kyber_id_keys = keypair(&mut rng).expect("key generation failed");
-
-        // client generates new keys
-        let mut client = Ake::new();
-        let client_kyber_keys = keypair(&mut rng).expect("key generation failed");
-        // client computes the beginning of it's half of the authenticated key exchange
-        let client_init = client.client_init(&server_kyber_id_keys.public, &mut rng).expect("client handshake failed");
-
-        // client sends the init message, and its public key
-        // client_init, client_kyber_keys.public
-
-        // server computes the authenticated key exchange generating the
-        // necessary materials for the client to compute a matching
-        // authenticated shared secret
-        let server_send = server.server_receive(
-          client_init, &client_kyber_keys.public, &server_kyber_id_keys.secret, &mut rng
-        ).expect("server hands_kyberhake failed");
-
-        // server sends completion materials to client
-
-        // client completes the computation of the authenticated shares secret
-        client.client_confirm(server_send, &client_kyber_keys.secret).expect("client handshake failed");
-
-        // the shared secrets match
-        assert_eq!(client.shared_secret, server.shared_secret);
     }
 }
