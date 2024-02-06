@@ -7,6 +7,7 @@ mod id;
 pub use id::{ID, NODE_ID_LENGTH};
 
 pub(crate) mod kyber;
+// pub(crate) mod psk_kem;
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -326,13 +327,20 @@ fn derive_ntor_shared<T: AsRef<[u8]>>(
     (key_seed, auth)
 }
 
+pub fn initialize_client_handshake(
+    client_keys: &SessionKeyPair,
+    id_public: &PublicKey,
+    id: &ID,
+) -> Result<ClientEphemeralShare> {
+}
+
 pub fn process_client_handshake(
     client_public: &PublicKey,
     server_keys: &SessionKeyPair,
     id_keys: &IdentityKeyPair,
     id: &ID,
-) -> subtle::CtOption<HandshakeResult> {
-    HandshakeResult::server_handshake(client_public, server_keys, id_keys, id)
+) -> Option<(HandshakeResult, ServerEphemeralShare)> {
+    HandshakeResult::server_handshake(client_public, server_keys, id_keys, id).into()
 }
 
 /// Client side of a ntor handshake performed to derive shared, authenticated
@@ -344,8 +352,8 @@ pub fn process_server_handshake(
     server_public: &PublicKey,
     id_public: &PublicKey,
     id: &ID,
-) -> subtle::CtOption<HandshakeResult> {
-    HandshakeResult::client_handshake(client_keys, server_public, id_public, id)
+) -> Option<HandshakeResult> {
+    HandshakeResult::client_handshake(client_keys, server_public, id_public, id).into()
 }
 
 #[cfg(test)]
