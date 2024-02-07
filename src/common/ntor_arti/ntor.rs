@@ -54,7 +54,7 @@ impl super::ServerHandshake for NtorServer {
         key: &[Self::KeyType],
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)> {
-        let _reply_msg = reply_fn
+        reply_fn
             .reply(&())
             .ok_or(RelayHandshakeError::BadClientHandshake)?;
 

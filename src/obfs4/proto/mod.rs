@@ -130,9 +130,7 @@ where
     pub(crate) fn try_recv_non_payload_packet(&mut self) -> Result<()> {
         let buf = self.stream.read_buffer_mut();
 
-        if !buf.has_remaining() {
-            return Ok(());
-        } else if buf.remaining() < MESSAGE_OVERHEAD {
+        if !buf.has_remaining() || buf.remaining() < MESSAGE_OVERHEAD {
             return Ok(());
         }
 
@@ -164,7 +162,7 @@ where
 
         let r = AsyncDiscard::new(s);
 
-        if let Err(_) = tokio::time::timeout(d, r.discard()).await {
+        if (tokio::time::timeout(d, r.discard()).await).is_err() {
             trace!(
                 "{} timed out while discarding",
                 hex::encode(self.session.id())

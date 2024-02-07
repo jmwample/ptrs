@@ -182,7 +182,7 @@ impl ClientSession<Initialized> {
         let handshake = handshake.complete().await?;
 
         // retrieve handshake artifacts on success
-        let handshake_artifacts = handshake.to_inner();
+        let handshake_artifacts = handshake.take_state();
         let mut codec = handshake_artifacts.codec;
         let mut remainder = handshake_artifacts.remainder;
 
@@ -383,7 +383,7 @@ impl<'b> ServerSession<'b, Initialized> {
         let handshake = handshake.complete(&mut stream).await?;
 
         // retrieve handshake artifacts on success
-        let handshake_artifacts = handshake.to_inner();
+        let handshake_artifacts = handshake.take_state();
         let mut codec = handshake_artifacts.codec;
         // let mut remainder = handshake_artifacts.remainder;
 

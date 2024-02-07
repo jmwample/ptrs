@@ -13,8 +13,6 @@ pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =
     framing::MAX_FRAME_PAYLOAD_LENGTH - MESSAGE_OVERHEAD;
 // pub(crate) const MAX_MESSAGE_PADDING_LENGTH: usize = MAX_MESSAGE_PAYLOAD_LENGTH;
 
-pub(crate) const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
-
 pub type MessageType = u8;
 pub trait Message {
     type Output;
@@ -24,10 +22,6 @@ pub trait Message {
 
     fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self::Output, FrameError>;
 }
-
-const SHA256_SIZE: usize = 32;
-const MARK_LENGTH: usize = SHA256_SIZE / 2;
-const MAC_LENGTH: usize = SHA256_SIZE / 2;
 
 /// Frames are:
 /// ```txt
@@ -60,7 +54,7 @@ pub fn build_and_marshall<T: BufMut>(
         Err(FrameError::InvalidPayloadLength(total_size))?
     }
 
-    dst.put_u8(pt.into());
+    dst.put_u8(pt);
     dst.put_u16(buf.len() as u16);
     dst.put(buf);
     if pad_len != 0 {

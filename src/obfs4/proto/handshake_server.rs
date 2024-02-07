@@ -79,7 +79,7 @@ impl<'a, S: ServerHandshakeState> ServerHandshake<'a, S> {
 }
 
 impl<'a> ServerHandshake<'a, ServerHandshakeSuccess> {
-    pub(crate) fn to_inner(self) -> ServerHandshakeSuccess {
+    pub(crate) fn take_state(self) -> ServerHandshakeSuccess {
         self._h_state
     }
 }
@@ -331,7 +331,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             buf.len()
         );
 
-        stream.write_all(&mut buf).await?;
+        stream.write_all(&buf).await?;
 
         Ok(ServerHandshake {
             materials: self.materials,

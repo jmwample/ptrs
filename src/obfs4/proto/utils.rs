@@ -49,7 +49,7 @@ pub fn find_mac_mark(
         return None;
     }
 
-    let mut pos: usize = 0;
+    let mut pos: usize;
     if from_tail {
         // The server can optimize the search process by only examining the
         // tail of the buffer.  The client can't send valid data past M_C |

@@ -1,7 +1,6 @@
 use crate::handler::{EchoHandler, Handler};
 
 use std::{convert::TryFrom, default::Default, net, str::FromStr};
-use std::time::Duration;
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};

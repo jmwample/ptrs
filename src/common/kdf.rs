@@ -28,7 +28,7 @@ const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 /// Provides a Key Derivation Function (KDF) that extracts and expands KEY_SEED
 /// via HKDF-SHA256 and returns `okm_len` bytes of key material.
 pub fn kdf(key_seed: KeySeed, okm_len: usize) -> Vec<u8> {
-    let kdf = hkdf::Hkdf::<Sha256>::new(Some(T_KEY), &key_seed.as_bytes());
+    let kdf = hkdf::Hkdf::<Sha256>::new(Some(T_KEY), key_seed.as_bytes());
 
     let mut okm = vec![0u8; okm_len];
     kdf.expand(M_EXPAND, &mut okm)

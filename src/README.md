@@ -2,7 +2,6 @@
 Features for o7
 
 * Fully Encrypted
-* prime field group
 * quantum forward secrecy (i.e. ed25519 + Kyber)
 * reliability layer inside encryption layer
 * if outer transport is reliable (i.e. TCP) inner reliability can be disabled
@@ -23,8 +22,7 @@ Peer?
 
 TODO:
 
-- crate feature for `c_impl` vs `dalek` elligator2.
-- double check the bit randomization and clearing for high two bits in the `c_impl`
+- double check the bit randomization and clearing for high two bits in the `dalek` representative
 - ntor interface & handshake implementation
 - end-to-end socks proxy
 - server / client compatibility test go-to-rust and rust-to-go.

@@ -15,7 +15,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl std::error::Error for Error {}
 #[derive(Debug)]
 pub enum Error {
-    Bug,
+    Bug(tor_error::Bug),
 
     Other(Box<dyn std::error::Error + Send + Sync>),
     IOError(std::io::Error),
@@ -60,7 +60,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            Error::Bug => write!(f, "Internal error occured"),
+            Error::Bug(_) => write!(f, "Internal error occured (bug)"),
             Error::Cancelled => write!(f, "cancelled"),
             Error::Other(e) => write!(f, "{}", e),
             Error::IOError(e) => write!(f, "{}", e),
@@ -180,7 +180,7 @@ impl From<obfs4::framing::FrameError> for Error {
 
 impl From<tor_error::Bug> for Error {
     fn from(value: tor_error::Bug) -> Self {
-        Error::Bug
+        Error::Bug(value)
     }
 }
 

@@ -68,7 +68,7 @@ impl ClientHandshakeState for ServerHandshakeReceived {}
 impl ClientHandshakeState for ClientHandshakeSuccess {}
 
 impl<'a> ClientHandshake<'a, ClientHandshakeSuccess> {
-    pub(crate) fn to_inner(self) -> ClientHandshakeSuccess {
+    pub(crate) fn take_state(self) -> ClientHandshakeSuccess {
         self._h_state
     }
 }
