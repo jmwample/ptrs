@@ -4,9 +4,11 @@
 use std::borrow::Borrow;
 
 use super::{RelayHandshakeError, RelayHandshakeResult};
-use crate::crypto::ll::kdf::{Kdf, LegacyKdf};
-use crate::util::ct::bytes_eq;
 use crate::{Error, Result};
+use crate::common::{
+    kdf::{Kdf, LegacyKdf},
+    ct::bytes_eq,
+};
 
 use rand::{CryptoRng, RngCore};
 use tor_bytes::SecretBuf;
@@ -123,7 +125,7 @@ mod test {
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
-    use crate::crypto::handshake::{ClientHandshake, KeyGenerator, ServerHandshake};
+    use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
     use hex_literal::hex;
     use tor_basic_utils::test_rng::testing_rng;
 
@@ -161,7 +163,7 @@ mod test {
     }
 
     fn test_one_handshake(cmsg: [u8; 20], smsg: [u8; 40], keys: [u8; 100]) {
-        use crate::crypto::testing::FakePRNG;
+        use crate::test_utils::FakePRNG;
 
         let mut rng = FakePRNG::new(&cmsg);
         let (state, cmsg) = CreateFastClient::client1(&mut rng, &(), &()).unwrap();

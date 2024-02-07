@@ -3,7 +3,7 @@
 use std::borrow::Borrow;
 
 use super::{AuxDataReply, KeyGenerator, RelayHandshakeError, RelayHandshakeResult};
-use crate::util::ct;
+use crate::common::ct;
 use crate::{Error, Result};
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_error::into_internal;
@@ -131,7 +131,7 @@ impl KeyGenerator for NtorHkdfKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
         let ntor1_key = &b"ntor-curve25519-sha256-1:key_extract"[..];
         let ntor1_expand = &b"ntor-curve25519-sha256-1:key_expand"[..];
-        use crate::crypto::ll::kdf::{Kdf, Ntor1Kdf};
+        use crate::common::kdf::{Kdf, Ntor1Kdf};
         Ntor1Kdf::new(ntor1_key, ntor1_expand).derive(&self.seed[..], keylen)
     }
 }
@@ -337,12 +337,12 @@ where
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use crate::crypto::testing::FakePRNG;
+    use crate::test_utils::FakePRNG;
     use tor_basic_utils::test_rng::testing_rng;
 
     #[test]
     fn simple() -> Result<()> {
-        use crate::crypto::handshake::{ClientHandshake, ServerHandshake};
+        use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
         let mut rng = testing_rng();
         let relay_secret = StaticSecret::random_from_rng(&mut rng);
         let relay_public = PublicKey::from(&relay_secret);
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn failing_handshakes() {
-        use crate::crypto::handshake::{ClientHandshake, ServerHandshake};
+        use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
         let mut rng = testing_rng();
 
         // Set up keys.

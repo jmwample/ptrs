@@ -22,7 +22,7 @@
 #![allow(non_snake_case)]
 
 use crate::crypto::handshake::KeyGenerator;
-use crate::crypto::ll::kdf::{Kdf, ShakeKdf};
+use crate::common::kdf::{Kdf, ShakeKdf};
 use crate::{Error, Result};
 use tor_bytes::{Reader, SecretBuf, Writer};
 use tor_hscrypto::{

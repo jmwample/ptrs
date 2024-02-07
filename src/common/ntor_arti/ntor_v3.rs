@@ -15,7 +15,7 @@
 use std::borrow::Borrow;
 
 use super::{RelayHandshakeError, RelayHandshakeResult};
-use crate::util::ct;
+use crate::common::ct;
 use crate::{Error, Result};
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writeable, Writer};
 use tor_error::into_internal;

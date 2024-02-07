@@ -1,6 +1,7 @@
 use crate::{
     common::{
         colorize,
+        kdf::kdf,
         ntor::{
             self, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH,
             REPRESENTATIVE_LENGTH,
@@ -292,7 +293,7 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
         ))?;
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(
+        let okm = kdf(
             ntor_hs_result.key_seed,
             KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
         );

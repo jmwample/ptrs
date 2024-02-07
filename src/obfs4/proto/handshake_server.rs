@@ -1,6 +1,7 @@
 use crate::{
     common::{
         colorize,
+        kdf::kdf,
         ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH},
         replay_filter, HmacSha256,
     },
@@ -275,7 +276,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let server_auth = ntor_hs_result.auth;
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(
+        let okm = kdf(
             ntor_hs_result.key_seed,
             KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
         );

@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 
 pub mod tests;
+mod fake_prng;
+pub(crate) use fake_prng::*;
 
 use std::env;
 use std::io::{Read, Result, Write};

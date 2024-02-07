@@ -4,11 +4,13 @@ use colored::Colorize;
 use hmac::Hmac;
 use sha2::Sha256;
 
+pub(crate) mod ct;
+pub(crate) mod kdf;
+
 mod skip;
 pub use skip::AsyncDiscard;
 // pub use skip::{AsyncDiscard, AsyncSkipReader, Discard, SkipReader};
 
-// pub mod elligator2;
 
 pub mod drbg;
 pub mod ntor;

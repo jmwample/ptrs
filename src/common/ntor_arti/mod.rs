@@ -138,7 +138,7 @@ impl TapKeyGenerator {
 
 impl KeyGenerator for TapKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
-        use crate::crypto::ll::kdf::{Kdf, LegacyKdf};
+        use crate::common::kdf::{Kdf, LegacyKdf};
         LegacyKdf::new(1).derive(&self.seed[..], keylen)
     }
 }
@@ -159,7 +159,7 @@ impl ShakeKeyGenerator {
 
 impl KeyGenerator for ShakeKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
-        use crate::crypto::ll::kdf::{Kdf, ShakeKdf};
+        use crate::common::kdf::{Kdf, ShakeKdf};
         ShakeKdf::new().derive(&self.seed[..], keylen)
     }
 }

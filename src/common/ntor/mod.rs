@@ -17,11 +17,10 @@ use std::fmt::{self, Debug, Display};
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;
 
-const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
-const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
-const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
-const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
-const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
+pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
+pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
+pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
+pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
 
 /// The length of the derived KEY_SEED.
 pub(crate) const KEY_SEED_LENGTH: usize = 32; // sha256.Size;
@@ -32,6 +31,12 @@ pub(crate) const AUTH_LENGTH: usize = 32; //sha256.Size;
 /// The key material that results from a handshake (KEY_SEED).
 #[derive(Default, Debug, Clone)]
 pub struct KeySeed([u8; KEY_SEED_LENGTH]);
+
+impl KeySeed {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// The verifier that results from a handshake (AUTH).
 #[derive(Default, Debug, Clone)]
@@ -187,18 +192,6 @@ impl SessionKeyPair {
 /// (presumably received over a network).
 pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> u8 {
     auth1.0[..].ct_eq(auth2.as_ref()).unwrap_u8()
-}
-
-// Provides a Key Derivation Function (KDF) that extracts and expands KEY_SEED
-// via HKDF-SHA256 and returns `okm_len` bytes of key material.
-pub fn kdf(key_seed: KeySeed, okm_len: usize) -> Vec<u8> {
-    let kdf = hkdf::Hkdf::<Sha256>::new(Some(T_KEY), &key_seed.0[..]);
-
-    let mut okm = vec![0u8; okm_len];
-    kdf.expand(M_EXPAND, &mut okm)
-        .expect("42 is a valid length for Sha256 to output");
-
-    okm
 }
 
 #[derive(Debug, Clone)]
