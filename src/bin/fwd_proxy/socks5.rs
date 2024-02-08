@@ -138,7 +138,7 @@ where
 
 
 
-async fn copy_interactive_ignore<'s, R, W>(reader: R, writer: W) -> ()
+async fn copy_interactive_ignore<'s, R, W>(reader: R, writer: W)
 where
     R: AsyncRead + Unpin + 's,
     W: AsyncWrite + Unpin + 's,

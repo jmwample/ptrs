@@ -21,10 +21,14 @@ use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::{debug, info};
+use tracing::{debug, info, warn, trace};
 
-use std::{io::{Error as IoError, ErrorKind as IoErrorKind}, fmt};
-use std::sync::{Arc, Mutex};
+use std::{
+    io::{Error as IoError, ErrorKind as IoErrorKind}, 
+    fmt,
+    time::{Duration, Instant},
+    sync::{Arc, Mutex},
+};
 
 pub struct ClientBuilder {
     pub iat_mode: IAT,
@@ -96,7 +100,7 @@ impl fmt::Display for ClientBuilder {
 
 }
 
-
+/// Client implementing the obfs4 protocol.
 pub struct Client {
     pub iat_mode: IAT,
     pub station_pubkey: ntor::PublicKey,
@@ -104,10 +108,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn set_args(&mut self, _args: &dyn std::any::Any) -> Result<&Self> {
-        Ok(self)
-    }
+    /// TODO: extract args to create new builder
+    pub fn get_args(&mut self, _args: &dyn std::any::Any) { }
 
+    /// On a failed handshake the client will read for the remainder of the
+    /// handshake timeout and then close the connection.
     pub async fn wrap<'a, T>(&self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
@@ -115,8 +120,9 @@ impl Client {
         let session =
             sessions::new_client_session(self.id.clone(), self.station_pubkey, self.iat_mode);
 
+        let deadline = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
         tokio::select! {
-            r = session.handshake(stream) => r,
+            r = session.handshake(stream, deadline) =>  r,
             e = tokio::time::sleep(CLIENT_HANDSHAKE_TIMEOUT) => Err(Error::HandshakeTimeout),
         }
     }

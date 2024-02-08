@@ -1,10 +1,13 @@
 //
 //
 
-use super::{IAT, SESSION_ID_LEN};
+use super::{
+    handshake_client::{ClientHandshake, ClientHandshakeSuccess},
+    IAT, SESSION_ID_LEN,
+};
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{colorize, drbg, ntor, replay_filter::ReplayFilter},
+    common::{colorize, drbg, ntor, replay_filter::ReplayFilter, AsyncDiscard},
     obfs4::{
         framing::{self},
         proto::{
@@ -19,6 +22,8 @@ use crate::{
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Decoder;
 use tracing::{debug, info};
+
+use std::time::{Duration, Instant};
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -82,7 +87,7 @@ struct ClientHandshakeFailed {
 
 struct ClientHandshaking {}
 
-trait ClientSessionState {}
+pub(crate) trait ClientSessionState {}
 impl ClientSessionState for Initialized {}
 impl ClientSessionState for ClientHandshaking {}
 impl ClientSessionState for Established {}
@@ -161,7 +166,7 @@ pub fn new_client_session(
 }
 
 impl ClientSession<Initialized> {
-    pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn handshake<'a, T>(self, mut stream: T, deadline: Instant) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -175,11 +180,15 @@ impl ClientSession<Initialized> {
             session.session_id,
         );
 
-        // complete handshake
-        let handshake = handshake_client::new(materials)?;
-        let handshake = handshake.start(&mut stream).await?;
-        let handshake = handshake.retrieve_server_response(&mut stream).await?;
-        let handshake = handshake.complete().await?;
+        let handshake = match Self::complete_handshake(&mut stream, materials).await {
+            Ok(h) => h,
+            Err(e) => {
+                let id = session.session_id();
+                let session = session.fault(ClientHandshakeFailed { details: format!("{id} handshake failed {e}") });
+                session.discard(&mut stream, deadline - Instant::now()).await?;
+                return Err(e);
+            }
+        };
 
         // retrieve handshake artifacts on success
         let handshake_artifacts = handshake.take_state();
@@ -203,9 +212,23 @@ impl ClientSession<Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Client(session_state))?;
+        let o4 = O4Stream::new(stream, codec, Session::Client(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
+    }
+
+    async fn complete_handshake<'a, T>(
+        mut stream: T,
+        materials: CHSMaterials<'a>,
+    ) -> Result<ClientHandshake<'a, ClientHandshakeSuccess>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        // complete handshake
+        let handshake = handshake_client::new(materials)?;
+        let handshake = handshake.start(&mut stream).await?;
+        let handshake = handshake.retrieve_server_response(&mut stream).await?;
+        handshake.complete().await
     }
 }
 
@@ -217,6 +240,15 @@ impl ClientSession<ClientHandshaking> {
             hex::encode(seed.as_bytes())
         );
         self.len_seed = seed;
+    }
+}
+
+impl ClientSession<ClientHandshakeFailed> {
+    pub(crate) async fn discard<T>(&self, stream: T, d: Duration) -> Result<()>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        AsyncDiscard::discard_and_close_after_delay(stream, d).await
     }
 }
 
@@ -405,7 +437,7 @@ impl<'b> ServerSession<'b, Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Server(session_state))?;
+        let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
     }
