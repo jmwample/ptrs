@@ -140,6 +140,7 @@ impl Server {
             node_id: self.node_id.clone(),
             iat_mode: self.iat_mode,
             statefile_location: None,
+            handshake_timeout: client::MaybeTimeout::Default_,
         }
     }
 }

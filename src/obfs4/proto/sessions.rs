@@ -9,21 +9,20 @@ use super::{
 use crate::{
     common::{colorize, drbg, ntor, replay_filter::ReplayFilter, AsyncDiscard},
     obfs4::{
-        framing::{self},
+        framing,
         proto::{
             handshake_client::{self, HandshakeMaterials as CHSMaterials},
             handshake_server::{self, HandshakeMaterials as SHSMaterials},
-            O4Stream, Obfs4Stream,
+            O4Stream, Obfs4Stream, CLIENT_HANDSHAKE_TIMEOUT,
         },
     },
-    Result,
+    Error, Result,
 };
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::time::{Duration, Instant};
 use tokio_util::codec::Decoder;
 use tracing::{debug, info};
-
-use std::time::{Duration, Instant};
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -166,7 +165,21 @@ pub fn new_client_session(
 }
 
 impl ClientSession<Initialized> {
-    pub async fn handshake<'a, T>(self, mut stream: T, deadline: Instant) -> Result<Obfs4Stream<'a, T>>
+    /// Perform a Handshake over the provided stream.
+    /// ```
+    ///
+    /// ```
+    ///
+    /// TODO: make sure failure modes align with golang obfs4
+    /// - discard then close
+    /// - handshake timeouts
+    /// - FIN/RST based on buffered data.
+    /// - etc.
+    pub async fn handshake<'a, T>(
+        self,
+        mut stream: T,
+        deadline: Option<Instant>,
+    ) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -180,15 +193,38 @@ impl ClientSession<Initialized> {
             session.session_id,
         );
 
-        let handshake = match Self::complete_handshake(&mut stream, materials).await {
-            Ok(h) => h,
-            Err(e) => {
-                let id = session.session_id();
-                let session = session.fault(ClientHandshakeFailed { details: format!("{id} handshake failed {e}") });
-                session.discard(&mut stream, deadline - Instant::now()).await?;
-                return Err(e);
-            }
-        };
+        // default deadline
+        let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
+        let handshake_fut = Self::complete_handshake(&mut stream, materials);
+        let handshake =
+            match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
+                Ok(result) => match result {
+                    Ok(handshake) => handshake,
+                    Err(e) => {
+                        // non-timeout error,
+                        let id = session.session_id();
+                        let session = session.fault(ClientHandshakeFailed {
+                            details: format!("{id} handshake failed {e}"),
+                        });
+                        // if a deadline was set and has not passed alread, discard
+                        // from the stream until the deadline, then close.
+                        if deadline.is_some_and(|d| d > Instant::now()) {
+                            session
+                                .discard(&mut stream, deadline.unwrap() - Instant::now())
+                                .await?;
+                        }
+                        stream.shutdown().await?;
+                        return Err(e);
+                    }
+                },
+                Err(_) => {
+                    let id = session.session_id();
+                    let _ = session.fault(ClientHandshakeFailed {
+                        details: format!("{id} timed out"),
+                    });
+                    return Err(Error::HandshakeTimeout);
+                }
+            };
 
         // retrieve handshake artifacts on success
         let handshake_artifacts = handshake.take_state();
@@ -217,10 +253,10 @@ impl ClientSession<Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<'a, T>(
+    async fn complete_handshake<T>(
         mut stream: T,
-        materials: CHSMaterials<'a>,
-    ) -> Result<ClientHandshake<'a, ClientHandshakeSuccess>>
+        materials: CHSMaterials<'_>,
+    ) -> Result<ClientHandshake<'_, ClientHandshakeSuccess>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
