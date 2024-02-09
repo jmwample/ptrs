@@ -7,7 +7,7 @@ use super::{
 };
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{colorize, drbg, ntor, replay_filter::ReplayFilter, AsyncDiscard},
+    common::{colorize, drbg, ntor, replay_filter::ReplayFilter, discard},
     obfs4::{
         framing,
         proto::{
@@ -284,7 +284,7 @@ impl ClientSession<ClientHandshakeFailed> {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        AsyncDiscard::discard_and_close_after_delay(stream, d).await
+        discard(stream, d).await
     }
 }
 

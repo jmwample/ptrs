@@ -127,31 +127,6 @@ where
         }
     }
 
-    /*
-    pub(crate) fn try_recv_non_payload_packet(&mut self) -> Result<()> {
-        let buf = self.stream.read_buffer_mut();
-
-        if !buf.has_remaining() || buf.remaining() < MESSAGE_OVERHEAD {
-            return Ok(());
-        }
-
-        let proto_type = MessageTypes::try_from(buf[0])?;
-        if proto_type == MessageTypes::Payload {
-            return Ok(());
-        }
-
-        let length = u16::from_be_bytes(buf[1..3].try_into().unwrap()) as usize;
-
-        if length > buf.remaining() - MESSAGE_OVERHEAD {
-            // somehow we don't have the full packet yet.
-            return Ok(());
-        }
-
-        // we have enough bytes. advance past the header and try to parse the frame.
-        let m = framing::Messages::try_parse(buf)?;
-        self.try_handle_non_payload_message(m)
-    }*/
-
     pub(crate) fn try_handle_non_payload_message(&mut self, msg: framing::Messages) -> Result<()> {
         match msg {
             Messages::Payload(_) => Err(FrameError::InvalidMessage.into()),

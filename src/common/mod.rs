@@ -8,8 +8,7 @@ pub(crate) mod ct;
 pub(crate) mod kdf;
 
 mod skip;
-pub use skip::AsyncDiscard;
-// pub use skip::{AsyncDiscard, AsyncSkipReader, Discard, SkipReader};
+pub use skip::discard;
 
 
 pub mod drbg;

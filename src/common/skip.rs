@@ -1,77 +1,65 @@
 use crate::Result;
 
-use pin_project::pin_project;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
+// use std::pin::Pin;
+// use std::task::{Context, Poll};
 use std::time::Duration;
 
-#[pin_project]
-pub struct AsyncSkipReader<S>
+/// copies all data from the reader to a sink. If the reader closes before
+/// the timeout due to na error or an EoF that result will be returned. 
+/// Otherwise if the timeout is reached, the stream will be shutdown
+/// and the result of that shutdown will be returned.
+///
+/// TODO: determine if it is possible to empty / flush write buffer before
+/// shutdown to ensure consistent RST / FIN behavior on shutdown.
+pub async fn discard<S>(stream: S, d: Duration) -> Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin
 {
-    #[pin]
-    inner: S,
-    skip: usize,
-}
-
-impl<S> AsyncSkipReader<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    pub fn skip_n(reader: S, n: usize) -> Self {
-        Self {
-            inner: reader,
-            skip: 0,
-        }
-    }
-
-    pub async fn discard_and_close_after_delay(_reader: S, _d: Duration) -> Result<()> {
-        Ok(())
-    }
-}
-
-pub type AsyncDiscard<S> = AsyncSkipReader<S>;
-
-impl<S> AsyncRead for AsyncDiscard<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let this = self.project();
-        this.inner.poll_read(cx, buf)
+    let (mut r, mut w) = tokio::io::split(stream);
+    let result = tokio::time::timeout(d, async move {
+        tokio::io::copy(&mut r, &mut tokio::io::sink()).await
+    }).await;
+    if let Err(_) = result {
+        // stream out -- connection may not be closed -- close manually.
+        w.shutdown().await.map_err(|e| e.into()) 
+    } else {
+        // Error Occurred in coppy or connection hit EoF which means the
+        // connection should already be closed.
+        result.unwrap().map(|_| ()).map_err(|e| e.into()) 
     }
 }
 
-impl<S> AsyncWrite for AsyncDiscard<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::result::Result<usize, std::io::Error>> {
-        let this = self.project();
-        this.inner.poll_write(cx, buf)
-    }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::result::Result<(), std::io::Error>> {
-        let this = self.project();
-        this.inner.poll_flush(cx)
-    }
+#[cfg(test)]
+mod test {
+    use tokio::io::AsyncWriteExt;
+    use tokio::time::Instant;
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::result::Result<(), std::io::Error>> {
-        let this = self.project();
-        this.inner.poll_shutdown(cx)
+    use super::*;
+
+    #[tokio::test]
+    async fn discard_and_close_after_delay() {
+        let (mut c, s) = tokio::io::duplex(1024);
+        let start = Instant::now();
+        let d = Duration::from_secs(3);
+        let expected_end = start + d;
+        let discard_fut = discard(s, d);
+
+        tokio::spawn(async move {
+            const MSG: &'static str = "abcdefghijklmnopqrstuvwxyz";
+            loop {
+                if let Err(e) = c.write(MSG.as_bytes()).await {
+                    assert!(Instant::now() > expected_end);
+                    println!("closed with error {e}");
+                    break;
+                }
+            }
+        });
+
+        discard_fut.await.unwrap();
+
+        assert!(Instant::now() > expected_end);
     }
 }
