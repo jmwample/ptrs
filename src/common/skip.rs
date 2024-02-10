@@ -21,13 +21,13 @@ where
     let result = tokio::time::timeout(d, async move {
         tokio::io::copy(&mut r, &mut tokio::io::sink()).await
     }).await;
-    if let Err(_) = result {
-        // stream out -- connection may not be closed -- close manually.
-        w.shutdown().await.map_err(|e| e.into()) 
-    } else {
+    if let Ok(r) = result {
         // Error Occurred in coppy or connection hit EoF which means the
         // connection should already be closed.
-        result.unwrap().map(|_| ()).map_err(|e| e.into()) 
+        r.map(|_| ()).map_err(|e| e.into()) 
+    } else {
+        // stream out -- connection may not be closed -- close manually.
+        w.shutdown().await.map_err(|e| e.into()) 
     }
 }
 

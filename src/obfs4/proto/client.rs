@@ -12,7 +12,7 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        proto::{sessions, Obfs4Stream, IAT},
+        proto::{sessions, Obfs4Stream, IAT, MaybeTimeout},
     },
     stream::Stream,
     Error, Result,
@@ -31,30 +31,6 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind},
     sync::{Arc, Mutex},
 };
-
-pub(crate) enum MaybeTimeout {
-    Default_,
-    Fixed(Instant),
-    Length(Duration),
-    Unset,
-}
-
-impl MaybeTimeout {
-    fn duration(&self) -> Option<Duration> {
-        match self {
-            MaybeTimeout::Default_ => Some(CLIENT_HANDSHAKE_TIMEOUT),
-            MaybeTimeout::Fixed(i) => {
-                if *i < Instant::now() {
-                    None
-                } else {
-                    Some(*i - Instant::now())
-                }
-            }
-            MaybeTimeout::Length(d) => Some(*d),
-            MaybeTimeout::Unset => None,
-        }
-    }
-}
 
 pub struct ClientBuilder {
     pub iat_mode: IAT,

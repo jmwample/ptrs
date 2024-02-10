@@ -239,7 +239,6 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
             repres,
             0, // doesn't matter when we are reading client handshake msg
             epoch_hr,
-            [0_u8; MARK_LENGTH],
         ))
     }
 }
@@ -270,8 +269,6 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
             )))?,
         };
 
-        let client_mark = client_hs.get_mark();
-        let client_repres = client_hs.get_representative();
         let epoch_hr = client_hs.get_epoch_hr();
         let server_auth = ntor_hs_result.auth;
 
@@ -303,9 +300,6 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let mut sh_msg = ServerHandshakeMessage::new(
             self.materials.session_keys.representative.clone().unwrap(),
             server_auth.to_bytes(),
-            client_repres,
-            client_mark,
-            None,
             epoch_hr,
         );
 
@@ -346,23 +340,12 @@ pub struct ServerHandshakeMessage {
     repres: Representative,
     pubkey: Option<ntor::PublicKey>,
     epoch_hour: String,
-
-    /// Part of the obfs4 handshake is to send the PRNG Seed Message concatenated
-    /// with the ServerHandshake Message since it will be padded anyways. We
-    /// need the hs offset so we can parse the PRNG message.
-    hs_end_pos: usize,
-
-    client_mark: [u8; MARK_LENGTH],
-    client_repres: Representative,
 }
 
 impl ServerHandshakeMessage {
     pub fn new(
         repres: Representative,
         server_auth: [u8; AUTH_LENGTH],
-        client_repres: Representative,
-        client_mark: [u8; MARK_LENGTH],
-        hs_end_pos: Option<usize>,
         epoch_hr: String,
     ) -> Self {
         Self {
@@ -371,10 +354,6 @@ impl ServerHandshakeMessage {
             repres,
             pubkey: None,
             epoch_hour: epoch_hr,
-            hs_end_pos: hs_end_pos.unwrap_or(0),
-
-            client_mark,
-            client_repres,
         }
     }
 

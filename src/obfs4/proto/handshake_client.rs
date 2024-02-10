@@ -124,7 +124,6 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
             self.materials.session_keys.representative.clone().unwrap(),
             self.materials.pad_len,
             "".into(),
-            [0_u8; MARK_LENGTH],
         );
 
         // TODO: is this needed later? why are we writing this into state?
@@ -264,9 +263,6 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
                 ServerHandshakeMessage::new(
                     server_repres,
                     server_auth,
-                    self.materials.session_keys.representative.clone().unwrap(),
-                    server_mark,
-                    Some(pos + MARK_LENGTH + MAC_LENGTH),
                     self._h_state.epoch_hour.clone(),
                 ),
                 pos + MARK_LENGTH + MAC_LENGTH,
@@ -327,7 +323,6 @@ pub struct ClientHandshakeMessage {
 
     // only used when parsing (i.e. on the server side)
     epoch_hour: String,
-    mark: [u8; MARK_LENGTH],
 }
 
 impl ClientHandshakeMessage {
@@ -335,7 +330,6 @@ impl ClientHandshakeMessage {
         repres: Representative,
         pad_len: usize,
         epoch_hour: String,
-        mark: [u8; MARK_LENGTH],
     ) -> Self {
         Self {
             pad_len,
@@ -344,7 +338,6 @@ impl ClientHandshakeMessage {
 
             // only used when parsing (i.e. on the server side)
             epoch_hour,
-            mark,
         }
     }
 
@@ -359,14 +352,13 @@ impl ClientHandshakeMessage {
         }
     }
 
-    pub fn get_mark(&self) -> [u8; MARK_LENGTH] {
-        self.mark
-    }
-
+    #[allow(unused)]
+    /// Return the elligator2 representative of the public key value.
     pub fn get_representative(&self) -> Representative {
         self.repres.clone()
     }
 
+    /// return the epoch hour used in the ntor handshake.
     pub fn get_epoch_hr(&self) -> String {
         self.epoch_hour.clone()
     }

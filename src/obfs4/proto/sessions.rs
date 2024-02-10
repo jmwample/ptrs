@@ -3,12 +3,14 @@
 
 use super::{
     handshake_client::{ClientHandshake, ClientHandshakeSuccess},
-    IAT, SESSION_ID_LEN,
+    handshake_server::{ServerHandshake, ServerHandshakeSuccess},
+    IAT,
 };
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{colorize, drbg, ntor, replay_filter::ReplayFilter, discard},
+    common::{colorize, discard, drbg, ntor, replay_filter::ReplayFilter},
     obfs4::{
+        constants::*,
         framing,
         proto::{
             handshake_client::{self, HandshakeMaterials as CHSMaterials},
@@ -427,7 +429,11 @@ pub fn new_server_session<'a>(
 }
 
 impl<'b> ServerSession<'b, Initialized> {
-    pub async fn handshake<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn handshake<'a, T>(
+        self,
+        mut stream: T,
+        deadline: Option<Instant>,
+    ) -> Result<Obfs4Stream<'a, T>>
     where
         'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
@@ -445,28 +451,46 @@ impl<'b> ServerSession<'b, Initialized> {
         );
 
         // complete handshake
-        let handshake = handshake_server::new(materials)?;
-        let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
-        // let handshake = handshake.process_client_handshake(&mut stream).await?;
-        let handshake = handshake.complete(&mut stream).await?;
+
+        // default deadline
+        let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
+        let handshake_fut = Self::complete_handshake(&mut stream, materials);
+        let handshake =
+            match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
+                Ok(result) => match result {
+                    Ok(handshake) => handshake,
+                    Err(e) => {
+                        // non-timeout error,
+                        let id = session.session_id();
+                        let session = session.fault(ServerHandshakeFailed {
+                            details: format!("{id} handshake failed {e}"),
+                        });
+                        // if a deadline was set and has not passed alread, discard
+                        // from the stream until the deadline, then close.
+                        if deadline.is_some_and(|d| d > Instant::now()) {
+                            session
+                                .discard(&mut stream, deadline.unwrap() - Instant::now())
+                                .await?;
+                        }
+                        stream.shutdown().await?;
+                        return Err(e);
+                    }
+                },
+                Err(_) => {
+                    let id = session.session_id();
+                    let _ = session.fault(ServerHandshakeFailed {
+                        details: format!("{id} timed out"),
+                    });
+                    return Err(Error::HandshakeTimeout);
+                }
+            };
 
         // retrieve handshake artifacts on success
         let handshake_artifacts = handshake.take_state();
         let mut codec = handshake_artifacts.codec;
-        // let mut remainder = handshake_artifacts.remainder;
 
         // post handshake state updates
         session.set_session_id(handshake_artifacts.session_id);
-
-        // let res = codec.decode(&mut remainder);
-        // if let Ok(Some(framing::Message::PrngSeed(seed))) = res {
-        //     // try to parse the remainder of the server hello packet as a
-        //     // PrngSeed since it should be there.
-        //     let len_seed = drbg::Seed::from(seed);
-        //     session.set_len_seed(len_seed);
-        // } else {
-        //     debug!("NOPE {res:?}");
-        // }
 
         // mark session as Established
         let session_state: ServerSession<Established> = session.transition(Established {});
@@ -476,5 +500,26 @@ impl<'b> ServerSession<'b, Initialized> {
         let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
 
         Ok(Obfs4Stream::from_o4(o4))
+    }
+
+    async fn complete_handshake<T>(
+        mut stream: T,
+        materials: SHSMaterials<'_>,
+    ) -> Result<ServerHandshake<ServerHandshakeSuccess>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        let handshake = handshake_server::new(materials)?;
+        let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
+        handshake.complete(&mut stream).await
+    }
+}
+
+impl<'b> ServerSession<'b, ServerHandshakeFailed> {
+    pub(crate) async fn discard<T>(&self, stream: T, d: Duration) -> Result<()>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        discard(stream, d).await
     }
 }

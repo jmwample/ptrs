@@ -15,6 +15,7 @@ use futures::{Sink, Stream};
 use pin_project::pin_project;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::time::{Duration,Instant};
 use tokio_util::codec::{Decoder, Framed};
 use tracing::{debug, trace};
 
@@ -49,6 +50,30 @@ pub enum IAT {
     Off,
     Enabled,
     Paranoid,
+}
+
+pub(crate) enum MaybeTimeout {
+    Default_,
+    Fixed(Instant),
+    Length(Duration),
+    Unset,
+}
+
+impl MaybeTimeout {
+    fn duration(&self) -> Option<Duration> {
+        match self {
+            MaybeTimeout::Default_ => Some(CLIENT_HANDSHAKE_TIMEOUT),
+            MaybeTimeout::Fixed(i) => {
+                if *i < Instant::now() {
+                    None
+                } else {
+                    Some(*i - Instant::now())
+                }
+            }
+            MaybeTimeout::Length(d) => Some(*d),
+            MaybeTimeout::Unset => None,
+        }
+    }
 }
 
 #[pin_project]
