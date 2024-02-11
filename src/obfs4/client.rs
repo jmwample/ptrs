@@ -1,4 +1,4 @@
-use super::{Cfg, NAME};
+use super::NAME;
 
 use super::proto::Client as InnerClient;
 use crate::{traits::*, Error, Result};
@@ -42,13 +42,3 @@ impl TryConfigure for Client {
     }
 }
 
-// // TODO: Fix client transport impl
-// impl Transport for Client {
-//     // async fn wrap<'a>(&self, s: impl Stream<'a>) -> Result<impl Stream<'a>> {
-//     fn wrap<'a>(
-//         &self,
-//         s: impl Stream<'a>,
-//     ) -> impl Future<Output = Result<impl Stream<'a>>> + Send + Sync + 'a {
-//         async { Ok(s) }
-//     }
-// }

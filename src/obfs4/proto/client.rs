@@ -41,8 +41,8 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
+    /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
-        // TODO: implement client builder from statefile
         Ok(Self {
             iat_mode: IAT::Off,
             node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
@@ -52,8 +52,8 @@ impl ClientBuilder {
         })
     }
 
+    /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
-        // TODO: implement client builder from string args
         Ok(Self {
             iat_mode: IAT::Off,
             node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),

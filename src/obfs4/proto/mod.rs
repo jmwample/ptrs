@@ -30,7 +30,7 @@ mod client;
 pub use client::{Client, ClientBuilder};
 mod server;
 #[allow(unused)]
-pub use server::Server;
+pub use server::{Server, ServerBuilder};
 
 mod utils;
 pub(crate) use utils::*;

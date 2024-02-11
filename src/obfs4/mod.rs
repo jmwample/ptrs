@@ -1,35 +1,55 @@
 use crate::{traits::*, Result};
 
-pub mod client;
+// pub mod client;
+// pub mod server;
+//
 pub mod framing;
 pub mod proto;
-pub mod server;
+// pub use proto::{Client, client::ClientBuilder, sessions::CHSMaterials};
+pub use proto::{Client, ClientBuilder};
+pub use proto::{Server, ServerBuilder};
 
 pub(crate) mod constants;
 
 const NAME: &str = "obfs4";
 
 #[allow(non_camel_case_types)]
-pub struct Builder {
-    config: Cfg,
+pub enum Builder {
+    client(ClientBuilder),
+    server(ServerBuilder),
+}
+
+impl Builder {
+    /// TODO: implement builder from statefile
+    pub fn from_statefile(location: &str, is_client: bool) -> Result<Self> {
+        if is_client {
+            Ok(Builder::client(
+                 ClientBuilder::from_statefile(location)?,
+            ))
+        } else {
+            Ok(Builder::server(
+                 ServerBuilder::from_statefile(location)?,
+            ))
+        }
+    }
+
+    /// TODO: implement builder from string args
+    pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>, is_client: bool) -> Result<Self> {
+        if is_client {
+            Ok(Builder::client(
+                ClientBuilder::from_params(param_strs)?,
+            ))
+        } else {
+            Ok(Builder::server(
+                ServerBuilder::from_params(param_strs)?,
+            ))
+        }
+    }
 }
 
 impl Named for Builder {
     fn name(&self) -> String {
-        String::from(NAME)
-    }
-}
-
-#[derive(Default, Clone, Debug)]
-struct Cfg {
-    s: String,
-}
-
-impl TryConfigure for Builder {
-    fn try_config<'a>(&mut self, config: impl AsRef<[u8]> + 'a) -> Result<&mut Self> {
-        let s = String::from_utf8(config.as_ref().to_vec())?;
-        self.config = Cfg { s };
-        Ok(self)
+        NAME.to_string()
     }
 }
 

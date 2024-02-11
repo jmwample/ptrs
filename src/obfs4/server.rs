@@ -1,4 +1,4 @@
-use super::{Cfg, NAME};
+use super::NAME;
 
 use crate::{traits::*, Error, Result};
 
@@ -25,19 +25,19 @@ impl Server {
 
 impl Named for Server {
     fn name(&self) -> String {
-        format!("{NAME}_client")
+        format!("{NAME}_server")
     }
 }
 
-impl TryConfigure for Server {
-    fn try_config<'a>(&mut self, config: impl AsRef<[u8]> + 'a) -> Result<&mut Self> {
-        let new_config = Cfg {
-            s: String::from_utf8(config.as_ref().to_vec())?,
-        };
-        self.config = Self::validate_config(new_config)?;
-        Ok(self)
-    }
-}
+// impl TryConfigure for Server {
+//     fn try_config<'a>(&mut self, config: impl AsRef<[u8]> + 'a) -> Result<&mut Self> {
+//         let new_config = Cfg {
+//             s: String::from_utf8(config.as_ref().to_vec())?,
+//         };
+//         self.config = Self::validate_config(new_config)?;
+//         Ok(self)
+//     }
+// }
 
 // // TODO: fix Transport impl for server
 // impl Transport for Server {
