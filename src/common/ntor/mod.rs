@@ -6,6 +6,8 @@ use crate::{Error, Result};
 mod id;
 pub use id::{ID, NODE_ID_LENGTH};
 
+pub(crate) mod kyber;
+
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -29,7 +31,7 @@ pub(crate) const KEY_SEED_LENGTH: usize = 32; // sha256.Size;
 pub(crate) const AUTH_LENGTH: usize = 32; //sha256.Size;
 
 /// The key material that results from a handshake (KEY_SEED).
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeySeed([u8; KEY_SEED_LENGTH]);
 
 impl KeySeed {
@@ -39,7 +41,7 @@ impl KeySeed {
 }
 
 /// The verifier that results from a handshake (AUTH).
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Auth([u8; AUTH_LENGTH]);
 impl Auth {
     pub fn new(b: [u8; AUTH_LENGTH]) -> Self {
@@ -61,6 +63,8 @@ impl Auth {
 pub enum NtorError {
     HSFailure(String),
     AuthError,
+    PQCError(pqc_kyber::KyberError),
+    ParseError(String),
 }
 
 impl StdError for NtorError {}
@@ -69,6 +73,8 @@ impl Display for NtorError {
         match self {
             NtorError::HSFailure(es) => write!(f, "ntor handshake failure:{es}"),
             NtorError::AuthError => write!(f, "handshake authentication error!"),
+            NtorError::PQCError(pqc_err) => write!(f, "ntor kyber handshake error: {pqc_err}"),
+            NtorError::ParseError(es) => write!(f, "ntor parse error: {es}"),
         }
     }
 }
@@ -178,7 +184,6 @@ impl SessionKeyPair {
                 break;
             }
         }
-
         rp
     }
 
@@ -201,12 +206,12 @@ pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> Result<()> {
 }
 
 #[derive(Debug, Clone)]
-pub struct HandShakeResult {
+pub struct HandshakeResult {
     pub key_seed: KeySeed,
     pub auth: Auth,
 }
 
-impl fmt::Display for HandShakeResult {
+impl fmt::Display for HandshakeResult {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -220,13 +225,7 @@ impl fmt::Display for HandShakeResult {
 
 const _ZERO_EXP: [u8; 32] = [0_u8; 32];
 
-impl HandShakeResult {
-    fn new() -> Self {
-        Self {
-            key_seed: KeySeed([0_u8; KEY_SEED_LENGTH]),
-            auth: Auth([0_u8; AUTH_LENGTH]),
-        }
-    }
+impl HandshakeResult {
 
     pub fn client_handshake(
         client_keys: &SessionKeyPair,
@@ -293,27 +292,24 @@ impl HandShakeResult {
 
 type HmacSha256 = Hmac<Sha256>;
 
-fn derive_ntor_shared(
+fn derive_ntor_shared<T: AsRef<[u8]>>(
     secret_input: impl AsRef<[u8]>,
     id: &ID,
-    b: &PublicKey,
-    x: &PublicKey,
-    y: &PublicKey,
+    b: T,
+    x: T,
+    y: T,
 ) -> (KeySeed, Auth) {
-    let mut key_seed = KeySeed::default();
-    let mut auth = Auth::default();
-
     let mut message = secret_input.as_ref().to_vec();
-    message.append(&mut b.to_bytes().to_vec());
-    message.append(&mut x.to_bytes().to_vec());
-    message.append(&mut y.to_bytes().to_vec());
+    message.append(&mut b.as_ref().to_vec());
+    message.append(&mut x.as_ref().to_vec());
+    message.append(&mut y.as_ref().to_vec());
     message.append(&mut PROTO_ID.to_vec());
     message.append(&mut id.to_bytes().to_vec());
 
     let mut h = HmacSha256::new_from_slice(&T_KEY[..]).unwrap();
     h.update(message.as_ref());
     let tmp: &[u8] = &h.finalize().into_bytes()[..];
-    key_seed.0 = tmp.try_into().expect("unable to write key_seed");
+    let key_seed = KeySeed(tmp.try_into().expect("unable to write key_seed"));
 
     let mut h = HmacSha256::new_from_slice(&T_VERIFY[..]).unwrap();
     h.update(message.as_ref());
@@ -325,7 +321,7 @@ fn derive_ntor_shared(
     let mut h = HmacSha256::new_from_slice(&T_MAC[..]).unwrap();
     h.update(verify.as_ref());
     let mut tmp = &h.finalize().into_bytes()[..];
-    auth.0 = tmp.try_into().expect("unable to write auth");
+    let auth = Auth(tmp.try_into().expect("unable to write auth"));
 
     (key_seed, auth)
 }
@@ -335,21 +331,21 @@ pub fn process_client_handshake(
     server_keys: &SessionKeyPair,
     id_keys: &IdentityKeyPair,
     id: &ID,
-) -> subtle::CtOption<HandShakeResult> {
-    HandShakeResult::server_handshake(client_public, server_keys, id_keys, id)
+) -> subtle::CtOption<HandshakeResult> {
+    HandshakeResult::server_handshake(client_public, server_keys, id_keys, id)
 }
 
-// Client side of a ntor handshake performed to derive shared, authenticated
-// status, KEY_SEED, and AUTH.  If status is not true or AUTH does not match
-// the value received from the server in the response, the handshake MUST be
-// aborted.
+/// Client side of a ntor handshake performed to derive shared, authenticated
+/// status, KEY_SEED, and AUTH.  If status is not true or AUTH does not match
+/// the value received from the server in the response, the handshake MUST be
+/// aborted.
 pub fn process_server_handshake(
     client_keys: &SessionKeyPair,
     server_public: &PublicKey,
     id_public: &PublicKey,
     id: &ID,
-) -> subtle::CtOption<HandShakeResult> {
-    HandShakeResult::client_handshake(client_keys, server_public, id_public, id)
+) -> subtle::CtOption<HandshakeResult> {
+    HandshakeResult::client_handshake(client_keys, server_public, id_public, id)
 }
 
 #[cfg(test)]

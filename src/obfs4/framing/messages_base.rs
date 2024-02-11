@@ -1,9 +1,9 @@
-use crate::obfs4::framing::{self, FrameError};
+//! base traits and structures for building Messages.
 
 // TODO: drbg for size sampling
-//common::drbg,
-//
-// use futures::sink::{Sink, SinkExt};
+// use crate::common::drbg;
+
+use crate::obfs4::framing::{self, FrameError};
 
 use tokio_util::bytes::{Buf, BufMut};
 use tracing::trace;

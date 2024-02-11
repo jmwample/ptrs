@@ -1,26 +1,43 @@
 
 use crate::obfs4::framing::{Message, MessageType, FrameError};
 use super::MessageTypes;
+use crate::common::ntor::kyber::{KyberXSessionKeys, KyberXPublicKey};
+
+use bytes::BytesMut;
+
+#[derive(Debug,PartialEq)]
+pub(crate) enum CryptoExtensionTypes {
+    Kyber1024Supplement,
+    Kyber1024X25519,
+}
 
 #[derive(PartialEq, Debug)]
 pub enum CryptoExtension {
-    Kyber
+    Kyber,
 }
 
-impl CryptoExtension {
-    pub(crate) fn get_offer() -> impl Message {
-        KyberOfferMessage{}
-    }
+#[derive(PartialEq, Debug)]
+pub(crate) struct OfferMessage {
+    crypto_type: CryptoExtensionTypes,
+    data: BytesMut,
+}
 
-    pub(crate) fn create_accept() -> impl Message {
-        KyberAcceptMessage{}
+impl From<&KyberXSessionKeys> for OfferMessage {
+    fn from(value: &KyberXSessionKeys) -> Self {
+        OfferMessage{
+            crypto_type: CryptoExtensionTypes::Kyber1024Supplement,
+            data: BytesMut::new(),
+        }
     }
 }
 
 #[derive(PartialEq, Debug)]
-struct KyberOfferMessage {}
+pub(crate) struct AcceptMessage {
+    crypto_type: CryptoExtensionTypes,
+    data: BytesMut,
+}
 
-impl Message for KyberOfferMessage {
+impl Message for OfferMessage {
     type Output = ();
     fn as_pt(&self) -> MessageType {
         MessageTypes::CryptoOffer.into()
@@ -35,10 +52,11 @@ impl Message for KyberOfferMessage {
     }
 }
 
+
 #[derive(PartialEq, Debug)]
 struct KyberAcceptMessage {}
 
-impl Message for KyberAcceptMessage {
+impl Message for AcceptMessage {
     type Output = ();
     fn as_pt(&self) -> MessageType {
         MessageTypes::CryptoAccept.into()
@@ -53,140 +71,20 @@ impl Message for KyberAcceptMessage {
     }
 }
 
+
+impl From<&KyberXSessionKeys> for AcceptMessage {
+    fn from(value: &KyberXSessionKeys) -> Self {
+        AcceptMessage{
+            crypto_type: CryptoExtensionTypes::Kyber1024Supplement,
+            data: BytesMut::new(),
+        }
+    }
+}
+
+
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
-    use pqc_kyber::*;
-    use x25519_dalek::{EphemeralSecret, PublicKey};
 
-    use crate::common::ntor::{Representative, SessionKeyPair, IdentityKeyPair};
-
-    type Result<T> = std::result::Result<T, Error>;
-
-    #[derive(Debug)]
-    enum Error {
-        PQCError(pqc_kyber::KyberError),
-        Other(Box<dyn std::error::Error>),
-    }
-
-    impl From<pqc_kyber::KyberError> for Error {
-        fn from(e: pqc_kyber::KyberError) -> Self {
-            Error::PQCError(e)
-        }
-    }
-
-    struct Kyber1024XPublicKey {
-        pub kyber1024: pqc_kyber::PublicKey,
-        pub x25519: PublicKey,
-    }
-
-    impl From<&Kyber1024XSessionKeys> for Kyber1024XPublicKey {
-        fn from(value: &Kyber1024XSessionKeys) -> Self {
-            Kyber1024XPublicKey {
-                x25519: value.x25519.public,
-                kyber1024: value.kyber1024.public,
-            }
-        }
-    }
-
-    impl From<&Kyber1024XIdentityKeys> for Kyber1024XPublicKey {
-        fn from(value: &Kyber1024XIdentityKeys) -> Self {
-            Kyber1024XPublicKey {
-                x25519: value.x25519.public,
-                kyber1024: value.kyber1024.public,
-            }
-        }
-    }
-
-
-    struct Kyber1024XSessionKeys {
-        pub kyber1024: pqc_kyber::Keypair,
-        pub x25519: SessionKeyPair,
-    }
-
-    impl Kyber1024XSessionKeys {
-        fn new() -> Self {
-            let mut rng = rand::thread_rng();
-
-            Kyber1024XSessionKeys {
-                x25519: SessionKeyPair::new(true),
-                kyber1024: pqc_kyber::keypair(&mut rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_random<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
-            Kyber1024XSessionKeys {
-                x25519: SessionKeyPair::new(true),
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_x25519<R: CryptoRng + RngCore>(keys: SessionKeyPair, rng: &mut R) -> Self {
-            Kyber1024XSessionKeys {
-                x25519: keys,
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
-            }
-        }
-    }
-
-    struct Kyber1024XIdentityKeys {
-        pub kyber1024: pqc_kyber::Keypair,
-        pub x25519: IdentityKeyPair,
-    }
-
-    impl Kyber1024XIdentityKeys {
-        fn new() -> Self {
-            let mut rng = rand::thread_rng();
-
-            Kyber1024XIdentityKeys {
-                x25519: IdentityKeyPair::new(),
-                kyber1024: pqc_kyber::keypair(&mut rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_random<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
-            Kyber1024XIdentityKeys {
-                x25519: IdentityKeyPair::new(),
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_x25519<R: CryptoRng + RngCore>(keys: IdentityKeyPair, rng: &mut R) -> Self {
-            Kyber1024XIdentityKeys {
-                x25519: keys,
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
-            }
-        }
-    }
-
-    #[test]
-    fn kyber_handshake() -> Result<()> {
-        let mut rng = rand::thread_rng();
-
-        // Generate Keypair
-        let alice_secret = EphemeralSecret::random_from_rng(&mut rng);
-        let alice_public = PublicKey::from(&alice_secret);
-        let keys_alice = keypair(&mut rng)?;
-        // alice -> bob public keys
-        let mut kyber1024x_pubkey = alice_public.as_bytes().to_vec();
-        kyber1024x_pubkey.extend_from_slice(&keys_alice.public);
-
-        assert_eq!(kyber1024x_pubkey.len(), 1600);
-
-        let bob_secret = EphemeralSecret::random_from_rng(&mut rng);
-        let bob_public = PublicKey::from(&bob_secret);
-
-        // Bob encapsulates a shared secret using Alice's public key
-        let (ciphertext, shared_secret_bob) = encapsulate(&keys_alice.public, &mut rng)?;
-        let bob_shared_secret = bob_secret.diffie_hellman(&alice_public);
-
-        // // Alice decapsulates a shared secret using the ciphertext sent by Bob
-        let shared_secret_alice = decapsulate(&ciphertext, &keys_alice.secret)?;
-        let alice_shared_secret = alice_secret.diffie_hellman(&bob_public);
-
-        assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
-        assert_eq!(shared_secret_bob, shared_secret_alice);
-
-        Ok(())
-    }
 }

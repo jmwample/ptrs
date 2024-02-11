@@ -39,6 +39,8 @@ pub const SEED_MESSAGE_PAYLOAD_LENGTH: usize = drbg::SEED_LENGTH;
 pub const SEED_MESSAGE_LENGTH: usize =
     framing::LENGTH_LENGTH + MESSAGE_OVERHEAD + drbg::SEED_LENGTH + MAC_LENGTH;
 
+/// This should be the max amount that is buffered while reading input that
+/// could potentially contain frames.
 pub const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
 //===============================[Proto]======================================//

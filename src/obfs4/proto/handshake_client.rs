@@ -3,7 +3,8 @@ use crate::{
         colorize,
         kdf::kdf,
         ntor::{
-            self, compare_auth, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH, REPRESENTATIVE_LENGTH
+            self, compare_auth, HandshakeResult, PublicKey, Representative, SessionKeyPair,
+            AUTH_LENGTH, REPRESENTATIVE_LENGTH,
         },
         HmacSha256,
     },
@@ -275,15 +276,15 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
 
 impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
     pub(crate) async fn complete(mut self) -> Result<ClientHandshake<'a, ClientHandshakeSuccess>> {
-        let ntor_hs_failed: Option<ntor::HandShakeResult> =
-            ntor::HandShakeResult::client_handshake(
+        let ntor_hs_failed: Option<ntor::HandshakeResult> =
+            ntor::HandshakeResult::client_handshake(
                 self.materials.session_keys,
                 &self._h_state.server_hs.server_pubkey(),
                 &self.materials.node_pubkey,
                 &self.materials.node_id,
             )
             .into();
-        let ntor_hs_result: HandShakeResult = ntor_hs_failed.ok_or(Error::NtorError(
+        let ntor_hs_result: HandshakeResult = ntor_hs_failed.ok_or(Error::NtorError(
             ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
         ))?;
 
@@ -327,11 +328,7 @@ pub struct ClientHandshakeMessage {
 }
 
 impl ClientHandshakeMessage {
-    pub fn new(
-        repres: Representative,
-        pad_len: usize,
-        epoch_hour: String,
-    ) -> Self {
+    pub fn new(repres: Representative, pad_len: usize, epoch_hour: String) -> Self {
         Self {
             pad_len,
             repres,

@@ -3,10 +3,7 @@
 use crate::{
     common::{
         colorize,
-        ntor::{
-            self, HandShakeResult, Representative, AUTH_LENGTH, NODE_ID_LENGTH,
-            REPRESENTATIVE_LENGTH,
-        },
+        ntor::{self, HandshakeResult, Representative, AUTH_LENGTH, NODE_ID_LENGTH, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     obfs4::{

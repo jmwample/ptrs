@@ -255,7 +255,7 @@ impl<'b> ServerHandshake<'b, ClientHandshakeReceived> {
         let client_hs = &mut self._h_state.client_hs;
 
         // derive key materials
-        let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
+        let ntor_hs_result: ntor::HandshakeResult = match ntor::HandshakeResult::server_handshake(
             &client_hs.get_public(),
             self.materials.session_keys,
             self.materials.identity_keys,
