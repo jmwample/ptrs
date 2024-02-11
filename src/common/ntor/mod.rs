@@ -60,12 +60,15 @@ impl Auth {
 #[derive(Debug)]
 pub enum NtorError {
     HSFailure(String),
+    AuthError,
 }
+
 impl StdError for NtorError {}
 impl Display for NtorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NtorError::HSFailure(es) => write!(f, "ntor handshake failure:{es}"),
+            NtorError::AuthError => write!(f, "handshake authentication error!"),
         }
     }
 }
@@ -190,8 +193,11 @@ impl SessionKeyPair {
 
 /// Constant time compare of a Auth and a byte slice
 /// (presumably received over a network).
-pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> u8 {
-    auth1.0[..].ct_eq(auth2.as_ref()).unwrap_u8()
+pub fn compare_auth(auth1: &Auth, auth2: impl AsRef<[u8]>) -> Result<()> {
+    match auth1.0[..].ct_eq(auth2.as_ref()).unwrap_u8() {
+        0 => Err( NtorError::AuthError.into() ),
+        _ => Ok(()),
+    }
 }
 
 #[derive(Debug, Clone)]

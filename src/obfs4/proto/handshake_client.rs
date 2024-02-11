@@ -3,8 +3,7 @@ use crate::{
         colorize,
         kdf::kdf,
         ntor::{
-            self, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH,
-            REPRESENTATIVE_LENGTH,
+            self, compare_auth, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH, REPRESENTATIVE_LENGTH
         },
         HmacSha256,
     },
@@ -287,6 +286,8 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
         let ntor_hs_result: HandShakeResult = ntor_hs_failed.ok_or(Error::NtorError(
             ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
         ))?;
+
+        compare_auth(&ntor_hs_result.auth, &self._h_state.server_hs.server_auth())?;
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
         let okm = kdf(

@@ -1,3 +1,5 @@
+//! # obfs4 - The obfourscator
+
 use crate::{traits::*, Result};
 
 // pub mod client;
@@ -20,7 +22,6 @@ pub enum Builder {
 }
 
 impl Builder {
-    /// TODO: implement builder from statefile
     pub fn from_statefile(location: &str, is_client: bool) -> Result<Self> {
         if is_client {
             Ok(Builder::client(
@@ -33,7 +34,6 @@ impl Builder {
         }
     }
 
-    /// TODO: implement builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>, is_client: bool) -> Result<Self> {
         if is_client {
             Ok(Builder::client(

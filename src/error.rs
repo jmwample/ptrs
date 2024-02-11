@@ -178,6 +178,12 @@ impl From<obfs4::framing::FrameError> for Error {
     }
 }
 
+impl From<ntor::NtorError> for Error {
+    fn from(e: ntor::NtorError) -> Self {
+        Error::NtorError(e)
+    }
+}
+
 impl From<tor_error::Bug> for Error {
     fn from(value: tor_error::Bug) -> Self {
         Error::Bug(value)
