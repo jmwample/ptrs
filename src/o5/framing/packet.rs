@@ -1,3 +1,5 @@
+
+/*
 const SEED_LENGTH: usize = 24;
 
 enum PacketType {
@@ -15,3 +17,4 @@ enum PacketType {
 
 struct OfferKyberAKE {}
 struct AcceptKyberAKE {}
+*/

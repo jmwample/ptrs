@@ -1,4 +1,6 @@
 
+use crate::obfs4::framing::{Message, MessageType, FrameError};
+use super::MessageTypes;
 
 #[derive(PartialEq, Debug)]
 pub enum CryptoExtension {
@@ -6,11 +8,11 @@ pub enum CryptoExtension {
 }
 
 impl CryptoExtension {
-    pub(crate) fn get_offer() -> Message {
+    pub(crate) fn get_offer() -> impl Message {
         KyberOfferMessage{}
     }
 
-    pub(crate) fn create_accept() -> Message {
+    pub(crate) fn create_accept() -> impl Message {
         KyberAcceptMessage{}
     }
 }
@@ -18,8 +20,38 @@ impl CryptoExtension {
 #[derive(PartialEq, Debug)]
 struct KyberOfferMessage {}
 
+impl Message for KyberOfferMessage {
+    type Output = ();
+    fn as_pt(&self) -> MessageType {
+        MessageTypes::CryptoOffer.into()
+    }
+
+    fn marshall<T: bytes::BufMut>(&self, dst: &mut T) -> Result<(), FrameError> {
+        Ok(())
+    }
+
+    fn try_parse<T: bytes::BufMut + bytes::Buf>(buf: &mut T) -> Result<Self::Output, FrameError> {
+        Ok(())
+    }
+}
+
 #[derive(PartialEq, Debug)]
 struct KyberAcceptMessage {}
+
+impl Message for KyberAcceptMessage {
+    type Output = ();
+    fn as_pt(&self) -> MessageType {
+        MessageTypes::CryptoAccept.into()
+    }
+
+    fn marshall<T: bytes::BufMut>(&self, dst: &mut T) -> Result<(), FrameError> {
+        Ok(())
+    }
+
+    fn try_parse<T: bytes::BufMut + bytes::Buf>(buf: &mut T) -> Result<Self::Output, FrameError> {
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 #[allow(unused)]

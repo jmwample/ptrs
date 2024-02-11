@@ -2,7 +2,6 @@ use crate::{
     common::{
         drbg,
         probdist::{self, WeightedDist},
-        AsyncDiscard,
     },
     obfs4::{
         constants::*,
@@ -15,29 +14,31 @@ use bytes::{Buf, BytesMut};
 use futures::{Sink, Stream};
 use pin_project::pin_project;
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::time::{Duration,Instant};
 use tokio_util::codec::{Decoder, Framed};
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use std::{
     io::Error as IoError,
     pin::Pin,
     result::Result as StdResult,
     task::{Context, Poll},
-    time::Duration,
 };
 
 mod client;
 pub use client::{Client, ClientBuilder};
 mod server;
 #[allow(unused)]
-pub use server::Server;
+pub use server::{Server, ServerBuilder};
 
 mod utils;
 pub(crate) use utils::*;
 
 mod sessions;
 pub(crate) use sessions::Session;
+
+use super::framing::{FrameError, Messages};
 
 mod handshake_client;
 mod handshake_server;
@@ -49,6 +50,30 @@ pub enum IAT {
     Off,
     Enabled,
     Paranoid,
+}
+
+pub(crate) enum MaybeTimeout {
+    Default_,
+    Fixed(Instant),
+    Length(Duration),
+    Unset,
+}
+
+impl MaybeTimeout {
+    fn duration(&self) -> Option<Duration> {
+        match self {
+            MaybeTimeout::Default_ => Some(CLIENT_HANDSHAKE_TIMEOUT),
+            MaybeTimeout::Fixed(i) => {
+                if *i < Instant::now() {
+                    None
+                } else {
+                    Some(*i - Instant::now())
+                }
+            }
+            MaybeTimeout::Length(d) => Some(*d),
+            MaybeTimeout::Unset => None,
+        }
+    }
 }
 
 #[pin_project]
@@ -96,7 +121,7 @@ where
         inner: T,
         codec: framing::Obfs4Codec,
         session: Session<'a>,
-    ) -> Result<O4Stream<'a, T>> {
+    ) -> O4Stream<'a, T> {
         let stream = codec.framed(inner);
         let len_seed = session.len_seed();
 
@@ -104,7 +129,7 @@ where
         hasher.update(len_seed.as_bytes());
         // the result of a sha256 haash is 32 bytes (256 bits) so we will
         // always have enough for a seed here.
-        let iat_seed = drbg::Seed::try_from(&hasher.finalize()[..SEED_LENGTH])?;
+        let iat_seed = drbg::Seed::try_from(&hasher.finalize()[..SEED_LENGTH]).unwrap();
 
         let length_dist = WeightedDist::new(
             len_seed,
@@ -119,65 +144,22 @@ where
             session.biased(),
         );
 
-        Ok(Self {
+        Self {
             stream,
             session,
             length_dist,
             iat_dist,
-        })
+        }
     }
 
-    pub(crate) fn try_recv_non_payload_packet(&mut self) -> Result<()> {
-        let buf = self.stream.read_buffer_mut();
+    pub(crate) fn try_handle_non_payload_message(&mut self, msg: framing::Messages) -> Result<()> {
+        match msg {
+            Messages::Payload(_) => Err(FrameError::InvalidMessage.into()),
+            Messages::Padding(_) => Ok(()),
 
-        if !buf.has_remaining() {
-            return Ok(());
-        } else if buf.remaining() < MESSAGE_OVERHEAD {
-            return Ok(());
+            // TODO: Handle other Messages
+            _ => Ok(()),
         }
-
-        let proto_type = MessageTypes::try_from(buf[0])?;
-        if proto_type == MessageTypes::Payload {
-            return Ok(());
-        }
-
-        let length = u16::from_be_bytes(buf[1..3].try_into().unwrap()) as usize;
-
-        if length > buf.remaining() - MESSAGE_OVERHEAD {
-            // somehow we don't have the full packet yet.
-            return Ok(());
-        }
-
-        // we have enough bytes. advance past the header and try to parse the frame.
-        let m = framing::Messages::try_parse(buf)?;
-        self.try_handle_non_payload_message(m)
-    }
-
-    pub(crate) fn try_handle_non_payload_message(&mut self, _msg: framing::Messages) -> Result<()> {
-        {}
-
-        Ok(())
-    }
-
-    pub(crate) async fn close_after_delay(&mut self, d: Duration) {
-        let s = self.stream.get_mut();
-
-        let r = AsyncDiscard::new(s);
-
-        if let Err(_) = tokio::time::timeout(d, r.discard()).await {
-            trace!(
-                "{} timed out while discarding",
-                hex::encode(self.session.id())
-            );
-        }
-
-        let s = self.stream.get_mut();
-        if let Err(e) = s.shutdown().await {
-            warn!(
-                "{} encountered an error while closing: {e}",
-                hex::encode(self.session.id())
-            );
-        };
     }
 
     /// Attempts to pad a burst of data so that the last packet is of the length
@@ -188,12 +170,11 @@ where
     pub(crate) fn pad_burst(&self, buf: &mut BytesMut, to_pad_to: usize) -> Result<()> {
         let tail_len = buf.len() % framing::MAX_SEGMENT_LENGTH;
 
-        let mut pad_len = 0;
-        if to_pad_to >= tail_len {
-            pad_len = to_pad_to - tail_len;
+        let pad_len: usize = if to_pad_to >= tail_len {
+            to_pad_to - tail_len
         } else {
-            pad_len = (framing::MAX_SEGMENT_LENGTH - tail_len) + to_pad_to
-        }
+            (framing::MAX_SEGMENT_LENGTH - tail_len) + to_pad_to
+        };
 
         if pad_len > HEADER_LENGTH {
             // pad_len > 19

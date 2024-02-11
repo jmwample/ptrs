@@ -10,10 +10,10 @@ changes from obfs4:
     - not sure why this was done in the first place
 * padding change (/fix?)
 * padding is a frame type, not just appended bytes
+* version / params frame for negotiating (non-forward secret in the first exchange alongside PRNG seed)
 * might add
     - session tickets and resumption
     - bidirectional heartbeats
-    - version / params frame for negotiating (theoretically in the first exchange alongside PRNG seed)
     - handshake complete frame type 
 
 

@@ -28,14 +28,14 @@ impl Seed {
     }
 
     // Calling unwraps here is safe because the size of the key is fixed
-    fn to_pieces(self) -> ([u8; 16], [u8; SIZE]) {
+    fn to_pieces(&self) -> ([u8; 16], [u8; SIZE]) {
         let key: [u8; 16] = self.0[..16].try_into().unwrap();
 
         let ofb: [u8; SIZE] = self.0[16..].try_into().unwrap();
         (key, ofb)
     }
 
-    fn to_new_drbg(self) -> Drbg {
+    fn to_new_drbg(&self) -> Drbg {
         let (key, ofb) = self.to_pieces();
         Drbg {
             hash: SipHasher24::new_with_key(&key),

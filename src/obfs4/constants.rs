@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::{
     common::{drbg, ntor},
     obfs4::framing,

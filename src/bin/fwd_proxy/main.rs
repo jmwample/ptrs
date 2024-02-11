@@ -1,4 +1,8 @@
 #![feature(noop_waker)]
+#![feature(trait_alias)]
+#![feature(slice_flatten)]
+#![feature(stdarch_x86_avx512)]
+
 
 mod config;
 mod handler;

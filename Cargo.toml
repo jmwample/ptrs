@@ -17,7 +17,7 @@ getrandom = "0.2.11"
 rand = "0.8.5"
 rand_core = "0.6.4"
 
-digest = { version = "0.9", default-features = false }
+digest = { version = "0.10.7", features=["mac"]}
 siphasher = "1.0.0"
 sha2 = "0.10.8"
 hmac = { version="0.12.1", features=["reset"]}
@@ -45,24 +45,31 @@ anyhow = "1.0"
 tracing-subscriber = "0.3.18"
 clap = { version = "4.4.7", features = ["derive"]}
 async-compat = "0.2.3"
-arti-client = { package = "arti-client", version = "0.11.0", default-features = false }
+safelog = { version = "0.3.5" }
+tor-rtcompat = { version = "0.10.0", features = ["tokio", "rustls"]}
+tor-socksproto = { version = "0.10.0" }
+arti-client = { package = "arti-client", version = "0.14.0", default-features = false }
+# tor-config = { version = "0.9.6" }
+# tor-hsrproxy = { version = "0.2.0", optional = true }
+# tor-hsservice = { version = "0.4.0", optional = true }
+# tor-rpcbase = { version = "0.1.2", optional = true }
 
-safelog = { version = "0.3.2" }
-#tor-config = { version = "0.9.6" }
-#tor-error = { version = "0.5.4", default-features = false, features = ["tracing"] }
-#tor-hsrproxy = { version = "0.2.0", optional = true }
-#tor-hsservice = { version = "0.4.0", optional = true }
-#tor-rpcbase = { version = "0.1.2", optional = true }
-tor-rtcompat = { version = "0.9.5", features = ["tokio", "rustls"]}
-tor-socksproto = { version = "0.7.5" }
+# ntor_arti
+tor-llcrypto = "0.7.0"
+tor-error = "0.6.1"
+tor-bytes = "0.10.0"
+tor-hscrypto = "0.6.0"
+cipher = "0.4.4"
+zeroize = "1.7.0"
+thiserror = "1.0.56"
 
-[build-dependencies]
-cc = { version = "1.0.83", features = ["parallel"] }
+# [build-dependencies]
+# cc = { version = "1.0.83", features = ["parallel"] }
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
+hex-literal = "0.4.1"
+tor-basic-utils = "0.8.0"
 
 # o5 pqc test
-# rand = "^0.8.5"
-# x25519-dalek = {version="2.0.0", features=["getrandom"]}
 pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}

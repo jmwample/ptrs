@@ -1,19 +1,17 @@
-use crate::{
-    common::drbg,
-    obfs4::framing::{self, FrameError, Messages},
-};
+use crate::obfs4::framing::{self, FrameError};
 
-use futures::sink::{Sink, SinkExt};
+// TODO: drbg for size sampling
+//common::drbg,
+//
+// use futures::sink::{Sink, SinkExt};
 
-use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio_util::bytes::{Buf, BufMut};
 use tracing::trace;
 
 pub(crate) const MESSAGE_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =
     framing::MAX_FRAME_PAYLOAD_LENGTH - MESSAGE_OVERHEAD;
 // pub(crate) const MAX_MESSAGE_PADDING_LENGTH: usize = MAX_MESSAGE_PAYLOAD_LENGTH;
-
-pub(crate) const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
 pub type MessageType = u8;
 pub trait Message {
@@ -24,10 +22,6 @@ pub trait Message {
 
     fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self::Output, FrameError>;
 }
-
-const SHA256_SIZE: usize = 32;
-const MARK_LENGTH: usize = SHA256_SIZE / 2;
-const MAC_LENGTH: usize = SHA256_SIZE / 2;
 
 /// Frames are:
 /// ```txt
@@ -60,7 +54,7 @@ pub fn build_and_marshall<T: BufMut>(
         Err(FrameError::InvalidPayloadLength(total_size))?
     }
 
-    dst.put_u8(pt.into());
+    dst.put_u8(pt);
     dst.put_u16(buf.len() as u16);
     dst.put(buf);
     if pad_len != 0 {

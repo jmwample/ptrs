@@ -1,9 +1,9 @@
 use crate::{
     common::{
         colorize,
+        kdf::kdf,
         ntor::{
-            self, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH,
-            REPRESENTATIVE_LENGTH,
+            self, compare_auth, HandShakeResult, PublicKey, Representative, SessionKeyPair, AUTH_LENGTH, REPRESENTATIVE_LENGTH
         },
         HmacSha256,
     },
@@ -67,7 +67,7 @@ impl ClientHandshakeState for ServerHandshakeReceived {}
 impl ClientHandshakeState for ClientHandshakeSuccess {}
 
 impl<'a> ClientHandshake<'a, ClientHandshakeSuccess> {
-    pub(crate) fn to_inner(self) -> ClientHandshakeSuccess {
+    pub(crate) fn take_state(self) -> ClientHandshakeSuccess {
         self._h_state
     }
 }
@@ -123,7 +123,6 @@ impl<'a> ClientHandshake<'a, NewClientHandshake> {
             self.materials.session_keys.representative.clone().unwrap(),
             self.materials.pad_len,
             "".into(),
-            [0_u8; MARK_LENGTH],
         );
 
         // TODO: is this needed later? why are we writing this into state?
@@ -263,9 +262,6 @@ impl<'a> ClientHandshake<'a, ClientHandshakeSent> {
                 ServerHandshakeMessage::new(
                     server_repres,
                     server_auth,
-                    self.materials.session_keys.representative.clone().unwrap(),
-                    server_mark,
-                    Some(pos + MARK_LENGTH + MAC_LENGTH),
                     self._h_state.epoch_hour.clone(),
                 ),
                 pos + MARK_LENGTH + MAC_LENGTH,
@@ -291,8 +287,10 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
             ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
         ))?;
 
+        compare_auth(&ntor_hs_result.auth, &self._h_state.server_hs.server_auth())?;
+
         // use the derived seed value to bootstrap Read / Write crypto codec.
-        let okm = ntor::kdf(
+        let okm = kdf(
             ntor_hs_result.key_seed,
             KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
         );
@@ -326,7 +324,6 @@ pub struct ClientHandshakeMessage {
 
     // only used when parsing (i.e. on the server side)
     epoch_hour: String,
-    mark: [u8; MARK_LENGTH],
 }
 
 impl ClientHandshakeMessage {
@@ -334,7 +331,6 @@ impl ClientHandshakeMessage {
         repres: Representative,
         pad_len: usize,
         epoch_hour: String,
-        mark: [u8; MARK_LENGTH],
     ) -> Self {
         Self {
             pad_len,
@@ -343,7 +339,6 @@ impl ClientHandshakeMessage {
 
             // only used when parsing (i.e. on the server side)
             epoch_hour,
-            mark,
         }
     }
 
@@ -358,14 +353,13 @@ impl ClientHandshakeMessage {
         }
     }
 
-    pub fn get_mark(&self) -> [u8; MARK_LENGTH] {
-        self.mark
-    }
-
+    #[allow(unused)]
+    /// Return the elligator2 representative of the public key value.
     pub fn get_representative(&self) -> Representative {
         self.repres.clone()
     }
 
+    /// return the epoch hour used in the ntor handshake.
     pub fn get_epoch_hr(&self) -> String {
         self.epoch_hour.clone()
     }
