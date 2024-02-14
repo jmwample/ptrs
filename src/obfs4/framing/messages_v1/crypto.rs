@@ -7,6 +7,7 @@ pub enum CryptoExtension {
     Kyber
 }
 
+#[allow(unused)]
 impl CryptoExtension {
     pub(crate) fn get_offer() -> impl Message {
         KyberOfferMessage{}
@@ -26,11 +27,11 @@ impl Message for KyberOfferMessage {
         MessageTypes::CryptoOffer.into()
     }
 
-    fn marshall<T: bytes::BufMut>(&self, dst: &mut T) -> Result<(), FrameError> {
+    fn marshall<T: bytes::BufMut>(&self, _dst: &mut T) -> Result<(), FrameError> {
         Ok(())
     }
 
-    fn try_parse<T: bytes::BufMut + bytes::Buf>(buf: &mut T) -> Result<Self::Output, FrameError> {
+    fn try_parse<T: bytes::BufMut + bytes::Buf>(_buf: &mut T) -> Result<Self::Output, FrameError> {
         Ok(())
     }
 }
@@ -44,11 +45,11 @@ impl Message for KyberAcceptMessage {
         MessageTypes::CryptoAccept.into()
     }
 
-    fn marshall<T: bytes::BufMut>(&self, dst: &mut T) -> Result<(), FrameError> {
+    fn marshall<T: bytes::BufMut>(&self, _dst: &mut T) -> Result<(), FrameError> {
         Ok(())
     }
 
-    fn try_parse<T: bytes::BufMut + bytes::Buf>(buf: &mut T) -> Result<Self::Output, FrameError> {
+    fn try_parse<T: bytes::BufMut + bytes::Buf>(_buf: &mut T) -> Result<Self::Output, FrameError> {
         Ok(())
     }
 }

@@ -31,6 +31,14 @@ pub enum Error {
     BadCircHandshakeAuth,
     InvalidKDFOutputLength,
 
+    // TODO: do we need to keep this?
+    CellDecodeErr {
+        /// What we were trying to parse.
+        object: &'static str,
+        /// The error that occurred while parsing it.
+        err: tor_cell::Error,
+    },
+
     /// An error that occurred in the tor_bytes crate while decoding an
     /// object.
     BytesErr {
@@ -74,6 +82,8 @@ impl Display for Error {
             Error::HandshakeTimeout => write!(f, "handshake timed out"),
             Error::BadCircHandshakeAuth => write!(f, "failed authentication for circuit handshake"),
             Error::InvalidKDFOutputLength => write!(f, "Tried to extract too many bytes from a KDF"),
+
+            Error::CellDecodeErr {object, err} => write!(f, "Unable to decode cell {object}: {err}"),
             Error::BytesErr {object, err} => write!(f, "Unable to parse {object}: {err}"),
             Error::NtorEncodeErr { object, err } => write!(f,"Problem while encoding {object}: {err}"),
 
@@ -103,6 +113,16 @@ impl Error {
         Error::NtorEncodeErr { err, object }
     }
 }
+
+impl From<Error> for std::io::Error {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::IOError(io_err) => io_err,
+            e => std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")),
+        }
+    }
+}
+
 
 impl FromStr for Error {
     type Err = Error;
@@ -190,12 +210,9 @@ impl From<tor_error::Bug> for Error {
     }
 }
 
-impl From<Error> for std::io::Error {
-    fn from(e: Error) -> Self {
-        match e {
-            Error::IOError(io_err) => io_err,
-            e => std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")),
-        }
+impl From<tor_cell::Error> for Error {
+    fn from(value: tor_cell::Error) -> Self {
+        Error::CellDecodeErr{ object: "", err: value }
     }
 }
 

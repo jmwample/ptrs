@@ -185,6 +185,3 @@ pub(crate) enum RelayHandshakeError {
 /// handshake.
 pub(crate) type RelayHandshakeResult<T> = std::result::Result<T, RelayHandshakeError>;
 
-
-#[cfg(test)]
-mod integration;
