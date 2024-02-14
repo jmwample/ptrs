@@ -191,78 +191,18 @@ fn test_obfs4_testvec() {
     assert_eq!(c_keys[..], hex!("9c19b631fd94ed86a817e01f6c80b0743a43f5faebd39cfaa8b00fa8bcc65c3bfeaa403d91acbd68a821bf6ee8504602b094a254392a07737d5662768c7a9fb1b2814bb34780eaee6e867c773e28c212ead563e98a1cd5d5b4576f5ee61c59bde025ff2851bb19b721421694f263818e3531e43a9e4e3e2c661e2ad547d8984caa28ebecd3e4525452299be26b9185a20a90ce1eac20a91f2832d731b54502b09749b5a2a2949292f8cfcbeffb790c7790ed935a9d251e7e336148ea83b063a5618fcff674a44581585fd22077ca0e52c59a24347a38d1a1ceebddbf238541f226b8f88d0fb9c07a1bcd2ea764bbbb5dacdaf5312a14c0b9e4f06309b0333b4a")[..]);
 }
 
-/*
-#[test]
-fn demo_handshake() -> Result<()> {
-    let a_keys = SessionKeyPair::new(true);
-    let b_keys = SessionKeyPair::new(false);
-
-    let a_secret = a_keys.private.diffie_hellman(&b_keys.public);
-    let b_secret = b_keys.private.diffie_hellman(&a_keys.public);
-    assert_eq!(a_secret.as_bytes(), b_secret.as_bytes());
-
-    let a_keys = SessionKeyPair::new(true);
-    let b_keys = SessionKeyPair::new(false);
-    let s_keys = IdentityKeyPair::new();
-
-    let as_secret = a_keys.private.diffie_hellman(&s_keys.public);
-    let sa_secret = s_keys.private.diffie_hellman(&a_keys.public);
-    assert_eq!(as_secret.as_bytes(), sa_secret.as_bytes());
-
-    let bs_secret = b_keys.private.diffie_hellman(&s_keys.public);
-    let sb_secret = s_keys.private.diffie_hellman(&b_keys.public);
-    assert_eq!(bs_secret.as_bytes(), sb_secret.as_bytes());
-    assert_ne!(as_secret.as_bytes(), bs_secret.as_bytes());
-    assert_ne!(sa_secret.as_bytes(), sb_secret.as_bytes());
-
-    Ok(())
-}
-
-#[test]
-fn handshake() -> Result<()> {
-    let client_kp = SessionKeyPair::new(true);
-
-    let server_kp = SessionKeyPair::new(false);
-    let server_id_kp = IdentityKeyPair::new();
-
-    let node_id = ID::from_hex("0000000000000000000000000000000000000000")?;
-
-    // Server Handshake
-    let server_result = process_client_handshake(
-        &client_kp.public,
-        &server_kp,
-        &server_id_kp,
-        &node_id.clone(),
-    )
-    .unwrap();
-
-    // Client Handshake
-    let client_result = process_server_handshake(
-        &client_kp,
-        &server_kp.public,
-        &server_id_kp.public,
-        &node_id,
-    )
-    .unwrap();
-
-    // println!("\n{}\n{}", client_result, server_result);
-
-    // WARNING: Use a constant time comparison in actual code.
-    assert_eq!(client_result.auth.0, server_result.auth.0);
-    assert_eq!(client_result.key_seed.0, server_result.key_seed.0);
-    Ok(())
-}
-
 #[test]
 fn about_half() -> Result<()> {
+    let mut rng = rand::thread_rng();
+
     let mut success = 0;
     let mut not_found = 0;
     let mut not_match = 0;
-    for _ in 0..10_000 {
-        let kp = SessionKeyPair::new(false);
-        let pk = kp.get_public().to_bytes();
+    for _ in 0..1_000 {
 
-        let repres = match kp.get_representative() {
+        let sk = curve25519::StaticSecret::random_from_rng(&mut rng);
+        let rp: Option<curve25519::PublicRepresentative>= (&sk).into();
+        let repres = match rp {
             Some(r) => r,
             None => {
                 not_found += 1;
@@ -270,7 +210,10 @@ fn about_half() -> Result<()> {
             }
         };
 
-        let decoded_pk = PublicKey::from(&repres);
+        let pk = curve25519::PublicKey::from(&sk);
+
+
+        let decoded_pk = curve25519::PublicKey::from(&repres);
         if hex::encode(pk) != hex::encode(decoded_pk) {
             not_match += 1;
             continue;
@@ -278,24 +221,28 @@ fn about_half() -> Result<()> {
         success += 1;
     }
 
-    // println!("{not_found}/{not_match}/{success}/10_000");
-    assert_eq!(not_match, 0);
+    if not_match != 0 {
+        println!("{not_found}/{not_match}/{success}/10_000");
+        assert_eq!(not_match, 0);
+    }
     Ok(())
 }
 
 #[test]
 fn keypair() -> Result<()> {
-    for _ in 0..10_000 {
-        let kp = SessionKeyPair::new(true);
-        let pk = kp.get_public().to_bytes();
-        let repres = kp.get_representative().ok_or(Error::Cancelled)?;
+    let mut rng = rand::thread_rng();
+    for _ in 0..1_000 {
+        let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
-        let pubkey = PublicKey::from(&repres);
+        let pk = kp.pk.pk.to_bytes();
+        let repres = kp.pk.rp;
+
+        let pubkey = curve25519::PublicKey::from(&repres);
         assert_eq!(hex::encode(pk), hex::encode(pubkey.to_bytes()));
     }
     Ok(())
 }
-*/
+
 
 /*
 // Benchmark Client/Server handshake.  The actual time taken that will be
