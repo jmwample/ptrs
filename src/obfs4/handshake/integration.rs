@@ -134,8 +134,9 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_feature="disabled")]
 #[test]
-fn test_obfs4_testvec() -> Result<()> {
+fn test_ntor_v1_testvec() -> Result<()> {
     let b_sk = hex!("4820544f4c4420594f5520444f474954204b454550532048415050454e494e47");
     let x_sk = hex!("706f6461792069207075742e2e2e2e2e2e2e2e4a454c4c59206f6e2074686973");
     let y_sk = hex!("70686520737175697272656c2e2e2e2e2e2e2e2e686173206869732067616d65");

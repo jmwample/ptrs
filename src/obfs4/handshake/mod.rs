@@ -300,21 +300,20 @@ fn ntor_derive(
 ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
     let server_string = &b"Server"[..];
 
-    // secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)
-    // ^ these are the equivalent x25519 shared secrets concatenated
-    //
-    // message = (secret_input) | b | b | x | y | PROTOID | ID
-    //
     // obfs4 uses a different order than Ntor V1 and accidentally writes the
     // server's identity public key bytes twice.
     let mut suffix = SecretBuf::new();
     suffix.write(&server_pk.pk.as_bytes())?; // b
     suffix.write(&server_pk.pk.as_bytes())?; // b
-    suffix.write(x.as_bytes())?; // x
-    suffix.write(y.as_bytes())?; // y
-    suffix.write(PROTO_ID)?; // PROTOID
-    suffix.write(&server_pk.id)?; // ID
+    suffix.write(x.as_bytes())?;             // x
+    suffix.write(y.as_bytes())?;             // y
+    suffix.write(PROTO_ID)?;                 // PROTOID
+    suffix.write(&server_pk.id)?;            // ID
 
+    // secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)
+    // ^ these are the equivalent x25519 shared secrets concatenated
+    //
+    // message = (secret_input) | b | b | x | y | PROTOID | ID
     let mut message = SecretBuf::new();
     message.write(xy.as_bytes())?; // EXP(X,y)
     message.write(xb.as_bytes())?; // EXP(X,b)
@@ -344,6 +343,7 @@ fn ntor_derive(
         m.finalize()
     };
 
+    // key_seed = HMAC_SHA256(message, T_KEY)
     let key_seed_bytes = {
         let mut m = Hmac::<Sha256>::new_from_slice(T_KEY).expect("Hmac allows keys of any size");
         m.update(&message[..]);
@@ -353,7 +353,6 @@ fn ntor_derive(
     key_seed.write_and_consume(key_seed_bytes)?;
 
     let keygen = NtorHkdfKeyGenerator::new(key_seed);
-    // let keygen = NtorHkdfKeyGenerator::new(message);
     Ok((keygen, auth_mac))
 }
 

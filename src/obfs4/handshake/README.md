@@ -58,15 +58,30 @@ fn ntor_derive(
     let server_string = &b"Server"[..];
 
     // shared_secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)
-    // msg = (shared_secret_input) | ID | X | Y | PROTOID
-    let mut message = SecretBuf::new();
-    message.write(xy.as_bytes())?; // EXP(X,y)
-    message.write(xb.as_bytes())?; // EXP(X,b)
-    message.write(&server_pk.id)?; // ID
-    message.write(&server_pk.pk.as_bytes())?; // b
-    message.write(x.as_bytes())?; // x
-    message.write(y.as_bytes())?; // y
-    message.write(PROTO_ID)?; // PROTOID
+-    // message = (shared_secret_input) | ID | X | Y | PROTOID
+-    let mut message = SecretBuf::new();
+-    message.write(xy.as_bytes())?; // EXP(X,y)
+-    message.write(xb.as_bytes())?; // EXP(X,b)
+-    message.write(&server_pk.id)?; // ID
+-    message.write(&server_pk.pk.as_bytes())?; // b
+-    message.write(x.as_bytes())?; // x
+-    message.write(y.as_bytes())?; // y
+-    message.write(PROTO_ID)?; // PROTOID
++    // obfs4 uses a different order than Ntor V1 and accidentally writes the
++    // server's identity public key bytes twice.
++    let mut suffix = SecretBuf::new();
++    suffix.write(&server_pk.pk.as_bytes())?; // b
++    suffix.write(&server_pk.pk.as_bytes())?; // b
++    suffix.write(x.as_bytes())?; // x
++    suffix.write(y.as_bytes())?; // y
++    suffix.write(PROTO_ID)?; // PROTOID
++    suffix.write(&server_pk.id)?; // ID
++
++    // message = (secret_input) | b | b | x | y | PROTOID | ID
++    let mut message = SecretBuf::new();
++    message.write(xy.as_bytes())?; // EXP(X,y)
++    message.write(xb.as_bytes())?; // EXP(X,b)
++    message.write(&suffix[..])?;   // b | b | x | y | PROTOID | ID
 
     // verify = HMAC_SHA256(msg, T_VERIFY)
     let verify = {
@@ -76,14 +91,17 @@ fn ntor_derive(
         m.finalize()
     };
 
-    // auth_input = verify | ID | b | y | x | PROTOID | "Server"
+-    // auth_input = verify | ID | b | y | x | PROTOID | "Server"
++    // auth_input = verify | (suffix) | "Server"
++    // auth_input = verify | b | b | y | x | PROTOID | ID | "Server"
     let mut auth_input = Vec::new();
     auth_input.write_and_consume(verify)?; // verify
-    auth_input.write(&server_pk.id)?; // ID
-    auth_input.write(&server_pk.pk.as_bytes())?; // B
-    auth_input.write(y.as_bytes())?; // Y
-    auth_input.write(x.as_bytes())?; // X
-    auth_input.write(PROTO_ID)?; // PROTOID
+-    auth_input.write(&server_pk.id)?; // ID
+-    auth_input.write(&server_pk.pk.as_bytes())?; // B
+-    auth_input.write(y.as_bytes())?; // Y
+-    auth_input.write(x.as_bytes())?; // X
+-    auth_input.write(PROTO_ID)?; // PROTOID
++    auth_input.write(&suffix[..])?; // b | b | x | y | PROTOID | ID
     auth_input.write(server_string)?; // "Server"
 
     // auth = HMAC_SHA256(auth_input, T_MAC)
