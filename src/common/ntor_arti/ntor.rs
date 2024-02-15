@@ -7,13 +7,16 @@ use crate::common::ct;
 use crate::{Error, Result};
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_error::into_internal;
-use tor_llcrypto::d;
+use tor_llcrypto::d::{self, Sha256};
 use tor_llcrypto::pk::curve25519::*;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::util::ct::ct_lookup;
 
 use digest::Mac;
 use rand_core::{CryptoRng, RngCore};
+use crate::common::kdf::{Kdf, Ntor1Kdf};
+use subtle::{Choice, ConstantTimeEq};
+use hmac::Hmac;
 
 /// Client side of the Ntor handshake.
 pub(crate) struct NtorClient;
@@ -81,7 +84,6 @@ pub(crate) struct NtorSecretKey {
     sk: StaticSecret,
 }
 
-use subtle::{Choice, ConstantTimeEq};
 impl NtorSecretKey {
     /// Construct a new NtorSecretKey from its components.
     #[allow(unused)]
@@ -131,7 +133,6 @@ impl KeyGenerator for NtorHkdfKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
         let ntor1_key = &b"ntor-curve25519-sha256-1:key_extract"[..];
         let ntor1_expand = &b"ntor-curve25519-sha256-1:key_expand"[..];
-        use crate::common::kdf::{Kdf, Ntor1Kdf};
         Ntor1Kdf::new(ntor1_key, ntor1_expand).derive(&self.seed[..], keylen)
     }
 }
@@ -233,8 +234,6 @@ fn ntor_derive(
     secret_input.write(y)?; // Y
     secret_input.write(ntor1_protoid)?; // PROTOID
 
-    use hmac::Hmac;
-    use tor_llcrypto::d::Sha256;
     let verify = {
         let mut m =
             Hmac::<Sha256>::new_from_slice(ntor1_verify).expect("Hmac allows keys of any size");
@@ -339,10 +338,11 @@ mod tests {
     use super::*;
     use crate::test_utils::FakePRNG;
     use tor_basic_utils::test_rng::testing_rng;
+    use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
+    use hex_literal::hex;
 
     #[test]
     fn simple() -> Result<()> {
-        use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
         let mut rng = testing_rng();
         let relay_secret = StaticSecret::random_from_rng(&mut rng);
         let relay_public = PublicKey::from(&relay_secret);
@@ -380,7 +380,6 @@ mod tests {
 
     #[test]
     fn testvec() -> Result<()> {
-        use hex_literal::hex;
 
         let b_sk = hex!("4820544f4c4420594f5520444f474954204b454550532048415050454e494e47");
         let b_pk = hex!("ccbc8541904d18af08753eae967874749e6149f873de937f57f8fd903a21c471");
@@ -425,7 +424,6 @@ mod tests {
 
     #[test]
     fn failing_handshakes() {
-        use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
         let mut rng = testing_rng();
 
         // Set up keys.
