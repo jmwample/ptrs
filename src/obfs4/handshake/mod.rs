@@ -1,8 +1,13 @@
 //! Implements the ntor handshake, as used in modern Tor.
 
-use crate::common::ntor_arti::{AuxDataReply, KeyGenerator, RelayHandshakeError, RelayHandshakeResult, ServerHandshake, ClientHandshake};
-use crate::common::curve25519::{EphemeralSecret, PublicKey, PublicRepresentative, StaticSecret, SharedSecret};
 use crate::common::ct;
+use crate::common::curve25519::{
+    EphemeralSecret, PublicKey, PublicRepresentative, SharedSecret, StaticSecret,
+};
+use crate::common::ntor_arti::{
+    AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
+    ServerHandshake,
+};
 use crate::{Error, Result};
 
 use std::borrow::Borrow;
@@ -13,16 +18,15 @@ use tor_llcrypto::d::{self, Sha256};
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::util::ct::ct_lookup;
 
-use digest::Mac;
-use rand_core::{CryptoRng, RngCore};
 use crate::common::kdf::{Kdf, Ntor1Kdf};
-use subtle::{Choice, ConstantTimeEq};
+use digest::Mac;
 use hmac::Hmac;
+use rand_core::{CryptoRng, RngCore};
+use subtle::{Choice, ConstantTimeEq};
 
 pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
 pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
-pub(crate) const T_VERIFY_XX: &[u8; 31] = b"ntor-curve25519-sha256-1:verify";
 pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
 pub(crate) const T_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 
@@ -118,11 +122,12 @@ impl Obfs4NtorSecretKey {
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
 
-        let mut sk: StaticSecret = [0u8;32].into();
-        let mut pk1: PublicKey = [0u8;32].into();
+        let mut sk: StaticSecret = [0u8; 32].into();
+        let mut pk1: PublicKey = [0u8; 32].into();
         let mut rp: Option<PublicRepresentative> = None;
 
-        for _ in 0..64 { // artificial ceil of 64 so this can't infinite loop
+        for _ in 0..64 {
+            // artificial ceil of 64 so this can't infinite loop
 
             // approx 50% of keys do not have valid representatives so we just
             // iterate until we find a key where it is valid. This should take
@@ -130,10 +135,10 @@ impl Obfs4NtorSecretKey {
             sk = StaticSecret::random_from_rng(&mut rng);
             rp = (&sk).into();
             if rp.is_none() {
-                continue
+                continue;
             }
             pk1 = (&sk).into();
-            break
+            break;
         }
 
         let pk = Obfs4NtorPublicKey {
@@ -143,7 +148,6 @@ impl Obfs4NtorSecretKey {
         };
         Self { pk, sk }
     }
-
 
     /// Return true if the curve25519 public key in `self` matches `pk`.
     ///
@@ -236,7 +240,7 @@ where
     T: AsRef<[u8]>,
 {
     let mut cur = Reader::from_slice(msg.as_ref());
-    let their_pk_bytes: [u8;32] = cur
+    let their_pk_bytes: [u8; 32] = cur
         .extract()
         .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     let their_pk = PublicKey::from(their_pk_bytes);
@@ -247,9 +251,8 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&state.relay_public.pk);
 
-    let (keygen, authcode) =
-        ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
-            .map_err(into_internal!("Error deriving keys"))?;
+    let (keygen, authcode) = ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
+        .map_err(into_internal!("Error deriving keys"))?;
 
     let okay = authcode.ct_eq(&auth)
         & ct::bool_to_choice(xy.was_contributory())
@@ -260,6 +263,28 @@ where
     } else {
         Err(Error::BadCircHandshakeAuth)
     }
+}
+
+#[cfg(test)]
+fn client_handshake2_no_auth_check_obfs4<T>(
+    msg: T,
+    state: &NtorHandshakeState,
+) -> Result<(NtorHkdfKeyGenerator, Authcode)>
+where
+    T: AsRef<[u8]>,
+{
+    let mut cur = Reader::from_slice(msg.as_ref());
+    let their_pk_bytes: [u8; 32] = cur
+        .extract()
+        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
+    let their_pk = PublicKey::from(their_pk_bytes);
+
+    let xy = state.my_sk.diffie_hellman(&their_pk);
+    let xb = state.my_sk.diffie_hellman(&state.relay_public.pk);
+
+    ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
+        .map_err(into_internal!("Error deriving keys"))
+        .map_err(|e| Error::Bug(e))
 }
 
 /// helper: compute a key generator and an authentication code from a set
@@ -275,38 +300,60 @@ fn ntor_derive(
 ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
     let server_string = &b"Server"[..];
 
-    let mut secret_input = SecretBuf::new();
-    secret_input.write(xy.as_bytes())?; // EXP(X,y)
-    secret_input.write(xb.as_bytes())?; // EXP(X,b)
-    secret_input.write(&server_pk.id)?; // ID
-    secret_input.write(&server_pk.pk.as_bytes())?; // B
-    secret_input.write(x.as_bytes())?; // X
-    secret_input.write(y.as_bytes())?; // Y
-    secret_input.write(PROTO_ID)?; // PROTOID
+    // secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)
+    // ^ these are the equivalent x25519 shared secrets concatenated
+    //
+    // message = (secret_input) | b | b | x | y | PROTOID | ID
+    //
+    // obfs4 uses a different order than Ntor V1 and accidentally writes the
+    // server's identity public key bytes twice.
+    let mut suffix = SecretBuf::new();
+    suffix.write(&server_pk.pk.as_bytes())?; // b
+    suffix.write(&server_pk.pk.as_bytes())?; // b
+    suffix.write(x.as_bytes())?; // x
+    suffix.write(y.as_bytes())?; // y
+    suffix.write(PROTO_ID)?; // PROTOID
+    suffix.write(&server_pk.id)?; // ID
 
+    let mut message = SecretBuf::new();
+    message.write(xy.as_bytes())?; // EXP(X,y)
+    message.write(xb.as_bytes())?; // EXP(X,b)
+    message.write(&suffix[..])?;   // b | b | x | y | PROTOID | ID
+
+    // verify = HMAC_SHA256(msg, T_VERIFY)
     let verify = {
-        let mut m =
-            Hmac::<Sha256>::new_from_slice(T_VERIFY_XX).expect("Hmac allows keys of any size");
-        m.update(&secret_input[..]);
+        let mut m = Hmac::<Sha256>::new_from_slice(T_VERIFY).expect("Hmac allows keys of any size");
+        m.update(&message[..]);
         m.finalize()
     };
+
+    // auth_input = verify | (suffix) | "Server"
+    // auth_input = verify | b | b | y | x | PROTOID | ID | "Server"
+    //
+    // Again obfs4 uses all of the same fields (with the servers identity public
+    // key duplicated), but in a different order than Ntor V1.
     let mut auth_input = Vec::new();
     auth_input.write_and_consume(verify)?; // verify
-    auth_input.write(&server_pk.id)?; // ID
-    auth_input.write(&server_pk.pk.as_bytes())?; // B
-    auth_input.write(y.as_bytes())?; // Y
-    auth_input.write(x.as_bytes())?; // X
-    auth_input.write(PROTO_ID)?; // PROTOID
-    auth_input.write(server_string)?; // "Server"
+    auth_input.write(&suffix[..])?;        // b | b | x | y | PROTOID | ID
+    auth_input.write(server_string)?;      // "Server"
 
+    // auth = HMAC_SHA256(auth_input, T_MAC)
     let auth_mac = {
-        let mut m =
-            Hmac::<Sha256>::new_from_slice(T_MAC).expect("Hmac allows keys of any size");
+        let mut m = Hmac::<Sha256>::new_from_slice(T_MAC).expect("Hmac allows keys of any size");
         m.update(&auth_input[..]);
         m.finalize()
     };
 
-    let keygen = NtorHkdfKeyGenerator::new(secret_input);
+    let key_seed_bytes = {
+        let mut m = Hmac::<Sha256>::new_from_slice(T_KEY).expect("Hmac allows keys of any size");
+        m.update(&message[..]);
+        m.finalize()
+    };
+    let mut key_seed = SecretBuf::new();
+    key_seed.write_and_consume(key_seed_bytes)?;
+
+    let keygen = NtorHkdfKeyGenerator::new(key_seed);
+    // let keygen = NtorHkdfKeyGenerator::new(message);
     Ok((keygen, auth_mac))
 }
 
@@ -345,9 +392,9 @@ where
     let mut cur = Reader::from_slice(msg.as_ref());
 
     let my_id: RsaIdentity = cur.extract()?;
-    let my_key_bytes: [u8;32] = cur.extract()?;
+    let my_key_bytes: [u8; 32] = cur.extract()?;
     let my_key = PublicKey::from(my_key_bytes);
-    let their_pk_bytes: [u8;32] = cur.extract()?;
+    let their_pk_bytes: [u8; 32] = cur.extract()?;
     let their_pk = PublicKey::from(their_pk_bytes);
 
     let keypair = ct_lookup(keys, |key| key.matches_pk(&my_key));

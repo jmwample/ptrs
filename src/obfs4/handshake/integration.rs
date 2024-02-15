@@ -92,15 +92,12 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
 
 #[test]
 fn test_obfs4_testvec_compat() -> Result<()> {
-    let b_sk = hex!("4820544f4c4420594f5520444f474954204b454550532048415050454e494e47");
-    let x_sk = hex!("706f6461792069207075742e2e2e2e2e2e2e2e4a454c4c59206f6e2074686973");
-    let y_sk = hex!("70686520737175697272656c2e2e2e2e2e2e2e2e686173206869732067616d65");
-    let id = hex!("69546f6c64596f7541626f75745374616972732e");
-    let key_seed = "05b858d18df21a01566c74d39a5b091b4415f103c05851e77e79b274132dc5b5";
-
-    // let client_handshake = hex!("69546f6c64596f7541626f75745374616972732eccbc8541904d18af08753eae967874749e6149f873de937f57f8fd903a21c471e65dfdbef8b2635837fe2cebc086a8096eae3213e6830dc407516083d412b078");
-    // let server_handshake = hex!("390480a14362761d6aec1fea840f6e9e928fb2adb7b25c670be1045e35133a371cbdf68b89923e1f85e8e18ee6e805ea333fe4849c790ffd2670bd80fec95cc8");
-    // let keys = hex!("0c62dee7f48893370d0ef896758d35729867beef1a5121df80e00f79ed349af39b51cae125719182f19d932a667dae1afbf2e336e6910e7822223e763afad0a13342157969dc6b79");
+    let b_sk = hex!("a83fdd04eb9ed77a2b38d86092a09a1cecfb93a7bdec0da35e542775b2e7af6e");
+    let x_sk = hex!("308ff4f3a0ebe8c1a93bcd40d67e3eec6b856aa5c07ef6d5a3d3cedf13dcf150");
+    let y_sk = hex!("881f9ad60e0833a627f0c47f5aafbdcb0b5471800eaeaa1e678291b947e4295c");
+    let id = hex!("000102030405060708090a0b0c0d0e0f10111213");
+    let expected_seed = "05b858d18df21a01566c74d39a5b091b4415f103c05851e77e79b274132dc5b5";
+    let expected_auth = "dc71f8ded2e56f829f1b944c1e94357fa8b7987f10211a017e2d1f2455092917";
 
     let sk: StaticSecret = b_sk.into();
     let pk = Obfs4NtorPublicKey {
@@ -124,14 +121,15 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     )
     .unwrap();
 
-    let c_keygen = client_handshake2_obfs4(created_msg, &state)?;
+    let (c_keygen, auth) = client_handshake2_no_auth_check_obfs4(created_msg, &state)?;
     let seed = c_keygen.seed.clone();
 
     let c_keys = c_keygen.expand(72)?;
     let s_keys = s_keygen.expand(72)?;
 
     assert_eq!(&s_keys[..], &c_keys[..]);
-    assert_eq!( hex::encode(&seed[..]), key_seed);
+    assert_eq!(hex::encode(&auth.into_bytes()), expected_auth);
+    assert_eq!( hex::encode(&seed[..]), expected_seed);
 
     Ok(())
 }
