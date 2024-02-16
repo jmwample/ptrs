@@ -8,7 +8,7 @@ compute a shared seed as well as an authentication value.
 The original implementation of the Obfs4 Ntor Handshake has some
 small variation from the actual Ntor V1 handshake and as such
 requires an alternative implementation to be compatible with
-the existing (golang implementation)[https://gitlab.com/yawning/obfs4]
+the existing [golang implementation](https://gitlab.com/yawning/obfs4)
 
 
 ## Difference from Ntor V1
@@ -83,7 +83,7 @@ fn ntor_derive(
 +    message.write(xb.as_bytes())?; // EXP(X,b)
 +    message.write(&suffix[..])?;   // b | b | x | y | PROTOID | ID
 
-    // verify = HMAC_SHA256(msg, T_VERIFY)
+    // verify = HMAC_SHA256(message, T_VERIFY)
     let verify = {
         let mut m =
             Hmac::<Sha256>::new_from_slice(T_VERIFY).expect("Hmac allows keys of any size");
