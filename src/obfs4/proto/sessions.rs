@@ -173,8 +173,6 @@ impl ClientSession<Initialized> {
     /// ```
     ///
     /// TODO: make sure failure modes align with golang obfs4
-    /// - discard then close
-    /// - handshake timeouts
     /// - FIN/RST based on buffered data.
     /// - etc.
     pub async fn handshake<'a, T>(
@@ -286,6 +284,7 @@ impl ClientSession<ClientHandshakeFailed> {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
+        debug!("{} discarding due to: {}", self.session_id(), self._state.details);
         discard(stream, d).await
     }
 }
@@ -520,6 +519,7 @@ impl<'b> ServerSession<'b, ServerHandshakeFailed> {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
+        debug!("{} discarding due to: {}", self.session_id(), self._state.details);
         discard(stream, d).await
     }
 }

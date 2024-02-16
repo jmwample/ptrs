@@ -7,9 +7,10 @@ use crate::{traits::*, Result};
 //
 pub mod framing;
 pub mod proto;
-// pub use proto::{Client, client::ClientBuilder, sessions::CHSMaterials};
 pub use proto::{Client, ClientBuilder};
 pub use proto::{Server, ServerBuilder};
+
+pub(crate) mod handshake;
 
 pub(crate) mod constants;
 

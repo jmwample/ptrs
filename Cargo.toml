@@ -55,6 +55,7 @@ arti-client = { package = "arti-client", version = "0.14.0", default-features = 
 # tor-rpcbase = { version = "0.1.2", optional = true }
 
 # ntor_arti
+tor-cell = "0.16.0"
 tor-llcrypto = "0.7.0"
 tor-error = "0.6.1"
 tor-bytes = "0.10.0"

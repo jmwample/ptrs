@@ -287,7 +287,7 @@ impl<'a> ClientHandshake<'a, ServerHandshakeReceived> {
             ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
         ))?;
 
-        compare_auth(&ntor_hs_result.auth, &self._h_state.server_hs.server_auth())?;
+        compare_auth(&ntor_hs_result.auth, self._h_state.server_hs.server_auth())?;
 
         // use the derived seed value to bootstrap Read / Write crypto codec.
         let okm = kdf(

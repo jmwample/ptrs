@@ -303,6 +303,8 @@ fn derive_ntor_shared(
     let mut key_seed = KeySeed::default();
     let mut auth = Auth::default();
 
+    // secret_input = EXP(X,y) | EXP(X, b)   OR    = EXP(Y,x) | EXP(B,x)
+    // msg = (secret_input) |  b | x | y | PROTOID | ID 
     let mut message = secret_input.as_ref().to_vec();
     message.append(&mut b.to_bytes().to_vec());
     message.append(&mut x.to_bytes().to_vec());
@@ -310,18 +312,23 @@ fn derive_ntor_shared(
     message.append(&mut PROTO_ID.to_vec());
     message.append(&mut id.to_bytes().to_vec());
 
+    // key_seed = HMAC_SHA256(message, T_KEY)
     let mut h = HmacSha256::new_from_slice(&T_KEY[..]).unwrap();
     h.update(message.as_ref());
     let tmp: &[u8] = &h.finalize().into_bytes()[..];
     key_seed.0 = tmp.try_into().expect("unable to write key_seed");
 
+    // verify = HMAC_SHA256(message, T_VERIFY)
     let mut h = HmacSha256::new_from_slice(&T_VERIFY[..]).unwrap();
     h.update(message.as_ref());
     let mut verify = h.finalize().into_bytes().to_vec();
 
-    // auth_input = verify | ID | B | Y | X | PROTOID | "Server"
+    assert!(false, "the construction of the auth_mac input is broken");
+    // auth_input = verify | (message) | "Server"
+    // auth_input = verify | (secret_input) | b | y | x | PROTOID | ID | "Server"
     verify.append(&mut message.to_vec());
     verify.append(&mut b"Server".to_vec());
+
     let mut h = HmacSha256::new_from_slice(&T_MAC[..]).unwrap();
     h.update(verify.as_ref());
     let mut tmp = &h.finalize().into_bytes()[..];
