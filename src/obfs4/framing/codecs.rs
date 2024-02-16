@@ -1,5 +1,6 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
+    common::ntor_arti::KeyGenerator,
     obfs4::framing::{FrameError, Messages},
 };
 
@@ -67,6 +68,14 @@ impl EncryptingCodec {
 
     pub(crate) fn handshake_complete(&mut self) {
         self.handshake_complete = true;
+    }
+}
+
+impl<K:KeyGenerator> From<K> for EncryptingCodec {
+    fn from(keygen: K) -> Self {
+        let ekm: [u8;KEY_MATERIAL_LENGTH] = keygen.expand(KEY_MATERIAL_LENGTH).try_into().unwrap();
+        let dkm: [u8;KEY_MATERIAL_LENGTH] = keygen.expand(KEY_MATERIAL_LENGTH).try_into().unwrap();
+        Self::new(ekm, dkm)
     }
 }
 

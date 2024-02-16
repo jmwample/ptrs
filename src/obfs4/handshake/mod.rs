@@ -24,11 +24,21 @@ use hmac::Hmac;
 use rand_core::{CryptoRng, RngCore};
 use subtle::{Choice, ConstantTimeEq};
 
+mod handshake_client;
+mod handshake_server;
+
+use handshake_client::{client_handshake_obfs4, client_handshake2_obfs4};
+use handshake_server::server_handshake_obfs4;
+#[cfg(test)]
+pub(crate) use handshake_client::{client_handshake_obfs4_no_keygen, client_handshake2_no_auth_check_obfs4};
+#[cfg(test)]
+pub(crate) use handshake_server::server_handshake_obfs4_no_keygen;
+
 pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
 pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
 pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
-pub(crate) const T_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
+pub(crate) const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 
 /// Client side of the Ntor handshake.
 pub(crate) struct Obfs4NtorClient;
@@ -188,7 +198,7 @@ impl NtorHkdfKeyGenerator {
 impl KeyGenerator for NtorHkdfKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
         let ntor1_key = &T_KEY[..];
-        let ntor1_expand = &T_EXPAND[..];
+        let ntor1_expand = &M_EXPAND[..];
         Ntor1Kdf::new(ntor1_key, ntor1_expand).derive(&self.seed[..], keylen)
     }
 }
@@ -196,96 +206,6 @@ impl KeyGenerator for NtorHkdfKeyGenerator {
 /// Alias for an HMAC output, used to validate correctness of a handshake.
 type Authcode = digest::CtOutput<hmac::Hmac<d::Sha256>>;
 
-/// Perform a client handshake, generating an onionskin and a state object
-fn client_handshake_obfs4<R>(
-    rng: &mut R,
-    relay_public: &Obfs4NtorPublicKey,
-) -> Result<(NtorHandshakeState, Vec<u8>)>
-where
-    R: RngCore + CryptoRng,
-{
-    let my_sk = StaticSecret::random_from_rng(rng);
-    let my_public = PublicKey::from(&my_sk);
-
-    client_handshake_obfs4_no_keygen(my_public, my_sk, relay_public)
-}
-
-/// Helper: client handshake _without_ generating  new keys.
-fn client_handshake_obfs4_no_keygen(
-    my_public: PublicKey,
-    my_sk: StaticSecret,
-    relay_public: &Obfs4NtorPublicKey,
-) -> Result<(NtorHandshakeState, Vec<u8>)> {
-    let mut v: Vec<u8> = Vec::new();
-
-    v.write(&relay_public.id)
-        .and_then(|_| v.write(&relay_public.pk.as_bytes()))
-        .and_then(|_| v.write(&my_public.as_bytes()))
-        .map_err(|e| Error::from_bytes_enc(e, "Can't encode client handshake."))?;
-
-    assert_eq!(v.len(), 20 + 32 + 32);
-
-    let state = NtorHandshakeState {
-        relay_public: relay_public.clone(),
-        my_public,
-        my_sk,
-    };
-
-    Ok((state, v))
-}
-
-/// Complete a client handshake, returning a key generator on success.
-fn client_handshake2_obfs4<T>(msg: T, state: &NtorHandshakeState) -> Result<NtorHkdfKeyGenerator>
-where
-    T: AsRef<[u8]>,
-{
-    let mut cur = Reader::from_slice(msg.as_ref());
-    let their_pk_bytes: [u8; 32] = cur
-        .extract()
-        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
-    let their_pk = PublicKey::from(their_pk_bytes);
-    let auth: Authcode = cur
-        .extract()
-        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
-
-    let xy = state.my_sk.diffie_hellman(&their_pk);
-    let xb = state.my_sk.diffie_hellman(&state.relay_public.pk);
-
-    let (keygen, authcode) = ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
-        .map_err(into_internal!("Error deriving keys"))?;
-
-    let okay = authcode.ct_eq(&auth)
-        & ct::bool_to_choice(xy.was_contributory())
-        & ct::bool_to_choice(xb.was_contributory());
-
-    if okay.into() {
-        Ok(keygen)
-    } else {
-        Err(Error::BadCircHandshakeAuth)
-    }
-}
-
-#[cfg(test)]
-fn client_handshake2_no_auth_check_obfs4<T>(
-    msg: T,
-    state: &NtorHandshakeState,
-) -> Result<(NtorHkdfKeyGenerator, Authcode)>
-where
-    T: AsRef<[u8]>,
-{
-    let mut cur = Reader::from_slice(msg.as_ref());
-    let their_pk_bytes: [u8; 32] = cur
-        .extract()
-        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
-    let their_pk = PublicKey::from(their_pk_bytes);
-
-    let xy = state.my_sk.diffie_hellman(&their_pk);
-    let xb = state.my_sk.diffie_hellman(&state.relay_public.pk);
-
-    ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
-        .map_err(into_internal!("Error deriving keys"))
-        .map_err(|e| Error::Bug(e))
-}
 
 /// helper: compute a key generator and an authentication code from a set
 /// of ntor parameters.
@@ -356,79 +276,6 @@ fn ntor_derive(
     Ok((keygen, auth_mac))
 }
 
-/// Perform a server-side ntor handshake.
-///
-/// On success returns a key generator and a server onionskin.
-fn server_handshake_obfs4<R, T>(
-    rng: &mut R,
-    msg: T,
-    keys: &[Obfs4NtorSecretKey],
-) -> RelayHandshakeResult<(NtorHkdfKeyGenerator, Vec<u8>)>
-where
-    R: RngCore + CryptoRng,
-    T: AsRef<[u8]>,
-{
-    // TODO(nickm): we generate this key whether or not we are
-    // actually going to find our nodeid or keyid. Perhaps we should
-    // delay that till later?  It shouldn't matter for most cases,
-    // though.
-    let ephem = EphemeralSecret::random_from_rng(rng);
-    let ephem_pub = PublicKey::from(&ephem);
-
-    server_handshake_obfs4_no_keygen(ephem_pub, ephem, msg, keys)
-}
-
-/// Helper: perform a server handshake without generating any new keys.
-fn server_handshake_obfs4_no_keygen<T>(
-    ephem_pub: PublicKey,
-    ephem: EphemeralSecret,
-    msg: T,
-    keys: &[Obfs4NtorSecretKey],
-) -> RelayHandshakeResult<(NtorHkdfKeyGenerator, Vec<u8>)>
-where
-    T: AsRef<[u8]>,
-{
-    let mut cur = Reader::from_slice(msg.as_ref());
-
-    let my_id: RsaIdentity = cur.extract()?;
-    let my_key_bytes: [u8; 32] = cur.extract()?;
-    let my_key = PublicKey::from(my_key_bytes);
-    let their_pk_bytes: [u8; 32] = cur.extract()?;
-    let their_pk = PublicKey::from(their_pk_bytes);
-
-    let keypair = ct_lookup(keys, |key| key.matches_pk(&my_key));
-    let keypair = match keypair {
-        Some(k) => k,
-        None => return Err(RelayHandshakeError::MissingKey),
-    };
-
-    if my_id != keypair.pk.id {
-        return Err(RelayHandshakeError::MissingKey);
-    }
-
-    let xy = ephem.diffie_hellman(&their_pk);
-    let xb = keypair.sk.diffie_hellman(&their_pk);
-
-    let okay =
-        ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
-
-    let (keygen, authcode) = ntor_derive(&xy, &xb, &keypair.pk, &their_pk, &ephem_pub)
-        .map_err(into_internal!("Error deriving keys"))?;
-
-    let mut reply: Vec<u8> = Vec::new();
-    reply
-        .write(&ephem_pub.as_bytes())
-        .and_then(|_| reply.write_and_consume(authcode))
-        .map_err(into_internal!(
-            "Generated relay handshake we couldn't encode"
-        ))?;
-
-    if okay.into() {
-        Ok((keygen, reply))
-    } else {
-        Err(RelayHandshakeError::BadClientHandshake)
-    }
-}
 
 #[cfg(test)]
 mod integration;

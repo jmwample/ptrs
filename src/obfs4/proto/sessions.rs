@@ -8,7 +8,7 @@ use super::{
 };
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{colorize, discard, drbg, ntor, replay_filter::ReplayFilter},
+    common::{colorize, discard, drbg, replay_filter::ReplayFilter},
     obfs4::{
         constants::*,
         framing,
@@ -375,7 +375,7 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
         }
     }
 
-    /// Helper function to perform state transitions.
+    /// Helper function to perform state transition on error.
     fn fault<'s, F: Fault + ServerSessionState>(self, f: F) -> ServerSession<'s, F>
     where
         'a: 's,
