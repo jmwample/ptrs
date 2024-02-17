@@ -44,6 +44,8 @@ pub(crate) use handshake_client::{client_handshake_obfs4_no_keygen, client_hands
 #[cfg(test)]
 pub(crate) use handshake_server::server_handshake_obfs4_no_keygen;
 
+use super::framing::KEY_LENGTH;
+
 pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
 pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
@@ -122,9 +124,9 @@ impl Obfs4NtorPublicKey {
 #[derive(Clone)]
 pub(crate) struct Obfs4NtorSecretKey {
     /// The relay's public key information
-    pk: Obfs4NtorPublicKey,
+    pub(crate) pk: Obfs4NtorPublicKey,
     /// The secret onion key.
-    sk: StaticSecret,
+    pub(crate) sk: StaticSecret,
 }
 
 impl Obfs4NtorSecretKey {
@@ -139,6 +141,15 @@ impl Obfs4NtorSecretKey {
             pk: Obfs4NtorPublicKey { id, pk },
             sk,
         }
+    }
+
+    /// Construct a new Obfs4NtorSecretKey from a CSPRNG.
+    pub(crate) fn getrandom() -> Self {
+        let mut key = [0_u8; KEY_LENGTH];
+        let mut id = [0_u8; NODE_ID_LENGTH];
+        getrandom::getrandom(&mut key).expect("internal randomness error");
+        getrandom::getrandom(&mut id).expect("internal randomness error");
+        Self::new(StaticSecret::from(key), PublicKey::from(key), RsaIdentity::from(id))
     }
 
     /// Generate a key using the given `rng`, suitable for testing.

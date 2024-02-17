@@ -11,8 +11,9 @@ use std::time::Duration;
 async fn public_handshake() -> Result<()> {
     init_subscriber();
     let (mut c, mut s) = tokio::io::duplex(65_536);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -31,8 +32,9 @@ async fn public_iface() -> Result<()> {
     init_subscriber();
     let message = b"awoewaeojawenwaefaw lfawn;awe da;wfenalw fawf aw";
     let (mut c, mut s) = tokio::io::duplex(65_536);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -76,8 +78,9 @@ async fn transfer_10k_x1() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -128,8 +131,9 @@ async fn transfer_10k_x3() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -182,8 +186,9 @@ async fn transfer_1M_1024x1024() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -234,8 +239,9 @@ async fn transfer_512k_x1() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 512);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -283,8 +289,9 @@ async fn transfer_2_x() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = proto::Server::new_from_random();
+    let mut o4_server = proto::Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {

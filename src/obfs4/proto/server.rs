@@ -3,14 +3,12 @@
 use crate::{
     common::{
         colorize, drbg,
-        ntor::{self, Representative, AUTH_LENGTH, REPRESENTATIVE_LENGTH, NODE_ID_LENGTH},
         replay_filter::{self, ReplayFilter},
         HmacSha256,
+        curve25519::StaticSecret,
     },
     obfs4::{
-        constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
-        proto::{client::ClientBuilder, handshake_server, sessions::Session, MaybeTimeout},
+        constants::*, framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH}, handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey}, proto::{client::ClientBuilder, sessions::Session, MaybeTimeout}
     },
     stream::Stream,
     Error, Result,
@@ -32,8 +30,7 @@ use tracing::{debug, info};
 
 pub struct ServerBuilder {
     pub iat_mode: IAT,
-    pub node_id: ntor::ID,
-    pub identity_keys: ntor::IdentityKeyPair,
+    pub identity_keys: Obfs4NtorSecretKey,
     pub statefile_location: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -41,10 +38,16 @@ pub struct ServerBuilder {
 impl ServerBuilder {
     /// TODO: Implement server from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
+        let identity_keys = Obfs4NtorSecretKey{
+            sk: [0_u8; KEY_LENGTH].into(),
+            pk: Obfs4NtorPublicKey {
+                    pk: [0_u8; KEY_LENGTH].into(),
+                    id: [0_u8; NODE_ID_LENGTH].into(),
+            },
+        };
         Ok(Self {
             iat_mode: IAT::Off,
-            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
-            identity_keys: ntor::IdentityKeyPair::from([0_u8; KEY_LENGTH*2]),
+            identity_keys,
             statefile_location: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -53,17 +56,24 @@ impl ServerBuilder {
 
     /// TODO: parse server params form str vec
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
+        let identity_keys = Obfs4NtorSecretKey{
+            sk: [0_u8; KEY_LENGTH].into(),
+            pk: Obfs4NtorPublicKey {
+                    pk: [0_u8; KEY_LENGTH].into(),
+                    id: [0_u8; NODE_ID_LENGTH].into(),
+            },
+        };
         Ok(Self {
             iat_mode: IAT::Off,
-            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
-            identity_keys: ntor::IdentityKeyPair::from([0_u8; KEY_LENGTH*2]),
+            identity_keys,
             statefile_location: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
 
     pub fn node_pubkey(mut self, privkey: [u8; KEY_LENGTH]) -> Self {
-        self.identity_keys = ntor::IdentityKeyPair::from_privkey(privkey);
+        self.identity_keys.sk = privkey.into();
+        self.identity_keys.pk.pk = (&self.identity_keys.sk).into();
         self
     }
 
@@ -73,7 +83,7 @@ impl ServerBuilder {
     }
 
     pub fn node_id(mut self, id: [u8;NODE_ID_LENGTH]) -> Self {
-        self.node_id = ntor::ID::from(id);
+        self.identity_keys.pk.id = id.into();
         self
     }
 
@@ -99,7 +109,6 @@ impl ServerBuilder {
     pub fn build(self) -> Server {
         Server {
             identity_keys: self.identity_keys,
-            node_id: self.node_id,
             replay_filter: ReplayFilter::new(REPLAY_TTL),
             iat_mode: self.iat_mode,
             handshake_timeout: self.handshake_timeout.duration(),
@@ -109,8 +118,7 @@ impl ServerBuilder {
 
 
 pub struct Server {
-    identity_keys: ntor::IdentityKeyPair,
-    node_id: ntor::ID,
+    identity_keys: Obfs4NtorSecretKey,
     iat_mode: IAT,
     replay_filter: ReplayFilter,
     handshake_timeout: Option<tokio::time::Duration>,
@@ -118,10 +126,32 @@ pub struct Server {
 
 
 impl Server {
-    pub fn new_from_random() -> Self {
+    pub fn new_from_random<R:RngCore+CryptoRng>(mut rng: R) -> Self {
+        let mut id = [0_u8; 20];
+        // Random bytes will work for testing, but aren't necessarily actually a valid id.
+        rng.fill_bytes(&mut id);
+
+        let sk = StaticSecret::random_from_rng(rng);
+
+        let pk = Obfs4NtorPublicKey {
+            pk: (&sk).into(),
+            id: id.into(),
+        };
+
+        let identity_keys = Obfs4NtorSecretKey{ pk, sk };
+
         Self {
-            identity_keys: ntor::IdentityKeyPair::new(),
-            node_id: ntor::ID::new(),
+            identity_keys,
+            iat_mode: IAT::Off,
+            replay_filter: ReplayFilter::new(REPLAY_TTL),
+            handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
+        }
+    }
+
+    pub fn getrandom() -> Self {
+        let identity_keys = Obfs4NtorSecretKey::getrandom();
+        Self {
+            identity_keys,
             iat_mode: IAT::Off,
             replay_filter: ReplayFilter::new(REPLAY_TTL),
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
@@ -134,7 +164,6 @@ impl Server {
     {
         let session = sessions::new_server_session(
             &self.identity_keys,
-            self.node_id.clone(),
             self.iat_mode,
             &mut self.replay_filter,
         )?;
@@ -158,8 +187,7 @@ impl Server {
 
     pub fn client_params(&self) -> ClientBuilder {
         ClientBuilder {
-            station_pubkey: self.identity_keys.public,
-            node_id: self.node_id.clone(),
+            station_pubkey: self.identity_keys.pk,
             iat_mode: self.iat_mode,
             statefile_location: None,
             handshake_timeout: MaybeTimeout::Default_,
