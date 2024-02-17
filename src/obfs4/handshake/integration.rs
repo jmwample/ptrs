@@ -67,7 +67,6 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
     let relay_ntpk = Obfs4NtorPublicKey {
         id: relay_identity,
         pk: relay_public,
-        rp: (&relay_secret).into(),
     };
     let (state, cmsg) = Obfs4NtorClient::client1(&mut rng, &relay_ntpk, &())?;
 
@@ -103,7 +102,6 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let pk = Obfs4NtorPublicKey {
         id: RsaIdentity::from_bytes(&id).unwrap(),
         pk: (&sk).into(),
-        rp: (&sk).into(),
     };
     let relay_sk = Obfs4NtorSecretKey { pk, sk };
 
@@ -193,7 +191,6 @@ fn failing_handshakes() {
     let relay_ntpk = Obfs4NtorPublicKey {
         id: relay_identity,
         pk: relay_public,
-        rp: None,
     };
     let relay_ntsk = Obfs4NtorSecretKey {
         pk: relay_ntpk.clone(),
@@ -203,12 +200,10 @@ fn failing_handshakes() {
     let wrong_ntpk1 = Obfs4NtorPublicKey {
         id: wrong_identity,
         pk: relay_public,
-        rp: None,
     };
     let wrong_ntpk2 = Obfs4NtorPublicKey {
         id: relay_identity,
         pk: wrong_public,
-        rp: None,
     };
 
     // If the client uses the wrong keys, the relay should reject the
@@ -277,7 +272,7 @@ fn keypair() -> Result<()> {
         let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
         let pk = kp.pk.pk.to_bytes();
-        let repres = kp.pk.rp;
+        let repres: Option<curve25519::PublicRepresentative> = (&kp.sk).into();
 
         let pubkey = curve25519::PublicKey::from(&repres.unwrap());
         assert_eq!(hex::encode(pk), hex::encode(pubkey.to_bytes()));

@@ -3,16 +3,10 @@
 use crate::{
     common::{
         colorize,
-        ntor::{
-            self, HandShakeResult, Representative, AUTH_LENGTH, NODE_ID_LENGTH,
-            REPRESENTATIVE_LENGTH,
-        },
         HmacSha256,
     },
     obfs4::{
-        constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        proto::{sessions, Obfs4Stream, IAT, MaybeTimeout},
+        constants::*, framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH}, handshake::Obfs4NtorPublicKey, proto::{sessions, MaybeTimeout, Obfs4Stream, IAT}
     },
     stream::Stream,
     Error, Result,
@@ -34,8 +28,7 @@ use std::{
 
 pub struct ClientBuilder {
     pub iat_mode: IAT,
-    pub node_id: ntor::ID,
-    pub station_pubkey: ntor::PublicKey,
+    pub station_pubkey: Obfs4NtorPublicKey,
     pub statefile_location: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -43,10 +36,15 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
+
+        let station_pubkey = Obfs4NtorPublicKey{
+            pk: [0_u8; KEY_LENGTH].into(),
+            id: [0_u8; NODE_ID_LENGTH].into(),
+        };
+
         Ok(Self {
             iat_mode: IAT::Off,
-            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
-            station_pubkey: ntor::PublicKey::from([0_u8; KEY_LENGTH]),
+            station_pubkey,
             statefile_location: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -54,17 +52,21 @@ impl ClientBuilder {
 
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
+        let station_pubkey = Obfs4NtorPublicKey{
+            pk: [0_u8; KEY_LENGTH].into(),
+            id: [0_u8; NODE_ID_LENGTH].into(),
+        };
+
         Ok(Self {
             iat_mode: IAT::Off,
-            node_id: ntor::ID::from([0u8; NODE_ID_LENGTH]),
-            station_pubkey: ntor::PublicKey::from([0_u8; KEY_LENGTH]),
+            station_pubkey,
             statefile_location: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
 
     pub fn with_node_pubkey(mut self, pubkey: [u8; KEY_LENGTH]) -> Self {
-        self.station_pubkey = ntor::PublicKey::from(pubkey);
+        self.station_pubkey.pk = pubkey.into();
         self
     }
 
@@ -74,7 +76,7 @@ impl ClientBuilder {
     }
 
     pub fn with_node_id(mut self, id: [u8; NODE_ID_LENGTH]) -> Self {
-        self.node_id = ntor::ID::from(id);
+        self.station_pubkey.id = id.into();
         self
     }
 
@@ -102,7 +104,6 @@ impl ClientBuilder {
         Client {
             iat_mode: self.iat_mode,
             station_pubkey: self.station_pubkey,
-            id: self.node_id,
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }
@@ -123,8 +124,7 @@ impl fmt::Display for ClientBuilder {
 /// Client implementing the obfs4 protocol.
 pub struct Client {
     iat_mode: IAT,
-    station_pubkey: ntor::PublicKey,
-    id: ntor::ID,
+    station_pubkey: Obfs4NtorPublicKey,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 
@@ -139,7 +139,7 @@ impl Client {
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
         let session =
-            sessions::new_client_session(self.id.clone(), self.station_pubkey, self.iat_mode);
+            sessions::new_client_session(self.station_pubkey, self.iat_mode);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 

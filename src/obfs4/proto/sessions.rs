@@ -1,30 +1,26 @@
 //
 //
 
-use super::{
-    handshake_client::{ClientHandshake, ClientHandshakeSuccess},
-    handshake_server::{ServerHandshake, ServerHandshakeSuccess},
-    IAT,
-};
+use std::vec;
+
+use super::IAT;
 /// Session state management as a way to organize session establishment.
 use crate::{
-    common::{colorize, discard, drbg, replay_filter::ReplayFilter},
+    common::{
+        colorize, discard, drbg, ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake}, replay_filter::ReplayFilter
+    },
     obfs4::{
-        constants::*,
-        framing,
-        proto::{
-            handshake_client::{self, HandshakeMaterials as CHSMaterials},
-            handshake_server::{self, HandshakeMaterials as SHSMaterials},
-            O4Stream, Obfs4Stream, CLIENT_HANDSHAKE_TIMEOUT,
-        },
+        constants::*, framing::{self, FrameError},
+        handshake::{CHSMaterials, Obfs4NtorClient, Obfs4NtorPublicKey, Obfs4NtorSecretKey, Obfs4NtorServer, SHSMaterials},
+        proto::{O4Stream, Obfs4Stream, CLIENT_HANDSHAKE_TIMEOUT},
     },
     Error, Result,
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use rand_core::{RngCore, CryptoRng};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::time::{Duration, Instant};
-use tokio_util::codec::Decoder;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -68,9 +64,7 @@ impl<'a> Session<'a> {
 // ================================================================ //
 
 pub(crate) struct ClientSession<S: ClientSessionState> {
-    node_id: ntor::ID,
-    node_pubkey: ntor::PublicKey,
-    session_keys: ntor::SessionKeyPair,
+    node_pubkey: Obfs4NtorPublicKey,
     session_id: [u8; SESSION_ID_LEN],
     iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
@@ -113,8 +107,6 @@ impl<S: ClientSessionState> ClientSession<S> {
     /// Helper function to perform state transitions.
     fn transition<T: ClientSessionState>(self, t: T) -> ClientSession<T> {
         ClientSession {
-            session_keys: self.session_keys,
-            node_id: self.node_id,
             node_pubkey: self.node_pubkey,
             session_id: self.session_id,
             iat_mode: self.iat_mode,
@@ -129,8 +121,6 @@ impl<S: ClientSessionState> ClientSession<S> {
     /// Helper function to perform state transitions.
     fn fault<F: Fault + ClientSessionState>(self, f: F) -> ClientSession<F> {
         ClientSession {
-            session_keys: self.session_keys,
-            node_id: self.node_id,
             node_pubkey: self.node_pubkey,
             session_id: self.session_id,
             iat_mode: self.iat_mode,
@@ -144,17 +134,12 @@ impl<S: ClientSessionState> ClientSession<S> {
 }
 
 pub fn new_client_session(
-    station_id: ntor::ID,
-    station_pubkey: ntor::PublicKey,
+    station_pubkey: Obfs4NtorPublicKey,
     iat_mode: IAT,
 ) -> ClientSession<Initialized> {
-    let session_keys = ntor::SessionKeyPair::new(true);
-    let session_id = session_keys.get_public().to_bytes()[..SESSION_ID_LEN]
-        .try_into()
-        .unwrap();
+    let mut session_id =  [0u8; SESSION_ID_LEN];
+    rand::thread_rng().fill_bytes(&mut session_id);
     ClientSession {
-        session_keys,
-        node_id: station_id,
         node_pubkey: station_pubkey,
         session_id,
         iat_mode,
@@ -187,15 +172,15 @@ impl ClientSession<Initialized> {
         let mut session = self.transition(ClientHandshaking {});
 
         let materials = CHSMaterials::new(
-            &session.session_keys,
-            &session.node_id,
             session.node_pubkey,
             session.session_id,
         );
 
+        let mut rng = rand::thread_rng();
+
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials);
+        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng);
         let handshake =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -253,12 +238,15 @@ impl ClientSession<Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<T>(
+    async fn complete_handshake<'k, K, R, T>(
         mut stream: T,
-        materials: CHSMaterials<'_>,
-    ) -> Result<ClientHandshake<'_, ClientHandshakeSuccess>>
+        materials: CHSMaterials,
+        rng: R,
+    ) -> Result<K>
     where
         T: AsyncRead + AsyncWrite + Unpin,
+        R: RngCore + CryptoRng,
+        K: KeyGenerator + 'k,
     {
         // complete handshake
         let handshake = handshake_client::new(materials)?;
@@ -293,10 +281,9 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[ id:{}, ident_pk:{}, sess_key:{:?}, iat:{:?}, epoch_hr:{} ]",
-            hex::encode(self.node_id.as_bytes()),
-            hex::encode(self.node_pubkey.as_bytes()),
-            self.session_keys,
+            "[ id:{}, ident_pk:{}, iat:{:?}, epoch_hr:{} ]",
+            hex::encode(self.node_pubkey.id.as_bytes()),
+            hex::encode(self.node_pubkey.pk.as_bytes()),
             self.iat_mode,
             self.epoch_hour,
         )
@@ -310,13 +297,11 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 pub(crate) struct ServerSession<'a, S: ServerSessionState> {
     // fixed by server
     iat_mode: IAT,
-    node_id: ntor::ID,
-    identity_keys: &'a ntor::IdentityKeyPair,
+    identity_keys: &'a Obfs4NtorSecretKey,
     replay_filter: &'a mut ReplayFilter,
     biased: bool,
 
     // generated per session
-    session_keys: ntor::SessionKeyPair,
     session_id: [u8; SESSION_ID_LEN],
     len_seed: drbg::Seed,
     iat_seed: drbg::Seed,
@@ -359,14 +344,12 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     {
         ServerSession {
             // fixed by server
-            node_id: self.node_id,
             iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
             replay_filter: self.replay_filter,
             biased: self.biased,
 
             // generated per session
-            session_keys: self.session_keys,
             session_id: self.session_id,
             len_seed: self.len_seed,
             iat_seed: self.iat_seed,
@@ -382,14 +365,12 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     {
         ServerSession {
             // fixed by server
-            node_id: self.node_id,
             iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
             replay_filter: self.replay_filter,
             biased: self.biased,
 
             // generated per session
-            session_keys: self.session_keys,
             session_id: self.session_id,
             len_seed: self.len_seed,
             iat_seed: self.iat_seed,
@@ -400,26 +381,22 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
 }
 
 pub fn new_server_session<'a>(
-    identity_keys: &'a ntor::IdentityKeyPair,
-    node_id: ntor::ID,
+    identity_keys: &'a Obfs4NtorSecretKey,
     iat_mode: IAT,
     replay_filter: &'a mut ReplayFilter,
 ) -> Result<ServerSession<'a, Initialized>> {
-    let session_keys = ntor::SessionKeyPair::new(true);
 
+    let mut session_id =  [0u8; SESSION_ID_LEN];
+    rand::thread_rng().fill_bytes(&mut session_id);
     Ok(ServerSession {
         // fixed by server
-        node_id,
         iat_mode,
         identity_keys,
         replay_filter,
         biased: false,
 
         // generated per session
-        session_id: session_keys.public.to_bytes()[..SESSION_ID_LEN]
-            .try_into()
-            .unwrap(),
-        session_keys,
+        session_id,
         len_seed: drbg::Seed::new().unwrap(),
         iat_seed: drbg::Seed::new().unwrap(),
 
@@ -441,20 +418,19 @@ impl<'b> ServerSession<'b, Initialized> {
         let mut session = self.transition(ServerHandshaking {});
 
         let materials = SHSMaterials::new(
-            session.node_id.clone(),
             session.identity_keys,
-            &session.session_keys,
             session.replay_filter,
-            session.session_id,
+            session.session_id(),
             session.len_seed.to_bytes(),
         );
 
         // complete handshake
+        let rng = rand::thread_rng();
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials);
-        let handshake =
+        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng);
+        let keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
                     Ok(handshake) => handshake,
@@ -484,12 +460,9 @@ impl<'b> ServerSession<'b, Initialized> {
                 }
             };
 
-        // retrieve handshake artifacts on success
-        let handshake_artifacts = handshake.take_state();
-        let mut codec = handshake_artifacts.codec;
-
         // post handshake state updates
-        session.set_session_id(handshake_artifacts.session_id);
+        session.set_session_id(keygen.session_id());
+        let codec = keygen.take_codec();
 
         // mark session as Established
         let session_state: ServerSession<Established> = session.transition(Established {});
@@ -501,16 +474,51 @@ impl<'b> ServerSession<'b, Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<T>(
+    async fn complete_handshake<'k, K, R, T>(
         mut stream: T,
-        materials: SHSMaterials<'_>,
-    ) -> Result<ServerHandshake<ServerHandshakeSuccess>>
+        materials: SHSMaterials<'k>,
+        rng: R,
+    ) -> Result<K>
     where
         T: AsyncRead + AsyncWrite + Unpin,
+        R: RngCore + CryptoRng,
+        K: KeyGenerator + 'k,
     {
-        let handshake = handshake_server::new(materials)?;
-        let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
-        handshake.complete(&mut stream).await
+        // wait for and attempt to consume the client hello message
+        let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
+        let keygen: K;
+        let mut response: Vec<u8> = vec![];
+        loop {
+            let n = stream.read(&mut buf).await?;
+            trace!("{} successful read {n}B", materials.session_id);
+
+            let mut relay_ntsks = [*materials.identity_keys];
+
+            let (kg, response) = match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &relay_ntsks[..], &buf){
+                Ok(chs) => chs,
+                Err(crate::common::ntor_arti::RelayHandshakeError::Fmt(tor_bytes::Error::Truncated)) => {
+                    trace!("{} reading more", materials.session_id);
+                    continue;
+                }
+                Err(e) => {
+                    trace!(
+                        "{} failed to parse client handshake: {e}",
+                        materials.session_id,
+                    );
+                    return Err(e.into());
+                }
+            };
+
+            break;
+        }
+
+        stream.write_all(&response).await?;
+
+        Ok(keygen)
+
+        // let handshake = handshake_server::new(materials)?;
+        // let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
+        // handshake.complete(&mut stream).await
     }
 }
 

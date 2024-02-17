@@ -71,14 +71,6 @@ impl EncryptingCodec {
     }
 }
 
-impl<K:KeyGenerator> From<K> for EncryptingCodec {
-    fn from(keygen: K) -> Self {
-        let ekm: [u8;KEY_MATERIAL_LENGTH] = keygen.expand(KEY_MATERIAL_LENGTH).try_into().unwrap();
-        let dkm: [u8;KEY_MATERIAL_LENGTH] = keygen.expand(KEY_MATERIAL_LENGTH).try_into().unwrap();
-        Self::new(ekm, dkm)
-    }
-}
-
 ///Decoder is a frame decoder instance.
 struct EncryptingDecoder {
     key: [u8; KEY_LENGTH],

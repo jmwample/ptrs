@@ -5,7 +5,6 @@ use std::{fmt::Display, str::FromStr};
 use hex::FromHexError;
 use sha2::digest::InvalidLength;
 
-use crate::common::ntor;
 use crate::obfs4;
 
 /// Result type returning [`Error`] or `T`
@@ -61,7 +60,6 @@ pub enum Error {
     },
 
 
-    NtorError(ntor::NtorError),
     Obfs4Framing(obfs4::framing::FrameError),
 }
 
@@ -87,8 +85,6 @@ impl Display for Error {
             Error::BytesErr {object, err} => write!(f, "Unable to parse {object}: {err}"),
             Error::NtorEncodeErr { object, err } => write!(f,"Problem while encoding {object}: {err}"),
 
-
-            Error::NtorError(e) => write!(f, "{e}"),
             Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
     }
@@ -195,12 +191,6 @@ impl From<InvalidLength> for Error {
 impl From<obfs4::framing::FrameError> for Error {
     fn from(e: obfs4::framing::FrameError) -> Self {
         Error::Obfs4Framing(e)
-    }
-}
-
-impl From<ntor::NtorError> for Error {
-    fn from(e: ntor::NtorError) -> Self {
-        Error::NtorError(e)
     }
 }
 

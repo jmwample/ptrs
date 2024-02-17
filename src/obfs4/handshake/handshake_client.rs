@@ -1,4 +1,6 @@
 
+use rand::Rng;
+
 use super::*;
 
 /// Perform a client handshake, generating an onionskin and a state object
@@ -90,4 +92,25 @@ where
     ntor_derive(&xy, &xb, &state.relay_public, &state.my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))
         .map_err(|e| Error::Bug(e))
+}
+
+/// materials required to initiate a handshake from the client role.
+#[derive(Debug)]
+pub(crate) struct HandshakeMaterials {
+    pub(crate) node_pubkey: Obfs4NtorPublicKey,
+    pub(crate) pad_len: usize,
+    pub(crate) session_id: [u8; SESSION_ID_LEN],
+}
+
+impl<'a> HandshakeMaterials {
+    pub(crate) fn new(
+        node_pubkey: Obfs4NtorPublicKey,
+        session_id: [u8; SESSION_ID_LEN],
+    ) -> Self {
+        HandshakeMaterials {
+            node_pubkey,
+            session_id,
+            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
+        }
+    }
 }

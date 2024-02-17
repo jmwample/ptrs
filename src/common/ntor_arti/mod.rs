@@ -1,4 +1,4 @@
-//! Circuit extension handshake for Tor.
+//!  Generic Handshake for Tor. Extension of Tor circuit creation handshake design.
 //!
 //! Tor circuit handshakes all implement a one-way-authenticated key
 //! exchange, where a client that knows a public "onion key" for a
@@ -10,13 +10,6 @@
 //!
 //! Currently, this module implements only the "ntor" handshake used
 //! for circuits on today's Tor.
-pub(crate) mod fast;
-#[cfg(feature = "hs-common")]
-pub mod hs_ntor;
-pub(crate) mod ntor;
-#[cfg(feature = "ntor_v3")]
-pub(crate) mod ntor_v3;
-
 use std::borrow::Borrow;
 
 use crate::Result;
@@ -133,13 +126,6 @@ impl TapKeyGenerator {
     /// Create a key generator based on a provided seed
     pub(crate) fn new(seed: SecretBuf) -> Self {
         TapKeyGenerator { seed }
-    }
-}
-
-impl KeyGenerator for TapKeyGenerator {
-    fn expand(self, keylen: usize) -> Result<SecretBuf> {
-        use crate::common::kdf::{Kdf, LegacyKdf};
-        LegacyKdf::new(1).derive(&self.seed[..], keylen)
     }
 }
 

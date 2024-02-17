@@ -1,6 +1,9 @@
 
 use super::*;
 
+use crate::common::HmacSha256;
+use crate::common::replay_filter;
+
 /// Perform a server-side ntor handshake.
 ///
 /// On success returns a key generator and a server onionskin.
@@ -13,10 +16,6 @@ where
     R: RngCore + CryptoRng,
     T: AsRef<[u8]>,
 {
-    // TODO(nickm): we generate this key whether or not we are
-    // actually going to find our nodeid or keyid. Perhaps we should
-    // delay that till later?  It shouldn't matter for most cases,
-    // though.
     let ephem = EphemeralSecret::random_from_rng(rng);
     let ephem_pub = PublicKey::from(&ephem);
 
@@ -72,5 +71,40 @@ where
         Ok((keygen, reply))
     } else {
         Err(RelayHandshakeError::BadClientHandshake)
+    }
+}
+
+
+// #[derive(Debug)]
+pub(crate) struct HandshakeMaterials<'a> {
+    pub(crate) identity_keys: &'a Obfs4NtorSecretKey,
+    pub(crate) replay_filter: &'a mut replay_filter::ReplayFilter,
+
+    pub(crate) session_id: String,
+    pub(crate) len_seed: [u8; SEED_LENGTH],
+}
+
+impl<'a> HandshakeMaterials<'a> {
+    pub fn get_hmac(&self) -> HmacSha256 {
+        let mut key = self.identity_keys.pk.pk.as_bytes().to_vec();
+        key.append(&mut self.identity_keys.pk.id.as_bytes().to_vec());
+        HmacSha256::new_from_slice(&key[..]).unwrap()
+    }
+
+    pub fn new<'b>(
+        identity_keys: &'b Obfs4NtorSecretKey,
+        replay_filter: &'b mut replay_filter::ReplayFilter,
+        session_id: String,
+        len_seed: [u8; SEED_LENGTH],
+    ) -> Self
+    where
+        'b: 'a,
+    {
+        HandshakeMaterials {
+            identity_keys,
+            replay_filter,
+            session_id,
+            len_seed,
+        }
     }
 }

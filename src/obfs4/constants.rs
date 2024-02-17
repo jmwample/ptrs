@@ -1,8 +1,14 @@
 #![allow(unused)]
 
+use tor_llcrypto::pk::rsa::RSA_ID_LEN;
+
 use crate::{
-    common::{drbg, ntor},
+    common::{
+        drbg,
+        curve25519::REPRESENTATIVE_LENGTH,
+    },
     obfs4::framing,
+    obfs4::handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;
@@ -21,13 +27,13 @@ pub const CLIENT_MIN_PAD_LENGTH: usize =
     (SERVER_MIN_HANDSHAKE_LENGTH + INLINE_SEED_FRAME_LENGTH) - CLIENT_MIN_HANDSHAKE_LENGTH;
 pub const CLIENT_MAX_PAD_LENGTH: usize = MAX_HANDSHAKE_LENGTH - CLIENT_MIN_HANDSHAKE_LENGTH;
 pub const CLIENT_MIN_HANDSHAKE_LENGTH: usize =
-    ntor::REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
+    REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
 
 pub const SERVER_MIN_PAD_LENGTH: usize = 0;
 pub const SERVER_MAX_PAD_LENGTH: usize =
     MAX_HANDSHAKE_LENGTH - (SERVER_MIN_HANDSHAKE_LENGTH + INLINE_SEED_FRAME_LENGTH);
 pub const SERVER_MIN_HANDSHAKE_LENGTH: usize =
-    ntor::REPRESENTATIVE_LENGTH + ntor::AUTH_LENGTH + MARK_LENGTH + MAC_LENGTH;
+    REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH + MARK_LENGTH + MAC_LENGTH;
 
 pub const INLINE_SEED_FRAME_LENGTH: usize =
     framing::FRAME_OVERHEAD + MESSAGE_OVERHEAD + SEED_MESSAGE_PAYLOAD_LENGTH;
@@ -72,3 +78,6 @@ pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
 pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::MESSAGE_OVERHEAD;
 
 pub const SESSION_ID_LEN: usize = 8;
+
+pub const NODE_ID_LENGTH: usize = RSA_ID_LEN;
+pub const NODE_PUBKEY_LENGTH: usize = 32;

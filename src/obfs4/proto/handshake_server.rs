@@ -8,6 +8,7 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{self, FrameError, Obfs4Codec, KEY_MATERIAL_LENGTH},
+        handshake::Obfs4NtorSecretKey,
         proto::{
             find_mac_mark, get_epoch_hour, handshake_client::ClientHandshakeMessage, make_pad,
             MessageTypes,
@@ -26,45 +27,6 @@ use tracing::{debug, trace};
 
 use std::time::Instant;
 
-// #[derive(Debug)]
-pub(crate) struct HandshakeMaterials<'a> {
-    node_id: ntor::ID,
-    identity_keys: &'a ntor::IdentityKeyPair,
-    session_keys: &'a ntor::SessionKeyPair,
-    replay_filter: &'a mut replay_filter::ReplayFilter,
-
-    session_id: [u8; SESSION_ID_LEN],
-    len_seed: [u8; SEED_LENGTH],
-}
-
-impl<'a> HandshakeMaterials<'a> {
-    pub fn get_hmac(&self) -> HmacSha256 {
-        let mut key = self.identity_keys.public.as_bytes().to_vec();
-        key.append(&mut self.node_id.to_bytes().to_vec());
-        HmacSha256::new_from_slice(&key[..]).unwrap()
-    }
-
-    pub fn new<'b>(
-        node_id: ntor::ID,
-        identity_keys: &'b ntor::IdentityKeyPair,
-        session_keys: &'b ntor::SessionKeyPair,
-        replay_filter: &'b mut replay_filter::ReplayFilter,
-        session_id: [u8; SESSION_ID_LEN],
-        len_seed: [u8; SEED_LENGTH],
-    ) -> Self
-    where
-        'b: 'a,
-    {
-        HandshakeMaterials {
-            node_id,
-            identity_keys,
-            session_keys,
-            replay_filter,
-            session_id,
-            len_seed,
-        }
-    }
-}
 
 // #[derive(Debug)]
 pub(crate) struct ServerHandshake<'a, S: ServerHandshakeState> {
@@ -236,8 +198,7 @@ impl<'b> ServerHandshake<'b, NewServerHandshake> {
         }
 
         Ok(ClientHandshakeMessage::new(
-            repres,
-            0, // doesn't matter when we are reading client handshake msg
+            repres, 0, // doesn't matter when we are reading client handshake msg
             epoch_hr,
         ))
     }
@@ -343,11 +304,7 @@ pub struct ServerHandshakeMessage {
 }
 
 impl ServerHandshakeMessage {
-    pub fn new(
-        repres: Representative,
-        server_auth: [u8; AUTH_LENGTH],
-        epoch_hr: String,
-    ) -> Self {
+    pub fn new(repres: Representative, server_auth: [u8; AUTH_LENGTH], epoch_hr: String) -> Self {
         Self {
             server_auth,
             pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
