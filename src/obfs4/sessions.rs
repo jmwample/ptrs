@@ -1,25 +1,31 @@
-//
-//
+//! obfs4 session details and construction
+//!
+/// Session state management as a way to organize session establishment and
+/// steady state transfer.
 
-use std::vec;
-
-use super::IAT;
-/// Session state management as a way to organize session establishment.
 use crate::{
     common::{
-        colorize, discard, drbg, ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake}, replay_filter::ReplayFilter
+        colorize, discard, drbg,
+        ntor_arti::{ClientHandshake, RelayHandshakeError, ServerHandshake},
+        replay_filter::ReplayFilter,
     },
     obfs4::{
-        constants::*, framing::{self, FrameError},
-        handshake::{CHSMaterials, Obfs4NtorClient, Obfs4NtorPublicKey, Obfs4NtorSecretKey, Obfs4NtorServer, SHSMaterials},
-        proto::{O4Stream, Obfs4Stream, CLIENT_HANDSHAKE_TIMEOUT},
+        constants::*,
+        framing,
+        handshake::{
+            CHSMaterials, Obfs4Keygen, Obfs4NtorClient, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
+            Obfs4NtorServer, SHSMaterials,
+        },
+        proto::{O4Stream, Obfs4Stream, IAT},
     },
     Error, Result,
 };
 
-use rand_core::{RngCore, CryptoRng};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-use tokio::time::{Duration, Instant};
+use bytes::BytesMut;
+use rand_core::{CryptoRng, RngCore};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::time::Instant;
+use tokio_util::codec::Decoder;
 use tracing::{debug, info, trace};
 
 /// Initial state for a Session, created with any params.
@@ -137,7 +143,7 @@ pub fn new_client_session(
     station_pubkey: Obfs4NtorPublicKey,
     iat_mode: IAT,
 ) -> ClientSession<Initialized> {
-    let mut session_id =  [0u8; SESSION_ID_LEN];
+    let mut session_id = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut session_id);
     ClientSession {
         node_pubkey: station_pubkey,
@@ -171,53 +177,38 @@ impl ClientSession<Initialized> {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
 
-        let materials = CHSMaterials::new(
-            session.node_pubkey,
-            session.session_id,
-        );
+        let materials = CHSMaterials::new(session.node_pubkey, session.session_id());
 
         let mut rng = rand::thread_rng();
 
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng);
-        let handshake =
-            match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
-                Ok(result) => match result {
-                    Ok(handshake) => handshake,
-                    Err(e) => {
-                        // non-timeout error,
-                        let id = session.session_id();
-                        let session = session.fault(ClientHandshakeFailed {
-                            details: format!("{id} handshake failed {e}"),
-                        });
-                        // if a deadline was set and has not passed alread, discard
-                        // from the stream until the deadline, then close.
-                        if deadline.is_some_and(|d| d > Instant::now()) {
-                            session
-                                .discard(&mut stream, deadline.unwrap() - Instant::now())
-                                .await?;
-                        }
-                        stream.shutdown().await?;
-                        return Err(e);
-                    }
-                },
-                Err(_) => {
+        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng, deadline);
+        let (mut remainder, mut keygen) = match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
+            Ok(result) => match result {
+                Ok(handshake) => handshake,
+                Err(e) => {
+                    // non-timeout error,
                     let id = session.session_id();
                     let _ = session.fault(ClientHandshakeFailed {
-                        details: format!("{id} timed out"),
+                        details: format!("{id} handshake failed {e}"),
                     });
-                    return Err(Error::HandshakeTimeout);
+                    return Err(e);
                 }
-            };
-
-        // retrieve handshake artifacts on success
-        let handshake_artifacts = handshake.take_state();
-        let mut codec = handshake_artifacts.codec;
-        let mut remainder = handshake_artifacts.remainder;
+            },
+            Err(_) => {
+                let id = session.session_id();
+                let _ = session.fault(ClientHandshakeFailed {
+                    details: format!("{id} timed out"),
+                });
+                return Err(Error::HandshakeTimeout);
+            }
+        };
 
         // post handshake state updates
-        session.set_session_id(handshake_artifacts.session_id);
+        session.set_session_id(keygen.session_id());
+        let mut codec: framing::Obfs4Codec = keygen.into();
+
         let res = codec.decode(&mut remainder);
         if let Ok(Some(framing::Messages::PrngSeed(seed))) = res {
             // try to parse the remainder of the server hello packet as a
@@ -238,21 +229,35 @@ impl ClientSession<Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<'k, K, R, T>(
+    async fn complete_handshake<R, T>(
         mut stream: T,
         materials: CHSMaterials,
-        rng: R,
-    ) -> Result<K>
+        mut rng: R,
+        deadline: Option<Instant>,
+    ) -> Result<(BytesMut, impl Obfs4Keygen)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
         R: RngCore + CryptoRng,
-        K: KeyGenerator + 'k,
     {
-        // complete handshake
-        let handshake = handshake_client::new(materials)?;
-        let handshake = handshake.start(&mut stream).await?;
-        let handshake = handshake.retrieve_server_response(&mut stream).await?;
-        handshake.complete().await
+        let (state, chs_message) = Obfs4NtorClient::client1(&mut rng, &materials.node_pubkey, &())?;
+        stream.write_all(&chs_message).await?;
+
+        let mut buf = [0u8; MAX_HANDSHAKE_LENGTH];
+        let n = stream.read(&mut buf).await?;
+
+        match Obfs4NtorClient::client2(state, &buf[..n]) {
+            Ok(r) => Ok(r), 
+            Err(e) => {
+                // if a deadline was set and has not passed alread, discard
+                // from the stream until the deadline, then close.
+                if deadline.is_some_and(|d| d > Instant::now()) {
+                    debug!("{} discarding due to: {e}", materials.session_id);
+                    discard(&mut stream, deadline.unwrap() - Instant::now()).await?;
+                }
+                stream.shutdown().await?;
+                return Err(e)
+            }
+        }
     }
 }
 
@@ -264,16 +269,6 @@ impl ClientSession<ClientHandshaking> {
             hex::encode(seed.as_bytes())
         );
         self.len_seed = seed;
-    }
-}
-
-impl ClientSession<ClientHandshakeFailed> {
-    pub(crate) async fn discard<T>(&self, stream: T, d: Duration) -> Result<()>
-    where
-        T: AsyncRead + AsyncWrite + Unpin,
-    {
-        debug!("{} discarding due to: {}", self.session_id(), self._state.details);
-        discard(stream, d).await
     }
 }
 
@@ -385,8 +380,7 @@ pub fn new_server_session<'a>(
     iat_mode: IAT,
     replay_filter: &'a mut ReplayFilter,
 ) -> Result<ServerSession<'a, Initialized>> {
-
-    let mut session_id =  [0u8; SESSION_ID_LEN];
+    let mut session_id = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut session_id);
     Ok(ServerSession {
         // fixed by server
@@ -425,29 +419,21 @@ impl<'b> ServerSession<'b, Initialized> {
         );
 
         // complete handshake
-        let rng = rand::thread_rng();
+        let mut rng = rand::thread_rng();
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng);
-        let keygen =
+        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng, deadline);
+        let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
                     Ok(handshake) => handshake,
                     Err(e) => {
                         // non-timeout error,
                         let id = session.session_id();
-                        let session = session.fault(ServerHandshakeFailed {
+                        let _ = session.fault(ServerHandshakeFailed {
                             details: format!("{id} handshake failed {e}"),
                         });
-                        // if a deadline was set and has not passed alread, discard
-                        // from the stream until the deadline, then close.
-                        if deadline.is_some_and(|d| d > Instant::now()) {
-                            session
-                                .discard(&mut stream, deadline.unwrap() - Instant::now())
-                                .await?;
-                        }
-                        stream.shutdown().await?;
                         return Err(e);
                     }
                 },
@@ -462,7 +448,7 @@ impl<'b> ServerSession<'b, Initialized> {
 
         // post handshake state updates
         session.set_session_id(keygen.session_id());
-        let codec = keygen.take_codec();
+        let mut codec: framing::Obfs4Codec = keygen.into();
 
         // mark session as Established
         let session_state: ServerSession<Established> = session.transition(Established {});
@@ -474,29 +460,31 @@ impl<'b> ServerSession<'b, Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<'k, K, R, T>(
+    async fn complete_handshake<'k, R, T>(
         mut stream: T,
         materials: SHSMaterials<'k>,
-        rng: R,
-    ) -> Result<K>
+        mut rng: R,
+        deadline: Option<Instant>,
+    ) -> Result<impl Obfs4Keygen>
     where
         T: AsyncRead + AsyncWrite + Unpin,
         R: RngCore + CryptoRng,
-        K: KeyGenerator + 'k,
     {
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-        let keygen: K;
-        let mut response: Vec<u8> = vec![];
         loop {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", materials.session_id);
 
-            let mut relay_ntsks = [*materials.identity_keys];
+            let relay_ntsks = [materials.identity_keys.clone()];
 
-            let (kg, response) = match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &relay_ntsks[..], &buf){
-                Ok(chs) => chs,
-                Err(crate::common::ntor_arti::RelayHandshakeError::Fmt(tor_bytes::Error::Truncated)) => {
+            match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &relay_ntsks[..], &buf)
+            {
+                Ok((keygen, response)) => {
+                    stream.write_all(&response).await?;
+                    return Ok(keygen);
+                }
+                Err(RelayHandshakeError::EAgain) => {
                     trace!("{} reading more", materials.session_id);
                     continue;
                 }
@@ -505,16 +493,17 @@ impl<'b> ServerSession<'b, Initialized> {
                         "{} failed to parse client handshake: {e}",
                         materials.session_id,
                     );
+                    // if a deadline was set and has not passed alread, discard
+                    // from the stream until the deadline, then close.
+                    if deadline.is_some_and(|d| d > Instant::now()) {
+                        debug!("{} discarding due to: {e}", materials.session_id);
+                        discard(&mut stream, deadline.unwrap() - Instant::now()).await?
+                    }
+                    stream.shutdown().await?;
                     return Err(e.into());
                 }
             };
-
-            break;
         }
-
-        stream.write_all(&response).await?;
-
-        Ok(keygen)
 
         // let handshake = handshake_server::new(materials)?;
         // let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
@@ -522,12 +511,3 @@ impl<'b> ServerSession<'b, Initialized> {
     }
 }
 
-impl<'b> ServerSession<'b, ServerHandshakeFailed> {
-    pub(crate) async fn discard<T>(&self, stream: T, d: Duration) -> Result<()>
-    where
-        T: AsyncRead + AsyncWrite + Unpin,
-    {
-        debug!("{} discarding due to: {}", self.session_id(), self._state.details);
-        discard(stream, d).await
-    }
-}

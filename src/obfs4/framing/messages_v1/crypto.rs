@@ -60,7 +60,7 @@ mod tests {
     use pqc_kyber::*;
     use x25519_dalek::{EphemeralSecret, PublicKey};
 
-    use crate::common::ntor::{Representative, SessionKeyPair, IdentityKeyPair};
+    use crate::obfs4::handshake::Obfs4NtorSecretKey;
 
     type Result<T> = std::result::Result<T, Error>;
 
@@ -81,58 +81,18 @@ mod tests {
         pub x25519: PublicKey,
     }
 
-    impl From<&Kyber1024XSessionKeys> for Kyber1024XPublicKey {
-        fn from(value: &Kyber1024XSessionKeys) -> Self {
-            Kyber1024XPublicKey {
-                x25519: value.x25519.public,
-                kyber1024: value.kyber1024.public,
-            }
-        }
-    }
-
     impl From<&Kyber1024XIdentityKeys> for Kyber1024XPublicKey {
         fn from(value: &Kyber1024XIdentityKeys) -> Self {
             Kyber1024XPublicKey {
-                x25519: value.x25519.public,
+                x25519: value.x25519.pk.pk,
                 kyber1024: value.kyber1024.public,
-            }
-        }
-    }
-
-
-    struct Kyber1024XSessionKeys {
-        pub kyber1024: pqc_kyber::Keypair,
-        pub x25519: SessionKeyPair,
-    }
-
-    impl Kyber1024XSessionKeys {
-        fn new() -> Self {
-            let mut rng = rand::thread_rng();
-
-            Kyber1024XSessionKeys {
-                x25519: SessionKeyPair::new(true),
-                kyber1024: pqc_kyber::keypair(&mut rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_random<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
-            Kyber1024XSessionKeys {
-                x25519: SessionKeyPair::new(true),
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
-            }
-        }
-
-        fn from_x25519<R: CryptoRng + RngCore>(keys: SessionKeyPair, rng: &mut R) -> Self {
-            Kyber1024XSessionKeys {
-                x25519: keys,
-                kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
             }
         }
     }
 
     struct Kyber1024XIdentityKeys {
         pub kyber1024: pqc_kyber::Keypair,
-        pub x25519: IdentityKeyPair,
+        pub x25519: Obfs4NtorSecretKey,
     }
 
     impl Kyber1024XIdentityKeys {
@@ -140,19 +100,19 @@ mod tests {
             let mut rng = rand::thread_rng();
 
             Kyber1024XIdentityKeys {
-                x25519: IdentityKeyPair::new(),
+                x25519: Obfs4NtorSecretKey::getrandom(),
                 kyber1024: pqc_kyber::keypair(&mut rng).expect("kyber1024 key generation failed"),
             }
         }
 
         fn from_random<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
             Kyber1024XIdentityKeys {
-                x25519: IdentityKeyPair::new(),
+                x25519: Obfs4NtorSecretKey::getrandom(),
                 kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
             }
         }
 
-        fn from_x25519<R: CryptoRng + RngCore>(keys: IdentityKeyPair, rng: &mut R) -> Self {
+        fn from_x25519<R: CryptoRng + RngCore>(keys: Obfs4NtorSecretKey, rng: &mut R) -> Self {
             Kyber1024XIdentityKeys {
                 x25519: keys,
                 kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),

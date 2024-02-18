@@ -6,6 +6,7 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{self, MessageTypes},
+        sessions::Session,
     },
     Result,
 };
@@ -26,16 +27,6 @@ use std::{
     task::{Context, Poll},
 };
 
-mod client;
-pub use client::{Client, ClientBuilder};
-mod server;
-#[allow(unused)]
-pub use server::{Server, ServerBuilder};
-
-
-
-mod sessions;
-pub(crate) use sessions::Session;
 
 use super::framing::{FrameError, Messages};
 
@@ -59,7 +50,7 @@ pub(crate) enum MaybeTimeout {
 }
 
 impl MaybeTimeout {
-    fn duration(&self) -> Option<Duration> {
+    pub(crate) fn duration(&self) -> Option<Duration> {
         match self {
             MaybeTimeout::Default_ => Some(CLIENT_HANDSHAKE_TIMEOUT),
             MaybeTimeout::Fixed(i) => {

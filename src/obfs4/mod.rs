@@ -2,17 +2,17 @@
 
 use crate::{traits::*, Result};
 
-// pub mod client;
-// pub mod server;
-//
+pub mod client;
+pub mod server;
+
 pub mod framing;
 pub mod proto;
-pub use proto::{Client, ClientBuilder};
-pub use proto::{Server, ServerBuilder};
+pub use client::{Client, ClientBuilder};
+pub use server::{Server, ServerBuilder};
 
 pub(crate) mod handshake;
-
 pub(crate) mod constants;
+pub(crate) mod sessions;
 
 const NAME: &str = "obfs4";
 

@@ -4,7 +4,7 @@ use std::{convert::TryFrom, default::Default, net, str::FromStr};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use obfs::obfs4::proto::{ClientBuilder, Server};
+use obfs::obfs4::{ClientBuilder, Server};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},
@@ -121,7 +121,7 @@ impl ExitConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let server = Server::new_from_random();
+        let server = Server::getrandom();
         println!("{}\n{}", server.client_params(), server.client_params().as_opts());
 
         let t_name = "obfs4";

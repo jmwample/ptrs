@@ -1,8 +1,20 @@
 
 use super::*;
+use crate::{
+    common::{
+        curve25519::{PublicRepresentative, PublicKey}, HmacSha256, replay_filter,
+    },
+    // obfs4::{
+    //     constants::*,
+    //     handshake::{
+    //         utils::find_mac_mark,
+    //     },
+    // },
+};
 
-use crate::common::HmacSha256;
-use crate::common::replay_filter;
+use bytes::BufMut;
+use rand::Rng;
+use tracing::trace;
 
 /// Perform a server-side ntor handshake.
 ///
@@ -32,6 +44,11 @@ pub(crate) fn server_handshake_obfs4_no_keygen<T>(
 where
     T: AsRef<[u8]>,
 {
+
+    if CLIENT_MIN_HANDSHAKE_LENGTH > msg.as_ref().len() {
+        Err(RelayHandshakeError::EAgain)?;
+    }
+
     let mut cur = Reader::from_slice(msg.as_ref());
 
     let my_id: RsaIdentity = cur.extract()?;
@@ -106,5 +123,76 @@ impl<'a> HandshakeMaterials<'a> {
             session_id,
             len_seed,
         }
+    }
+}
+
+
+pub struct ServerHandshakeMessage {
+    server_auth: [u8; AUTHCODE_LENGTH],
+    pad_len: usize,
+    repres: PublicRepresentative,
+    pubkey: Option<PublicKey>,
+    epoch_hour: String,
+}
+
+impl ServerHandshakeMessage {
+    pub fn new(repres: PublicRepresentative, server_auth: [u8; AUTHCODE_LENGTH], epoch_hr: String) -> Self {
+        Self {
+            server_auth,
+            pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
+            repres,
+            pubkey: None,
+            epoch_hour: epoch_hr,
+        }
+    }
+
+    pub fn server_pubkey(&mut self) -> PublicKey {
+        match self.pubkey {
+            Some(pk) => pk,
+            None => {
+                let pk = PublicKey::from(&self.repres);
+                self.pubkey = Some(pk);
+                pk
+            }
+        }
+    }
+
+    pub fn server_auth(self) -> [u8; AUTHCODE_LENGTH] {
+        self.server_auth
+    }
+
+    fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
+        trace!("serializing server handshake");
+
+        h.reset();
+        h.update(self.repres.as_bytes().as_ref());
+        let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
+
+        // The server handshake is Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E) where:
+        //  * Y is the server's ephemeral Curve25519 public key representative.
+        //  * AUTH is the ntor handshake AUTH value.
+        //  * P_S is [serverMinPadLength,serverMaxPadLength] bytes of random padding.
+        //  * M_S is HMAC-SHA256-128(serverIdentity | NodeID, Y)
+        //  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, Y .... E)
+        //  * E is the string representation of the number of hours since the UNIX
+        //    epoch.
+
+        // Generate the padding
+        let pad: &[u8] = &make_pad(self.pad_len)?;
+
+        // Write Y, AUTH, P_S, M_S.
+        let mut params = vec![];
+        params.extend_from_slice(self.repres.as_bytes());
+        params.extend_from_slice(&self.server_auth);
+        params.extend_from_slice(pad);
+        params.extend_from_slice(mark);
+        buf.put(params.as_slice());
+
+        // Calculate and write MAC
+        h.update(&params);
+        h.update(self.epoch_hour.as_bytes());
+        buf.put(&h.finalize_reset().into_bytes()[..MAC_LENGTH]);
+
+        Ok(())
     }
 }

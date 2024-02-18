@@ -1,5 +1,4 @@
-use super::*;
-use crate::{obfs4::proto::Server, test_utils::init_subscriber, Result};
+use crate::{obfs4::Server, test_utils::init_subscriber, Result};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, trace};
@@ -291,7 +290,7 @@ async fn transfer_2_x() -> Result<()> {
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
     let mut rng = rand::thread_rng();
 
-    let mut o4_server = proto::Server::new_from_random(&mut rng);
+    let mut o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {

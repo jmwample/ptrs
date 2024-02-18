@@ -4,7 +4,7 @@ use crate::{
     common::{
         ct,
         curve25519::{
-            EphemeralSecret, PublicKey, PublicRepresentative, SharedSecret, StaticSecret,
+            EphemeralSecret, PublicKey, SharedSecret, StaticSecret,
         },
         ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
@@ -18,6 +18,7 @@ use crate::{
 
 use std::borrow::Borrow;
 
+use bytes::BytesMut;
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_error::into_internal;
 use tor_llcrypto::d::{self, Sha256};
@@ -60,7 +61,7 @@ impl ClientHandshake for Obfs4NtorClient {
     type StateType = NtorHandshakeState;
     type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = ();
-    type ServerAuxData = ();
+    type ServerAuxData = BytesMut;
 
     fn client1<R: RngCore + CryptoRng, M: Borrow<()>>(
         rng: &mut R,
@@ -70,9 +71,9 @@ impl ClientHandshake for Obfs4NtorClient {
         client_handshake_obfs4(rng, key)
     }
 
-    fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<((), Self::KeyGen)> {
-        let keygen = client_handshake2_obfs4(msg, &state)?;
-        Ok(((), keygen))
+    fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<(Self::ServerAuxData, Self::KeyGen)> {
+        let (remainder, keygen) = client_handshake2_obfs4(msg, &state)?;
+        Ok((remainder, keygen))
     }
 }
 

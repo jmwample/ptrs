@@ -1,6 +1,5 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
-    common::ntor_arti::KeyGenerator,
     obfs4::framing::{FrameError, Messages},
 };
 

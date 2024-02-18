@@ -5,6 +5,7 @@ use std::{fmt::Display, str::FromStr};
 use hex::FromHexError;
 use sha2::digest::InvalidLength;
 
+use crate::common::ntor_arti::RelayHandshakeError;
 use crate::obfs4;
 
 /// Result type returning [`Error`] or `T`
@@ -59,6 +60,7 @@ pub enum Error {
         err: tor_bytes::EncodeError,
     },
 
+    HandshakeErr(RelayHandshakeError),
 
     Obfs4Framing(obfs4::framing::FrameError),
 }
@@ -84,6 +86,8 @@ impl Display for Error {
             Error::CellDecodeErr {object, err} => write!(f, "Unable to decode cell {object}: {err}"),
             Error::BytesErr {object, err} => write!(f, "Unable to parse {object}: {err}"),
             Error::NtorEncodeErr { object, err } => write!(f,"Problem while encoding {object}: {err}"),
+
+            Error::HandshakeErr(err) => write!(f, "handshake failed or unable to complete: {err}"),
 
             Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
@@ -191,6 +195,12 @@ impl From<InvalidLength> for Error {
 impl From<obfs4::framing::FrameError> for Error {
     fn from(e: obfs4::framing::FrameError) -> Self {
         Error::Obfs4Framing(e)
+    }
+}
+
+impl From<RelayHandshakeError> for Error {
+    fn from(value: RelayHandshakeError) -> Self {
+        Error::HandshakeErr(value)
     }
 }
 

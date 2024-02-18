@@ -17,7 +17,7 @@
 use super::*;
 use crate::{
     common::curve25519,
-    common::ntor_arti::{ClientHandshake, ServerHandshake},
+    common::ntor_arti::{ClientHandshake, ServerHandshake, KeyGenerator},
     test_utils::FakePRNG,
     Result,
 };
@@ -48,7 +48,7 @@ fn test_obfs4_roundtrip() -> Result<()> {
         server_handshake_obfs4_no_keygen(ephem_pub, ephem, &create_msg[..], &[relay_private])
             .unwrap();
 
-    let c_keygen = client_handshake2_obfs4(created_msg, &state)?;
+    let (_, c_keygen) = client_handshake2_obfs4(created_msg, &state)?;
 
     let c_keys = c_keygen.expand(72)?;
     let s_keys = s_keygen.expand(72)?;
