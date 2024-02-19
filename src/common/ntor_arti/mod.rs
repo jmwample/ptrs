@@ -152,6 +152,9 @@ pub(crate) enum RelayHandshakeError {
     /// The client did something wrong with their handshake or cryptography.
     #[error("Bad handshake from client")]
     BadClientHandshake,
+    /// The client's handshake matched a previous handshake indicating a potential replay attack.
+    #[error("Handshake from client was seen recently -- potentially replayed.")]
+    ReplayedHandshake,
     /// An internal error.
     #[error("Internal error")]
     Internal(#[from] tor_error::Bug),

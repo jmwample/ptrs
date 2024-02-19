@@ -246,7 +246,7 @@ impl ClientSession<Initialized> {
         let n = stream.read(&mut buf).await?;
 
         match Obfs4NtorClient::client2(state, &buf[..n]) {
-            Ok(r) => Ok(r), 
+            Ok(r) => Ok(r),
             Err(e) => {
                 // if a deadline was set and has not passed alread, discard
                 // from the stream until the deadline, then close.
@@ -399,6 +399,7 @@ pub fn new_server_session<'a>(
 }
 
 impl<'b> ServerSession<'b, Initialized> {
+    /// Attempt to complete the handshake with a new client connection.
     pub async fn handshake<'a, T>(
         self,
         mut stream: T,
@@ -460,6 +461,9 @@ impl<'b> ServerSession<'b, Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
+    /// Complete the handshake with the client. This function assumes that the
+    /// client has already sent a message and that we do not know yet if the
+    /// message is valid.
     async fn complete_handshake<'k, R, T>(
         mut stream: T,
         materials: SHSMaterials<'k>,
@@ -476,9 +480,7 @@ impl<'b> ServerSession<'b, Initialized> {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", materials.session_id);
 
-            let relay_ntsks = [materials.identity_keys.clone()];
-
-            match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &relay_ntsks[..], &buf)
+            match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &[materials.identity_keys.clone()], &buf)
             {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
@@ -493,7 +495,7 @@ impl<'b> ServerSession<'b, Initialized> {
                         "{} failed to parse client handshake: {e}",
                         materials.session_id,
                     );
-                    // if a deadline was set and has not passed alread, discard
+                    // if a deadline was set and has not passed already, discard
                     // from the stream until the deadline, then close.
                     if deadline.is_some_and(|d| d > Instant::now()) {
                         debug!("{} discarding due to: {e}", materials.session_id);
@@ -504,10 +506,5 @@ impl<'b> ServerSession<'b, Initialized> {
                 }
             };
         }
-
-        // let handshake = handshake_server::new(materials)?;
-        // let handshake = handshake.retrieve_client_handshake(&mut stream).await?;
-        // handshake.complete(&mut stream).await
     }
 }
-
