@@ -1,31 +1,29 @@
-
 use super::*;
 use crate::{
     common::{
         curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH},
         ntor_arti::RelayHandshakeError,
-        replay_filter, HmacSha256
+        HmacSha256,
     },
     obfs4::{
-        framing::{ClientHandshakeMessage, ServerHandshakeMessage, Messages, MessageTypes, build_and_marshall},
-        // constants::*,
-        // handshake::{
-        //     utils::find_mac_mark,
-        // },
+        framing::{
+            build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
+        }, // constants::*,
+           // handshake::{
+           //     utils::find_mac_mark,
+           // },
     },
 };
 
-use tracing::{debug, trace};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Encoder;
+use tracing::{debug, trace};
 
 use std::time::Instant;
 
 // #[derive(Debug)]
 pub(crate) struct HandshakeMaterials<'a> {
     pub(crate) identity_keys: &'a Obfs4NtorSecretKey,
-    pub(crate) replay_filter: &'a mut replay_filter::ReplayFilter,
-
     pub(crate) session_id: String,
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
@@ -39,7 +37,6 @@ impl<'a> HandshakeMaterials<'a> {
 
     pub fn new<'b>(
         identity_keys: &'b Obfs4NtorSecretKey,
-        replay_filter: &'b mut replay_filter::ReplayFilter,
         session_id: String,
         len_seed: [u8; SEED_LENGTH],
     ) -> Self
@@ -48,13 +45,11 @@ impl<'a> HandshakeMaterials<'a> {
     {
         HandshakeMaterials {
             identity_keys,
-            replay_filter,
             session_id,
             len_seed,
         }
     }
 }
-
 
 /// Perform a server-side ntor handshake.
 ///
@@ -62,24 +57,22 @@ impl<'a> HandshakeMaterials<'a> {
 pub(super) fn server_handshake_obfs4<R, T>(
     rng: &mut R,
     msg: T,
-    keys: &[Obfs4NtorSecretKey],
+    keys: &Obfs4NtorSecretKey,
 ) -> RelayHandshakeResult<(NtorHkdfKeyGenerator, Vec<u8>)>
 where
     R: RngCore + CryptoRng,
     T: AsRef<[u8]>,
 {
     let ephem = EphemeralSecret::random_from_rng(rng);
-    let ephem_pub = PublicKey::from(&ephem);
 
-    server_handshake_obfs4_no_keygen(ephem_pub, ephem, msg, keys)
+    server_handshake_obfs4_no_keygen(ephem, msg, keys)
 }
 
 /// Helper: perform a server handshake without generating any new keys.
 pub(crate) fn server_handshake_obfs4_no_keygen<T>(
-    ephem_pub: PublicKey,
     ephem: EphemeralSecret,
     msg: T,
-    keys: &[Obfs4NtorSecretKey],
+    keys: &Obfs4NtorSecretKey,
 ) -> RelayHandshakeResult<(NtorHkdfKeyGenerator, Vec<u8>)>
 where
     T: AsRef<[u8]>,
@@ -88,34 +81,42 @@ where
         Err(RelayHandshakeError::EAgain)?;
     }
 
-    let mut cur = Reader::from_slice(msg.as_ref());
-
-    let my_id: RsaIdentity = cur.extract()?;
-    let my_key_bytes: [u8; 32] = cur.extract()?;
-    let my_key = PublicKey::from(my_key_bytes);
-    let their_pk_bytes: [u8; 32] = cur.extract()?;
-    let their_pk = PublicKey::from(their_pk_bytes);
-
-    let keypair = ct_lookup(keys, |key| key.matches_pk(&my_key));
-    let keypair = match keypair {
-        Some(k) => k,
-        None => return Err(RelayHandshakeError::MissingKey),
+    let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
+    let client_hs = match try_parse_client_handshake(msg, materials) {
+        Ok(chs) => chs,
+        Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
+            trace!("{} reading more", materials.session_id);
+            return Err(RelayHandshakeError::EAgain);
+        }
+        Err(e) => {
+            debug!(
+                "{} failed to parse client handshake: {e}",
+                materials.session_id
+            );
+            return Err(RelayHandshakeError::BadClientHandshake);
+        }
     };
 
-    if my_id != keypair.pk.id {
-        return Err(RelayHandshakeError::MissingKey);
-    }
+    debug!(
+        "{} successfully parsed client handshake",
+        materials.session_id
+    );
+    let their_pk = client_hs.get_public();
 
     let xy = ephem.diffie_hellman(&their_pk);
-    let xb = keypair.sk.diffie_hellman(&their_pk);
+    let xb = keys.sk.diffie_hellman(&their_pk);
 
+    // Ensure that none of the keys are broken (i.e. equal to zero).
     let okay =
         ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
 
-    let (keygen, authcode) = ntor_derive(&xy, &xb, &keypair.pk, &their_pk, &ephem_pub)
+    let ephem_pub = PublicKey::from(&ephem);
+
+    let (keygen, authcode) = ntor_derive(&xy, &xb, &keys.pk, &their_pk, &ephem_pub)
         .map_err(into_internal!("Error deriving keys"))?;
 
-    let mut reply: Vec<u8> = Vec::new();
+    let mut reply = complete_server_hs(&client_hs, materials, &ephem, &mut keygen, authcode)?;
+
     tor_bytes::Writer::write(&mut reply, &ephem_pub.as_bytes())
         .and_then(|_| reply.write_and_consume(authcode))
         .map_err(into_internal!(
@@ -129,84 +130,14 @@ where
     }
 }
 
-
-pub async fn retrieve_client_handshake<'a, T>(
-    stream: &mut T,
-    materials: &mut HandshakeMaterials<'a>,
-) -> Result<ClientHandshakeMessage>
-where
-    T: AsyncRead + AsyncWrite + Unpin,
-{
-    // wait for and attempt to consume the client hello message
-    let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-    let client_hs: ClientHandshakeMessage;
-    loop {
-        let n = stream.read(&mut buf).await?;
-        trace!("{} successful read {n}B", materials.session_id);
-
-        client_hs = match try_parse_client_handshake(&mut buf[..n], materials) {
-            Ok(chs) => chs,
-            Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
-                trace!("{} reading more", materials.session_id);
-                continue;
-            }
-            Err(e) => {
-                trace!("{} failed to parse client handshake: {e}", materials.session_id);
-                return Err(e)?;
-            }
-        };
-
-        break;
-    }
-
-    debug!("{} successfully parsed client handshake", materials.session_id);
-
-    Ok(client_hs)
-}
-
-
-pub async fn complete<'a, T>(
-    mut stream: T,
-    client_hs: &mut ClientHandshakeMessage,
+pub(crate) fn complete_server_hs<'a>(
+    client_hs: &ClientHandshakeMessage,
     materials: HandshakeMaterials<'a>,
-) -> Result<(NtorHkdfKeyGenerator, Vec<u8>)>
-where
-    T: AsyncRead + AsyncWrite + Unpin,
-{
-    // let client_hs = &mut self._h_state.client_hs;
-
-    // derive key materials
-    let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
-        &client_hs.get_public(),
-        materials.session_keys,
-        materials.identity_keys,
-        &materials.node_id,
-    )
-    .into()
-    {
-        Some(r) => r,
-        None => Err(Error::NtorError(ntor::NtorError::HSFailure(
-            "failed to derive sharedsecret".into(),
-        )))?,
-    };
-
+    ephem: &EphemeralSecret,
+    keygen: &mut NtorHkdfKeyGenerator,
+    authcode: Authcode,
+) -> RelayHandshakeResult<Vec<u8>> {
     let epoch_hr = client_hs.get_epoch_hr();
-    let server_auth = ntor_hs_result.auth;
-
-    // use the derived seed value to bootstrap Read / Write crypto codec.
-    let okm = kdf(
-        ntor_hs_result.key_seed,
-        KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
-    );
-    let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
-        .try_into()
-        .unwrap();
-    let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-
-    // self.set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
-    let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
-
-    let mut codec = Obfs4Codec::new(ekm, dkm);
 
     // Since the current and only implementation always sends a PRNG seed for
     // the length obfuscation, this makes the amount of data received from the
@@ -217,16 +148,17 @@ where
     // as part of the server response).  See inlineSeedFrameLength in
     // handshake_ntor.go.
 
+    let auth: [u8; 32] = authcode.into_bytes()[..].try_into().unwrap();
+    let repres: Option<PublicRepresentative> = ephem.into();
+
     // Generate/send the response.
-    let mut sh_msg = ServerHandshakeMessage::new(
-        materials.session_keys.representative.clone().unwrap(),
-        server_auth.to_bytes(),
-        epoch_hr,
-    );
+    let mut sh_msg = ServerHandshakeMessage::new(repres.unwrap(), auth, epoch_hr);
 
     let h = materials.get_hmac();
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-    sh_msg.marshall(&mut buf, h)?;
+    sh_msg
+        .marshall(&mut buf, h)
+        .map_err(|e| RelayHandshakeError::FrameError(format!("{e}")))?;
     trace!("adding encoded prng seed");
 
     // Send the PRNG seed as part of the first packet.
@@ -236,9 +168,13 @@ where
         MessageTypes::PrngSeed.into(),
         materials.len_seed,
         0,
-    )?;
+    )
+    .map_err(|e| RelayHandshakeError::FrameError(format!("{e}")))?;
 
-    codec.encode(prng_pkt_buf, &mut buf)?;
+    let codec = &mut keygen.codec;
+    codec
+        .encode(prng_pkt_buf, &mut buf)
+        .map_err(|e| RelayHandshakeError::FrameError(format!("{e}")))?;
 
     debug!(
         "{} writing server handshake {}B",
@@ -246,14 +182,8 @@ where
         buf.len()
     );
 
-    stream.write_all(&buf).await?;
-
-    Ok(ServerHandshake {
-        materials: self.materials,
-        _h_state: ServerHandshakeSuccess { session_id, codec },
-    })
+    Ok(buf.to_vec())
 }
-
 
 fn try_parse_client_handshake(
     buf: impl AsRef<[u8]>,
@@ -340,8 +270,134 @@ fn try_parse_client_handshake(
     }
 
     Ok(ClientHandshakeMessage::new(
-        repres,
-        0, // doesn't matter when we are reading client handshake msg
+        repres, 0, // doesn't matter when we are reading client handshake msg
         epoch_hr,
     ))
 }
+
+/*
+pub async fn complete<'a, T>(
+    mut stream: T,
+    client_hs: &ClientHandshakeMessage,
+    materials: HandshakeMaterials<'a>,
+    ephem: EphemeralSecret,
+
+) -> Result<(NtorHkdfKeyGenerator, Vec<u8>)>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    // let client_hs = &mut self._h_state.client_hs;
+
+    // derive key materials
+    let ntor_hs_result: ntor::HandShakeResult = match ntor::HandShakeResult::server_handshake(
+        &client_hs.get_public(),
+        materials.session_keys,
+        materials.identity_keys,
+        &materials.node_id,
+    )
+    .into()
+    {
+        Some(r) => r,
+        None => Err(Error::NtorError(ntor::NtorError::HSFailure(
+            "failed to derive sharedsecret".into(),
+        )))?,
+    };
+
+    let epoch_hr = client_hs.get_epoch_hr();
+    let server_auth = ntor_hs_result.auth;
+
+    // use the derived seed value to bootstrap Read / Write crypto codec.
+    let okm = kdf(
+        ntor_hs_result.key_seed,
+        KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
+    );
+    let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
+        .try_into()
+        .unwrap();
+    let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
+
+    // self.set_session_id(okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap());
+    let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
+
+    let mut codec = Obfs4Codec::new(ekm, dkm);
+
+    // Since the current and only implementation always sends a PRNG seed for
+    // the length obfuscation, this makes the amount of data received from the
+    // server inconsistent with the length sent from the client.
+    //
+    // Re-balance this by tweaking the client minimum padding/server maximum
+    // padding, and sending the PRNG seed unpadded (As in, treat the PRNG seed
+    // as part of the server response).  See inlineSeedFrameLength in
+    // handshake_ntor.go.
+
+    // Generate/send the response.
+    let mut sh_msg = ServerHandshakeMessage::new(
+        materials.session_keys.representative.clone().unwrap(),
+        server_auth.to_bytes(),
+        epoch_hr,
+    );
+
+    let h = materials.get_hmac();
+    let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
+    sh_msg.marshall(&mut buf, h)?;
+    trace!("adding encoded prng seed");
+
+    // Send the PRNG seed as part of the first packet.
+    let mut prng_pkt_buf = BytesMut::new();
+    build_and_marshall(
+        &mut prng_pkt_buf,
+        MessageTypes::PrngSeed.into(),
+        materials.len_seed,
+        0,
+    )?;
+
+    codec.encode(prng_pkt_buf, &mut buf)?;
+
+    debug!(
+        "{} writing server handshake {}B",
+        materials.session_id,
+        buf.len()
+    );
+
+    stream.write_all(&buf).await?;
+
+    Ok(ServerHandshake {
+        materials: self.materials,
+        _h_state: ServerHandshakeSuccess { session_id, codec },
+    })
+}
+
+pub async fn retrieve_client_handshake<'a, T>(
+    stream: &mut T,
+    materials: &mut HandshakeMaterials<'a>,
+) -> Result<ClientHandshakeMessage>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    // wait for and attempt to consume the client hello message
+    let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
+    let client_hs: ClientHandshakeMessage;
+    loop {
+        let n = stream.read(&mut buf).await?;
+        trace!("{} successful read {n}B", materials.session_id);
+
+        client_hs = match try_parse_client_handshake(&mut buf[..n], materials) {
+            Ok(chs) => chs,
+            Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
+                trace!("{} reading more", materials.session_id);
+                continue;
+            }
+            Err(e) => {
+                trace!("{} failed to parse client handshake: {e}", materials.session_id);
+                return Err(e)?;
+            }
+        };
+
+        break;
+    }
+
+    debug!("{} successfully parsed client handshake", materials.session_id);
+
+    Ok(client_hs)
+}
+*/

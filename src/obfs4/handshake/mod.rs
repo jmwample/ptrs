@@ -12,7 +12,7 @@ use crate::{
         },
         kdf::{Kdf, Ntor1Kdf},
     },
-    obfs4::{constants::*, framing::{Obfs4Codec, KEY_MATERIAL_LENGTH}},
+    obfs4::{constants::*, framing::{Obfs4Codec, KEY_MATERIAL_LENGTH}, Server},
     Error, Result,
 };
 
@@ -24,6 +24,7 @@ use tor_error::into_internal;
 use tor_llcrypto::d::{self, Sha256};
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::util::ct::ct_lookup;
+use tracing::warn;
 use digest::Mac;
 use hmac::Hmac;
 use rand_core::{CryptoRng, RngCore};
@@ -78,25 +79,33 @@ impl ClientHandshake for Obfs4NtorClient {
 }
 
 /// Server side of the ntor handshake.
-pub(crate) struct Obfs4NtorServer;
+pub(crate) struct Obfs4NtorHandshake;
 
-impl ServerHandshake for Obfs4NtorServer {
+impl ServerHandshake for Obfs4NtorHandshake {
     type KeyType = Obfs4NtorSecretKey;
     type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = ();
     type ServerAuxData = ();
+    type Resources = Server;
 
     fn server<R: RngCore + CryptoRng, REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
+        globals: &Self::Resources,
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)> {
         reply_fn
             .reply(&())
             .ok_or(RelayHandshakeError::BadClientHandshake)?;
 
-        server_handshake_obfs4(rng, msg, key)
+        if key.is_empty() {
+            return Err(RelayHandshakeError::MissingKey);
+        } else if key.len() > 1 {
+            warn!("Multiple keys provided, but only the first key will be used");
+        }
+
+        server_handshake_obfs4(rng, msg, &key[0])
     }
 }
 

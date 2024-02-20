@@ -79,6 +79,9 @@ where
 /// A ServerHandshake is used to handle a client onionskin and generate a
 /// server onionskin.
 pub(crate) trait ServerHandshake {
+    /// A type for (potentially shared) state accessible during the server
+    /// handshake. Should only be used when neccesary.
+    type Resources;
     /// The type for the onion key.  This is a private key type.
     type KeyType;
     /// The returned key generator type.
@@ -98,6 +101,7 @@ pub(crate) trait ServerHandshake {
         rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
+        resources: &Self::Resources,
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)>;
 }

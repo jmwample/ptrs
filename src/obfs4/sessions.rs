@@ -2,12 +2,10 @@
 //!
 /// Session state management as a way to organize session establishment and
 /// steady state transfer.
-
 use crate::{
     common::{
         colorize, discard, drbg,
         ntor_arti::{ClientHandshake, RelayHandshakeError, ServerHandshake},
-        replay_filter::ReplayFilter,
     },
     obfs4::{
         constants::*,
@@ -16,6 +14,7 @@ use crate::{
             CHSMaterials, Obfs4Keygen, Obfs4NtorClient, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
             Obfs4NtorServer, SHSMaterials,
         },
+        server::Server,
         proto::{O4Stream, Obfs4Stream, IAT},
     },
     Error, Result,
@@ -53,7 +52,7 @@ impl<'a> Session<'a> {
     pub fn biased(&self) -> bool {
         match self {
             Session::Client(cs) => cs.biased,
-            Session::Server(ss) => ss.biased,
+            Session::Server(ss) => ss.server.biased, //biased,
         }
     }
 
@@ -184,26 +183,27 @@ impl ClientSession<Initialized> {
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
         let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng, deadline);
-        let (mut remainder, mut keygen) = match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
-            Ok(result) => match result {
-                Ok(handshake) => handshake,
-                Err(e) => {
-                    // non-timeout error,
+        let (mut remainder, mut keygen) =
+            match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
+                Ok(result) => match result {
+                    Ok(handshake) => handshake,
+                    Err(e) => {
+                        // non-timeout error,
+                        let id = session.session_id();
+                        let _ = session.fault(ClientHandshakeFailed {
+                            details: format!("{id} handshake failed {e}"),
+                        });
+                        return Err(e);
+                    }
+                },
+                Err(_) => {
                     let id = session.session_id();
                     let _ = session.fault(ClientHandshakeFailed {
-                        details: format!("{id} handshake failed {e}"),
+                        details: format!("{id} timed out"),
                     });
-                    return Err(e);
+                    return Err(Error::HandshakeTimeout);
                 }
-            },
-            Err(_) => {
-                let id = session.session_id();
-                let _ = session.fault(ClientHandshakeFailed {
-                    details: format!("{id} timed out"),
-                });
-                return Err(Error::HandshakeTimeout);
-            }
-        };
+            };
 
         // post handshake state updates
         session.set_session_id(keygen.session_id());
@@ -255,7 +255,7 @@ impl ClientSession<Initialized> {
                     discard(&mut stream, deadline.unwrap() - Instant::now()).await?;
                 }
                 stream.shutdown().await?;
-                return Err(e)
+                return Err(e);
             }
         }
     }
@@ -286,15 +286,13 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 }
 
 // ================================================================ //
-//                          Server States                           //
+//                   Server Sessions States                         //
 // ================================================================ //
 
 pub(crate) struct ServerSession<'a, S: ServerSessionState> {
     // fixed by server
-    iat_mode: IAT,
     identity_keys: &'a Obfs4NtorSecretKey,
-    replay_filter: &'a mut ReplayFilter,
-    biased: bool,
+    server: &'a Server,
 
     // generated per session
     session_id: [u8; SESSION_ID_LEN],
@@ -339,10 +337,8 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     {
         ServerSession {
             // fixed by server
-            iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
-            replay_filter: self.replay_filter,
-            biased: self.biased,
+            server: self.server,
 
             // generated per session
             session_id: self.session_id,
@@ -360,10 +356,8 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     {
         ServerSession {
             // fixed by server
-            iat_mode: self.iat_mode,
             identity_keys: self.identity_keys,
-            replay_filter: self.replay_filter,
-            biased: self.biased,
+            server: self.server,
 
             // generated per session
             session_id: self.session_id,
@@ -375,19 +369,13 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 }
 
-pub fn new_server_session<'a>(
-    identity_keys: &'a Obfs4NtorSecretKey,
-    iat_mode: IAT,
-    replay_filter: &'a mut ReplayFilter,
-) -> Result<ServerSession<'a, Initialized>> {
+pub fn new_server_session<'a>(server: &Server) -> Result<ServerSession<'a, Initialized>> {
     let mut session_id = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut session_id);
     Ok(ServerSession {
         // fixed by server
-        iat_mode,
-        identity_keys,
-        replay_filter,
-        biased: false,
+        identity_keys: &server.identity_keys,
+        server,
 
         // generated per session
         session_id,
@@ -414,7 +402,6 @@ impl<'b> ServerSession<'b, Initialized> {
 
         let materials = SHSMaterials::new(
             session.identity_keys,
-            session.replay_filter,
             session.session_id(),
             session.len_seed.to_bytes(),
         );
@@ -424,7 +411,13 @@ impl<'b> ServerSession<'b, Initialized> {
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng, deadline);
+        let handshake_fut = Self::complete_handshake(
+            &mut stream,
+            materials,
+            &mut rng,
+            deadline,
+            &mut session.server,
+        );
         let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -469,6 +462,7 @@ impl<'b> ServerSession<'b, Initialized> {
         materials: SHSMaterials<'k>,
         mut rng: R,
         deadline: Option<Instant>,
+        server: &Server,
     ) -> Result<impl Obfs4Keygen>
     where
         T: AsyncRead + AsyncWrite + Unpin,
@@ -480,8 +474,13 @@ impl<'b> ServerSession<'b, Initialized> {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", materials.session_id);
 
-            match Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &[materials.identity_keys.clone()], &buf)
-            {
+            match Obfs4NtorServer::server(
+                &mut rng,
+                &mut |_: &()| Some(()),
+                &[materials.identity_keys.clone()],
+                server,
+                &buf,
+            ) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
                     return Ok(keygen);

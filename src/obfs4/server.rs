@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use super::*;
 use crate::{
     common::{
         colorize,
@@ -13,6 +14,7 @@ use crate::{
         sessions::Session,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
         handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
+        metrics::{Metrics, ServerMetrics},
         proto::{MaybeTimeout, IAT, Obfs4Stream},
         client::ClientBuilder,
     },
@@ -20,7 +22,7 @@ use crate::{
     Error, Result,
 };
 
-use super::*;
+use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes};
 use hmac::{Hmac, Mac};
@@ -73,8 +75,12 @@ impl ServerBuilder {
         })
     }
 
-    pub fn node_pubkey(mut self, privkey: [u8; KEY_LENGTH]) -> Self {
-        self.identity_keys.sk = privkey.into();
+    /// 64 byte combined representation of an x25519 public key, private key
+    /// combination.
+    pub fn node_keys(mut self, keys: [u8; KEY_LENGTH*2]) -> Self {
+        let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
+        let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
+        self.identity_keys.sk = sk.into();
         self.identity_keys.pk.pk = (&self.identity_keys.sk).into();
         self
     }
@@ -111,18 +117,25 @@ impl ServerBuilder {
     pub fn build(self) -> Server {
         Server {
             identity_keys: self.identity_keys,
-            replay_filter: ReplayFilter::new(REPLAY_TTL),
             iat_mode: self.iat_mode,
+            biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
+
+            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
+            replay_filter: ReplayFilter::new(REPLAY_TTL),
         }
     }
 }
 
 pub struct Server {
-    identity_keys: Obfs4NtorSecretKey,
-    iat_mode: IAT,
-    replay_filter: ReplayFilter,
-    handshake_timeout: Option<tokio::time::Duration>,
+    pub(crate) handshake_timeout: Option<tokio::time::Duration>,
+    pub(crate) iat_mode: IAT,
+    pub(crate) biased: bool,
+    pub(crate) identity_keys: Obfs4NtorSecretKey,
+
+    pub(crate) replay_filter: ReplayFilter,
+
+    pub(crate) metrics: Metrics,
 }
 
 impl Server {
@@ -141,10 +154,13 @@ impl Server {
         let identity_keys = Obfs4NtorSecretKey { pk, sk };
 
         Self {
+            handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
             iat_mode: IAT::Off,
+            biased: false,
+
+            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
-            handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
         }
     }
 
@@ -152,22 +168,20 @@ impl Server {
         let identity_keys = Obfs4NtorSecretKey::getrandom();
         Self {
             identity_keys,
-            iat_mode: IAT::Off,
-            replay_filter: ReplayFilter::new(REPLAY_TTL),
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
+            iat_mode: IAT::Off,
+            biased: false,
+
+            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
+            replay_filter: ReplayFilter::new(REPLAY_TTL),
         }
     }
 
-    pub async fn wrap<'a, T>(&'a mut self, stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn wrap<'a, T>(&self, stream: T) -> Result<Obfs4Stream<'a, T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
-        let session = sessions::new_server_session(
-            &self.identity_keys,
-            self.iat_mode,
-            &mut self.replay_filter,
-        )?;
-
+        let session = sessions::new_server_session(self)?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
         session.handshake(stream, deadline).await
@@ -194,3 +208,4 @@ impl Server {
         }
     }
 }
+
