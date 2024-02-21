@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH, StaticSecret},
+        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH, StaticSecret, Representable},
         HmacSha256,
     },
     obfs4::{
@@ -55,7 +55,7 @@ pub(super) fn client_handshake_obfs4<R>(
 where
     R: RngCore + CryptoRng,
 {
-    let my_sk = StaticSecret::random_from_rng(rng);
+    let my_sk = Representable::static_from_rng(rng);
 
     let materials = HandshakeMaterials {
         node_pubkey: *relay_public,

@@ -3,7 +3,7 @@
 use crate::{
     common::{
         colorize, ct, curve25519::{
-            EphemeralSecret, PublicKey, SharedSecret, StaticSecret,
+            EphemeralSecret, PublicKey, SharedSecret, StaticSecret, Representable
         }, kdf::{Kdf, Ntor1Kdf}, ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
             ServerHandshake,
@@ -155,13 +155,13 @@ impl Obfs4NtorSecretKey {
         }
     }
 
-    /// Construct a new Obfs4NtorSecretKey from a CSPRNG.
+    /// Construct a new ['Obfs4NtorSecretKey'] from a CSPRNG.
     pub(crate) fn getrandom() -> Self {
-        let mut key = [0_u8; KEY_LENGTH];
+        let sk = Representable::random_static();
+        let pk: PublicKey = (&sk).into();
         let mut id = [0_u8; NODE_ID_LENGTH];
-        getrandom::getrandom(&mut key).expect("internal randomness error");
         getrandom::getrandom(&mut id).expect("internal randomness error");
-        Self::new(StaticSecret::from(key), PublicKey::from(key), RsaIdentity::from(id))
+        Self::new(sk, pk, RsaIdentity::from(id))
     }
 
     /// Generate a key using the given `rng`, suitable for testing.
@@ -171,20 +171,13 @@ impl Obfs4NtorSecretKey {
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
 
-        let sk = StaticSecret::random_from_rng(rng);
+        let sk = Representable::static_from_rng(rng);
 
         let pk = Obfs4NtorPublicKey {
             pk: (&sk).into(),
             id: id.into(),
         };
         Self { pk, sk }
-    }
-
-    /// Return true if the curve25519 public key in `self` matches `pk`.
-    ///
-    /// Used for looking up keys in an array.
-    fn matches_pk(&self, pk: &PublicKey) -> Choice {
-        self.pk.pk.as_bytes().ct_eq(pk.as_bytes())
     }
 }
 
