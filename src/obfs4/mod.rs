@@ -12,7 +12,6 @@ pub use server::{Server, ServerBuilder};
 
 pub(crate) mod constants;
 pub(crate) mod handshake;
-pub(crate) mod metrics;
 pub(crate) mod sessions;
 
 const NAME: &str = "obfs4";

@@ -316,15 +316,15 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 
 pub(crate) struct ServerSession<'a, S: ServerSessionState> {
     // fixed by server
-    identity_keys: &'a Obfs4NtorSecretKey,
-    server: &'a Server,
+    pub(crate) identity_keys: &'a Obfs4NtorSecretKey,
+    pub(crate) server: &'a Server,
 
     // generated per session
-    session_id: [u8; SESSION_ID_LEN],
-    len_seed: drbg::Seed,
-    iat_seed: drbg::Seed,
+    pub(crate) session_id: [u8; SESSION_ID_LEN],
+    pub(crate) len_seed: drbg::Seed,
+    pub(crate) iat_seed: drbg::Seed,
 
-    _state: S,
+    pub(crate) _state: S,
 }
 
 pub(crate) struct ServerHandshaking {}
@@ -394,23 +394,6 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 }
 
-pub fn new_server_session<'a>(server: &Server) -> Result<ServerSession<'a, Initialized>> {
-    let mut session_id = [0u8; SESSION_ID_LEN];
-    rand::thread_rng().fill_bytes(&mut session_id);
-    Ok(ServerSession {
-        // fixed by server
-        identity_keys: &server.identity_keys,
-        server,
-
-        // generated per session
-        session_id,
-        len_seed: drbg::Seed::new().unwrap(),
-        iat_seed: drbg::Seed::new().unwrap(),
-
-        _state: Initialized {},
-    })
-}
-
 impl<'b> ServerSession<'b, Initialized> {
     /// Attempt to complete the handshake with a new client connection.
     pub async fn handshake<'a, T>(
@@ -432,17 +415,17 @@ impl<'b> ServerSession<'b, Initialized> {
         );
 
         // complete handshake
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::OsRng;
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(
+        let handshake_fut = session.server.complete_handshake(
             &mut stream,
             materials,
             &mut rng,
             deadline,
-            &mut session.server,
         );
+
         let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -478,16 +461,18 @@ impl<'b> ServerSession<'b, Initialized> {
 
         Ok(Obfs4Stream::from_o4(o4))
     }
+}
 
+impl Server {
     /// Complete the handshake with the client. This function assumes that the
     /// client has already sent a message and that we do not know yet if the
     /// message is valid.
     async fn complete_handshake<'k, R, T>(
+        &self,
         mut stream: T,
         materials: SHSMaterials<'k>,
         mut rng: R,
         deadline: Option<Instant>,
-        server: &Server,
     ) -> Result<impl Obfs4Keygen>
     where
         T: AsyncRead + AsyncWrite + Unpin,
@@ -499,11 +484,10 @@ impl<'b> ServerSession<'b, Initialized> {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", materials.session_id);
 
-            match Obfs4NtorHandshake::server(
+            match self.server(
                 &mut rng,
                 &mut |_: &()| Some(()),
                 &[materials.identity_keys.clone()],
-                server,
                 &buf,
             ) {
                 Ok((keygen, response)) => {

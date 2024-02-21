@@ -35,12 +35,9 @@ pub(crate) use utils::*;
 
 use handshake_client::{client_handshake_obfs4, client_handshake2_obfs4, NtorHandshakeState};
 pub(crate) use handshake_client::HandshakeMaterials as CHSMaterials;
-use handshake_server::server_handshake_obfs4;
 pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
 #[cfg(test)]
 pub(crate) use handshake_client::{client_handshake_obfs4_no_keygen, client_handshake2_no_auth_check_obfs4};
-#[cfg(test)]
-pub(crate) use handshake_server::server_handshake_obfs4_no_keygen;
 
 use super::framing::KEY_LENGTH;
 
@@ -74,18 +71,17 @@ impl ClientHandshake for Obfs4NtorHandshake {
     }
 }
 
-impl ServerHandshake for Obfs4NtorHandshake {
+impl ServerHandshake for Server {
     type KeyType = Obfs4NtorSecretKey;
     type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = ();
     type ServerAuxData = ();
-    type Resources = Server;
 
     fn server<R: RngCore + CryptoRng, REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+        &self,
         rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
-        globals: &Self::Resources,
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)> {
         reply_fn
@@ -105,13 +101,13 @@ impl ServerHandshake for Obfs4NtorHandshake {
         rng.fill_bytes(&mut session_id);
         rng.fill_bytes(&mut len_seed);
 
-        let mut shs_materials = SHSMaterials {
+        let shs_materials = SHSMaterials {
             identity_keys: &key[0],
             len_seed,
             session_id: colorize(session_id),
         };
 
-        server_handshake_obfs4(rng, msg, shs_materials)
+        self.server_handshake_obfs4(rng, msg, shs_materials)
     }
 }
 

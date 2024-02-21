@@ -12,6 +12,7 @@
 // cannot easily construct it for testing purposes.  We could in theory
 // kludge something together using a fake Rng, but that might be more
 // trouble than we want to go looking for.
-pub use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret, StaticSecret, PublicRepresentative};
+#[allow(unused)]
+pub use x25519_dalek::{EphemeralSecret, ReusableSecret, PublicKey, SharedSecret, StaticSecret, PublicRepresentative};
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;

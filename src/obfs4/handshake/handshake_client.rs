@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH},
+        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH, StaticSecret},
         HmacSha256,
     },
     obfs4::{
@@ -100,7 +100,7 @@ where
     T: AsRef<[u8]>,
 {
     // try to parse the message as an incoming server handshake.
-    let (mut shs_msg, n) = try_parse(msg, state)?;
+    let (mut shs_msg, n) = try_parse(&msg, state)?;
 
     let their_pk = shs_msg.server_pubkey();
     let auth: Authcode = shs_msg.server_auth();
@@ -210,7 +210,7 @@ fn try_parse(
     );
     if mac_calculated.ct_eq(mac_received).into() {
         return Ok((
-            ServerHandshakeMessage::new(server_repres, server_auth, state.epoch_hr),
+            ServerHandshakeMessage::new(server_repres, server_auth, state.epoch_hr.clone()),
             pos + MARK_LENGTH + MAC_LENGTH,
         ));
     }

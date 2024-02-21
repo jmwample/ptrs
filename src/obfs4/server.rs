@@ -14,7 +14,6 @@ use crate::{
         sessions::Session,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
         handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
-        metrics::{Metrics, ServerMetrics},
         proto::{MaybeTimeout, IAT, Obfs4Stream},
         client::ClientBuilder,
     },
@@ -35,8 +34,8 @@ use tracing::{debug, info};
 
 pub struct ServerBuilder {
     pub iat_mode: IAT,
-    pub identity_keys: Obfs4NtorSecretKey,
     pub statefile_location: Option<String>,
+    pub(crate) identity_keys: Obfs4NtorSecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
 
@@ -121,7 +120,7 @@ impl ServerBuilder {
             biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
 
-            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
+            // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
         }
     }
@@ -135,7 +134,7 @@ pub struct Server {
 
     pub(crate) replay_filter: ReplayFilter,
 
-    pub(crate) metrics: Metrics,
+    // pub(crate) metrics: Metrics,
 }
 
 impl Server {
@@ -159,7 +158,7 @@ impl Server {
             iat_mode: IAT::Off,
             biased: false,
 
-            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
+            // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
         }
     }
@@ -172,16 +171,16 @@ impl Server {
             iat_mode: IAT::Off,
             biased: false,
 
-            metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
+            // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
         }
     }
 
-    pub async fn wrap<'a, T>(&self, stream: T) -> Result<Obfs4Stream<'a, T>>
+    pub async fn wrap<T>(&self, stream: T) -> Result<Obfs4Stream<'_, T>>
     where
-        T: AsyncRead + AsyncWrite + Unpin + 'a,
+        T: AsyncRead + AsyncWrite + Unpin,
     {
-        let session = sessions::new_server_session(self)?;
+        let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
         session.handshake(stream, deadline).await
@@ -207,5 +206,23 @@ impl Server {
             handshake_timeout: MaybeTimeout::Default_,
         }
     }
+
+    pub(crate) fn new_server_session(&self) -> Result<sessions::ServerSession<'_, sessions::Initialized>> {
+        let mut session_id = [0u8; SESSION_ID_LEN];
+        rand::thread_rng().fill_bytes(&mut session_id);
+        Ok(sessions::ServerSession {
+            // fixed by server
+            identity_keys: &self.identity_keys,
+            server: self,
+
+            // generated per session
+            session_id,
+            len_seed: drbg::Seed::new().unwrap(),
+            iat_seed: drbg::Seed::new().unwrap(),
+
+            _state: sessions::Initialized {},
+        })
+    }
+
 }
 
