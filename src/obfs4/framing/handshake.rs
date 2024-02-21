@@ -6,7 +6,7 @@ use crate::{
         HmacSha256,
     },
     obfs4::{
-        constants::*, handshake::{AUTHCODE_LENGTH, get_epoch_hour, make_pad},
+        constants::*, handshake::{AUTHCODE_LENGTH, Authcode, get_epoch_hour, make_pad},
     },
 };
 
@@ -48,7 +48,7 @@ impl ServerHandshakeMessage {
         }
     }
 
-    pub fn server_auth(self) -> [u8; AUTHCODE_LENGTH] {
+    pub fn server_auth(self) -> Authcode {
         self.server_auth
     }
 
@@ -96,12 +96,12 @@ impl ServerHandshakeMessage {
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
 pub struct ClientHandshakeMessage {
-    pad_len: usize,
-    repres: PublicRepresentative,
-    pubkey: Option<PublicKey>,
+    pub(crate) pad_len: usize,
+    pub(crate) repres: PublicRepresentative,
+    pub(crate) pubkey: Option<PublicKey>,
 
     // only used when parsing (i.e. on the server side)
-    epoch_hour: String,
+    pub(crate) epoch_hour: String,
 }
 
 impl ClientHandshakeMessage {

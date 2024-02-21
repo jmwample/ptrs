@@ -2,15 +2,12 @@
 
 use crate::{
     common::{
-        ct,
-        curve25519::{
+        colorize, ct, curve25519::{
             EphemeralSecret, PublicKey, SharedSecret, StaticSecret,
-        },
-        ntor_arti::{
+        }, kdf::{Kdf, Ntor1Kdf}, ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
             ServerHandshake,
-        },
-        kdf::{Kdf, Ntor1Kdf},
+        }
     },
     obfs4::{constants::*, framing::{Obfs4Codec, KEY_MATERIAL_LENGTH}, Server},
     Error, Result,
@@ -19,11 +16,10 @@ use crate::{
 use std::borrow::Borrow;
 
 use bytes::BytesMut;
-use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
+use tor_bytes::{EncodeResult, SecretBuf, Writer};
 use tor_error::into_internal;
-use tor_llcrypto::d::{self, Sha256};
+use tor_llcrypto::d::Sha256;
 use tor_llcrypto::pk::rsa::RsaIdentity;
-use tor_llcrypto::util::ct::ct_lookup;
 use tracing::warn;
 use digest::Mac;
 use hmac::Hmac;
@@ -37,7 +33,7 @@ mod utils;
 // TODO: this is a special tool that will help us later.
 pub(crate) use utils::*;
 
-use handshake_client::{client_handshake_obfs4, client_handshake2_obfs4};
+use handshake_client::{client_handshake_obfs4, client_handshake2_obfs4, NtorHandshakeState};
 pub(crate) use handshake_client::HandshakeMaterials as CHSMaterials;
 use handshake_server::server_handshake_obfs4;
 pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
@@ -54,10 +50,10 @@ pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
 pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
 pub(crate) const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 
-/// Client side of the Ntor handshake.
-pub(crate) struct Obfs4NtorClient;
+/// Struct containing associated function for the obfs4 Ntor handshake.
+pub(crate) struct Obfs4NtorHandshake;
 
-impl ClientHandshake for Obfs4NtorClient {
+impl ClientHandshake for Obfs4NtorHandshake {
     type KeyType = Obfs4NtorPublicKey;
     type StateType = NtorHandshakeState;
     type KeyGen = NtorHkdfKeyGenerator;
@@ -73,13 +69,10 @@ impl ClientHandshake for Obfs4NtorClient {
     }
 
     fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<(Self::ServerAuxData, Self::KeyGen)> {
-        let (remainder, keygen) = client_handshake2_obfs4(msg, &state)?;
-        Ok((remainder, keygen))
+        let (keygen, remainder) = client_handshake2_obfs4(msg, &state)?;
+        Ok((BytesMut::from(&remainder[..]), keygen))
     }
 }
-
-/// Server side of the ntor handshake.
-pub(crate) struct Obfs4NtorHandshake;
 
 impl ServerHandshake for Obfs4NtorHandshake {
     type KeyType = Obfs4NtorSecretKey;
@@ -105,7 +98,20 @@ impl ServerHandshake for Obfs4NtorHandshake {
             warn!("Multiple keys provided, but only the first key will be used");
         }
 
-        server_handshake_obfs4(rng, msg, &key[0])
+        // temporary session id until we can establish a shared session id
+        // derived from the key generation material.
+        let mut session_id = [0u8; SESSION_ID_LEN];
+        let mut len_seed = [0u8; SEED_LENGTH];
+        rng.fill_bytes(&mut session_id);
+        rng.fill_bytes(&mut len_seed);
+
+        let mut shs_materials = SHSMaterials {
+            identity_keys: &key[0],
+            len_seed,
+            session_id: colorize(session_id),
+        };
+
+        server_handshake_obfs4(rng, msg, shs_materials)
     }
 }
 
@@ -186,20 +192,6 @@ impl Obfs4NtorSecretKey {
     }
 }
 
-/// Client state for an ntor handshake.
-pub(crate) struct NtorHandshakeState {
-    /// The relay's public key.  We need to remember this since it is
-    /// used to finish the handshake.
-    relay_public: Obfs4NtorPublicKey,
-    /// The temporary curve25519 secret (x) that we've generated for
-    /// this handshake.
-    // We'd like to EphemeralSecret here, but we can't since we need
-    // to use it twice.
-    my_sk: StaticSecret,
-    /// The public key `X` corresponding to my_sk.
-    my_public: PublicKey,
-}
-
 /// KeyGenerator for use with ntor circuit handshake.
 pub(crate) struct NtorHkdfKeyGenerator {
     /// Secret key information derived from the handshake, used as input
@@ -247,7 +239,7 @@ impl KeyGenerator for NtorHkdfKeyGenerator {
 }
 
 /// Alias for an HMAC output, used to validate correctness of a handshake.
-type Authcode = digest::CtOutput<hmac::Hmac<d::Sha256>>;
+pub(crate) type Authcode = [u8;32];
 pub(crate) const AUTHCODE_LENGTH: usize = 32;
 
 
@@ -306,6 +298,7 @@ fn ntor_derive(
         m.update(&auth_input[..]);
         m.finalize()
     };
+    let auth: [u8;32] = auth_mac.into_bytes()[..].try_into().unwrap();
 
     // key_seed = HMAC_SHA256(message, T_KEY)
     let key_seed_bytes = {
@@ -317,7 +310,7 @@ fn ntor_derive(
     key_seed.write_and_consume(key_seed_bytes)?;
 
     let keygen = NtorHkdfKeyGenerator::new(key_seed);
-    Ok((keygen, auth_mac))
+    Ok((keygen, auth))
 }
 
 /// Obfs4 helper trait to ensure that a returned key generator can be used

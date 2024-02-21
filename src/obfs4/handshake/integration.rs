@@ -17,7 +17,8 @@
 use super::*;
 use crate::{
     common::curve25519,
-    common::ntor_arti::{ClientHandshake, ServerHandshake, KeyGenerator},
+    common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake},
+    obfs4::handshake::Obfs4NtorHandshake,
     test_utils::FakePRNG,
     Result,
 };
@@ -39,16 +40,26 @@ fn test_obfs4_roundtrip() -> Result<()> {
     let x = Obfs4NtorSecretKey::generate_for_test(&mut rng);
     let y = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
-    let (state, create_msg) =
-        client_handshake_obfs4_no_keygen(x.pk.pk, x.sk, &relay_private.pk).unwrap();
+    let chs_materials = CHSMaterials {
+        node_pubkey: relay_private.pk,
+        session_id: "".into(),
+        pad_len: 0,
+    };
+
+    let shs_materials = SHSMaterials {
+        identity_keys: &relay_private,
+        len_seed: [0u8; SEED_LENGTH],
+        session_id: "".into(),
+    };
+
+    let (state, create_msg) = client_handshake_obfs4_no_keygen(x.sk, chs_materials).unwrap();
 
     let ephem = make_fake_ephem_key(&y.sk.as_bytes()[..]);
     let ephem_pub = y.pk.pk;
     let (s_keygen, created_msg) =
-        server_handshake_obfs4_no_keygen(ephem_pub, ephem, &create_msg[..], &[relay_private])
-            .unwrap();
+        server_handshake_obfs4_no_keygen(ephem, &create_msg[..], shs_materials).unwrap();
 
-    let (_, c_keygen) = client_handshake2_obfs4(created_msg, &state)?;
+    let (c_keygen, _) = client_handshake2_obfs4(created_msg, &state)?;
 
     let c_keys = c_keygen.expand(72)?;
     let s_keys = s_keygen.expand(72)?;
@@ -68,18 +79,26 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
         id: relay_identity,
         pk: relay_public,
     };
-    let (state, cmsg) = Obfs4NtorClient::client1(&mut rng, &relay_ntpk, &())?;
+    let (state, cmsg) = Obfs4NtorHandshake::client1(&mut rng, &relay_ntpk, &())?;
 
     let relay_ntsk = Obfs4NtorSecretKey {
         pk: relay_ntpk,
         sk: relay_secret,
     };
     let relay_ntsks = [relay_ntsk];
+    let mut server = Server::new_from_random(&mut rng);
+    server.identity_keys = relay_ntsk;
 
-    let (skeygen, smsg) =
-        Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), &relay_ntsks, &cmsg).unwrap();
+    let (skeygen, smsg) = Obfs4NtorHandshake::server(
+        &mut rng,
+        &mut |_: &()| Some(()),
+        &relay_ntsks,
+        &server,
+        &cmsg,
+    )
+    .unwrap();
 
-    let (_extensions, ckeygen) = Obfs4NtorClient::client2(state, smsg)?;
+    let (_extensions, ckeygen) = Obfs4NtorHandshake::client2(state, smsg)?;
 
     let skeys = skeygen.expand(55)?;
     let ckeys = ckeygen.expand(55)?;
@@ -108,14 +127,24 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let x: StaticSecret = x_sk.into();
     let y: StaticSecret = y_sk.into();
 
-    let (state, create_msg) =
-        client_handshake_obfs4_no_keygen((&x).into(), x, &relay_sk.pk).unwrap();
+    let chs_materials = CHSMaterials {
+        node_pubkey: pk,
+        session_id: "".into(),
+        pad_len: 0,
+    };
+
+    let shs_materials = SHSMaterials {
+        identity_keys: &relay_sk,
+        len_seed: [0u8; SEED_LENGTH],
+        session_id: "".into(),
+    };
+
+    let (state, create_msg) = client_handshake_obfs4_no_keygen(x, chs_materials).unwrap();
 
     let (s_keygen, created_msg) = server_handshake_obfs4_no_keygen(
-        (&y).into(),
         make_fake_ephem_key(&y_sk[..]), // convert the StaticSecret to an EphemeralSecret for api to allow from hex
         &create_msg[..],
-        &[relay_sk],
+        shs_materials,
     )
     .unwrap();
 
@@ -126,13 +155,13 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let s_keys = s_keygen.expand(72)?;
 
     assert_eq!(&s_keys[..], &c_keys[..]);
-    assert_eq!(hex::encode(&auth.into_bytes()), expected_auth);
-    assert_eq!( hex::encode(&seed[..]), expected_seed);
+    assert_eq!(hex::encode(&auth), expected_auth);
+    assert_eq!(hex::encode(&seed[..]), expected_seed);
 
     Ok(())
 }
 
-#[cfg(target_feature="disabled")]
+#[cfg(target_feature = "disabled")]
 #[test]
 fn test_ntor_v1_testvec() -> Result<()> {
     let b_sk = hex!("4820544f4c4420594f5520444f474954204b454550532048415050454e494e47");
@@ -206,25 +235,44 @@ fn failing_handshakes() {
         pk: wrong_public,
     };
 
+    let resources = Server::new_from_random(&mut rng);
+
     // If the client uses the wrong keys, the relay should reject the
     // handshake.
-    let (_, handshake1) = Obfs4NtorClient::client1(&mut rng, &wrong_ntpk1, &()).unwrap();
-    let (_, handshake2) = Obfs4NtorClient::client1(&mut rng, &wrong_ntpk2, &()).unwrap();
-    let (st3, handshake3) = Obfs4NtorClient::client1(&mut rng, &relay_ntpk, &()).unwrap();
+    let (_, handshake1) = Obfs4NtorHandshake::client1(&mut rng, &wrong_ntpk1, &()).unwrap();
+    let (_, handshake2) = Obfs4NtorHandshake::client1(&mut rng, &wrong_ntpk2, &()).unwrap();
+    let (st3, handshake3) = Obfs4NtorHandshake::client1(&mut rng, &relay_ntpk, &()).unwrap();
 
-    let ans1 = Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), relay_ntsks, &handshake1);
-    let ans2 = Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), relay_ntsks, &handshake2);
+    let ans1 = Obfs4NtorHandshake::server(
+        &mut rng,
+        &mut |_: &()| Some(()),
+        relay_ntsks,
+        &resources,
+        &handshake1,
+    );
+    let ans2 = Obfs4NtorHandshake::server(
+        &mut rng,
+        &mut |_: &()| Some(()),
+        relay_ntsks,
+        &resources,
+        &handshake2,
+    );
 
     assert!(ans1.is_err());
     assert!(ans2.is_err());
 
     // If the relay's message is tampered with, the client will
     // reject the handshake.
-    let (_, mut smsg) =
-        Obfs4NtorServer::server(&mut rng, &mut |_: &()| Some(()), relay_ntsks, &handshake3)
-            .unwrap();
+    let (_, mut smsg) = Obfs4NtorHandshake::server(
+        &mut rng,
+        &mut |_: &()| Some(()),
+        relay_ntsks,
+        &resources,
+        &handshake3,
+    )
+    .unwrap();
     smsg[60] ^= 7;
-    let ans3 = Obfs4NtorClient::client2(st3, smsg);
+    let ans3 = Obfs4NtorHandshake::client2(st3, smsg);
     assert!(ans3.is_err());
 }
 

@@ -147,18 +147,32 @@ pub(crate) enum RelayHandshakeError {
     /// before it can succeed or fail.
     #[error("try again with updated input")]
     EAgain,
+
     /// An error in parsing  a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
+
     /// The client asked for a key we didn't have.
     #[error("Client asked for a key or ID that we don't have")]
     MissingKey,
+
     /// The client did something wrong with their handshake or cryptography.
     #[error("Bad handshake from client")]
     BadClientHandshake,
+
+    /// The server did something wrong with their handshake or cryptography or
+    /// an otherwise invalid response was received
+    #[error("Bad handshake from server")]
+    BadServerHandshake,
+
     /// The client's handshake matched a previous handshake indicating a potential replay attack.
     #[error("Handshake from client was seen recently -- potentially replayed.")]
     ReplayedHandshake,
+
+    /// Error occured while creating a frame.
+    #[error("Problem occured while building handshake")]
+    FrameError(String),
+
     /// An internal error.
     #[error("Internal error")]
     Internal(#[from] tor_error::Bug),

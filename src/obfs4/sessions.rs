@@ -11,14 +11,16 @@ use crate::{
         constants::*,
         framing,
         handshake::{
-            CHSMaterials, Obfs4Keygen, Obfs4NtorClient, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
-            Obfs4NtorServer, SHSMaterials,
+            CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
+            SHSMaterials,
         },
-        server::Server,
         proto::{O4Stream, Obfs4Stream, IAT},
+        server::Server,
     },
     Error, Result,
 };
+
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::BytesMut;
 use rand_core::{CryptoRng, RngCore};
@@ -239,23 +241,46 @@ impl ClientSession<Initialized> {
         T: AsyncRead + AsyncWrite + Unpin,
         R: RngCore + CryptoRng,
     {
-        let (state, chs_message) = Obfs4NtorClient::client1(&mut rng, &materials.node_pubkey, &())?;
+        let (state, chs_message) =
+            Obfs4NtorHandshake::client1(&mut rng, &materials.node_pubkey, &())?;
+        // let mut file = tokio::fs::File::create("message.hex").await?;
+        // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
 
-        let mut buf = [0u8; MAX_HANDSHAKE_LENGTH];
-        let n = stream.read(&mut buf).await?;
+        debug!(
+            "{} handshake sent {}B, waiting for sever response",
+            materials.session_id,
+            chs_message.len()
+        );
 
-        match Obfs4NtorClient::client2(state, &buf[..n]) {
-            Ok(r) => Ok(r),
-            Err(e) => {
-                // if a deadline was set and has not passed alread, discard
-                // from the stream until the deadline, then close.
-                if deadline.is_some_and(|d| d > Instant::now()) {
-                    debug!("{} discarding due to: {e}", materials.session_id);
-                    discard(&mut stream, deadline.unwrap() - Instant::now()).await?;
+        let mut buf = [0u8; MAX_HANDSHAKE_LENGTH];
+        loop {
+            let n = stream.read(&mut buf).await?;
+            if n == 0 {
+                Err(Error::IOError(IoError::new(
+                    IoErrorKind::UnexpectedEof,
+                    "read 0B in client handshake",
+                )))?
+            }
+            debug!(
+                "{} read {n}/{}B of server handshake",
+                materials.session_id,
+                buf.len()
+            );
+
+            match Obfs4NtorHandshake::client2(state.clone(), &buf[..n]) {
+                Ok(r) => return Ok(r),
+                Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => continue,
+                Err(e) => {
+                    // if a deadline was set and has not passed already, discard
+                    // from the stream until the deadline, then close.
+                    if deadline.is_some_and(|d| d > Instant::now()) {
+                        debug!("{} discarding due to: {e}", materials.session_id);
+                        discard(&mut stream, deadline.unwrap() - Instant::now()).await?;
+                    }
+                    stream.shutdown().await?;
+                    return Err(e);
                 }
-                stream.shutdown().await?;
-                return Err(e);
             }
         }
     }
@@ -474,7 +499,7 @@ impl<'b> ServerSession<'b, Initialized> {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", materials.session_id);
 
-            match Obfs4NtorServer::server(
+            match Obfs4NtorHandshake::server(
                 &mut rng,
                 &mut |_: &()| Some(()),
                 &[materials.identity_keys.clone()],
