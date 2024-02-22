@@ -114,9 +114,11 @@ impl Server {
             ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
 
 
-        let (mut keygen, authcode) =
+        let (key_seed, authcode) =
             ntor_derive(&xy, &xb, &materials.identity_keys.pk, &their_pk, &ephem_pub)
                 .map_err(into_internal!("Error deriving keys"))?;
+
+        let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
         let mut reply =
             self.complete_server_hs(&client_hs, materials, session_repres.unwrap(), &mut keygen, authcode)?;

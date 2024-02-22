@@ -180,7 +180,7 @@ pub(crate) struct NtorHkdfKeyGenerator {
 
 impl NtorHkdfKeyGenerator {
     /// Create a new key generator to expand a given seed
-    pub(crate) fn new(seed: SecretBuf) -> Self {
+    pub(crate) fn new(seed: SecretBuf, is_client: bool) -> Self {
 
         // use the seed value to bootstrap Read / Write crypto codec.
         let okm = Self::kdf(
@@ -195,9 +195,15 @@ impl NtorHkdfKeyGenerator {
 
         let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
 
+        // server ekm == client dkm and vice-versa
+        let codec = match is_client {
+            false => Obfs4Codec::new(ekm, dkm),
+            true => Obfs4Codec::new(dkm, ekm),
+        };
+
         NtorHkdfKeyGenerator {
             seed,
-            codec: Obfs4Codec::new(ekm, dkm),
+            codec,
             session_id,
         }
     }
@@ -230,7 +236,8 @@ fn ntor_derive(
     server_pk: &Obfs4NtorPublicKey,
     x: &PublicKey,
     y: &PublicKey,
-) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
+) -> EncodeResult<(SecretBuf, Authcode)> {
+// ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
     let server_string = &b"Server"[..];
 
     // obfs4 uses a different order than Ntor V1 and accidentally writes the
@@ -286,8 +293,7 @@ fn ntor_derive(
     let mut key_seed = SecretBuf::new();
     key_seed.write_and_consume(key_seed_bytes)?;
 
-    let keygen = NtorHkdfKeyGenerator::new(key_seed);
-    Ok((keygen, auth))
+    Ok((key_seed, auth))
 }
 
 /// Obfs4 helper trait to ensure that a returned key generator can be used

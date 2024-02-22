@@ -110,8 +110,10 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
 
-    let (keygen, authcode) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
+    let (key_seed, authcode) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))?;
+
+    let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
 
     let okay: bool = (authcode.ct_eq(&auth)
         & ct::bool_to_choice(xy.was_contributory())
@@ -140,10 +142,10 @@ where
     T: AsRef<[u8]>,
 {
     // try to parse the message as an incoming server handshake.
-    let (mut shs_msg, n) = try_parse(msg, state)?;
+    let (mut shs_msg, _) = try_parse(&msg, state)?;
 
     let their_pk = shs_msg.server_pubkey();
-    let auth: Authcode = shs_msg.server_auth();
+    // let auth: Authcode = shs_msg.server_auth();
 
     let node_pubkey = &state.materials.node_pubkey;
     let my_public: PublicKey = (&state.my_sk).into();
@@ -151,9 +153,29 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
 
-    ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
-        .map_err(into_internal!("Error deriving keys"))
-        .map_err(|e| Error::Bug(e))
+    let (key_seed, authcode) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
+        .map_err(into_internal!("Error deriving keys"))?;
+
+    let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
+
+    Ok((keygen, authcode))
+
+    // // try to parse the message as an incoming server handshake.
+    // let (mut shs_msg, n) = try_parse(msg, state)?;
+
+    // let their_pk = shs_msg.server_pubkey();
+    // let _auth: Authcode = shs_msg.server_auth();
+
+    // let node_pubkey = &state.materials.node_pubkey;
+    // let my_public: PublicKey = (&state.my_sk).into();
+
+    // let xy = state.my_sk.diffie_hellman(&their_pk);
+    // let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
+
+    // let (key_seed, auth) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
+    //     .map_err(into_internal!("Error deriving keys"))
+    //     .map_err(|e| Error::Bug(e))?;
+    // let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
 }
 
 fn try_parse(
