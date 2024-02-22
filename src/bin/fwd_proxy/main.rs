@@ -3,13 +3,11 @@
 #![feature(slice_flatten)]
 #![feature(stdarch_x86_avx512)]
 
-
 mod config;
 mod handler;
 mod socks5;
 
 use config::{Cli, ProxyConfig};
-
 
 use anyhow::Result;
 use clap::Parser;

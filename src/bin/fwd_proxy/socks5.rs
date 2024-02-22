@@ -1,9 +1,12 @@
 use anyhow::{anyhow, Context as _, Result};
+use futures::{
+    task::{Context, Waker},
+    Future,
+};
 use obfs::stream::Stream;
+use safelog::sensitive;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::pin;
-use futures::{Future, task::{Context, Waker}};
-use safelog::sensitive;
 use tracing::{debug, warn};
 
 use tor_socksproto::{SocksAuth, SocksCmd};
@@ -20,7 +23,9 @@ use std::str::FromStr;
 /// may use.  Requires that `isolation_info` is a pair listing the listener
 /// id and the source address for the socks request.
 //pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Vec<Box<dyn Future<Output=()>>>>
-pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Option<(impl Stream<'s>, impl Stream<'s>)>>
+pub(crate) async fn handle_socks_conn<'s, S>(
+    socks_stream: S,
+) -> Result<Option<(impl Stream<'s>, impl Stream<'s>)>>
 where
     S: AsyncRead + AsyncWrite + Send + Sync + Unpin + 's,
 {
@@ -122,7 +127,7 @@ where
 
             // Finally, spawn two background tasks to relay traffic between
             // the socks stream and the tor stream.
-            Ok(Some((socks_r.unsplit(socks_w) , covert_stream)))
+            Ok(Some((socks_r.unsplit(socks_w), covert_stream)))
         }
         _ => {
             // We don't support this SOCKS command.
@@ -135,8 +140,6 @@ where
         }
     }
 }
-
-
 
 async fn copy_interactive_ignore<'s, R, W>(reader: R, writer: W)
 where

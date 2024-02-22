@@ -12,89 +12,121 @@
 // cannot easily construct it for testing purposes.  We could in theory
 // kludge something together using a fake Rng, but that might be more
 // trouble than we want to go looking for.
-pub use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret, StaticSecret, PublicRepresentative};
+#[allow(unused)]
+pub use x25519_dalek::{
+    EphemeralSecret, PublicKey, PublicRepresentative, ReusableSecret, SharedSecret, StaticSecret,
+};
 
-// pub trait Writeable {
-//     /// Encode this object into the writer `b`.
-//     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()>;
-// }
-//
-// // impl<W: Writeable + ?Sized> tor_bytes::Writeable for W {
-// //     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
-// //         (*self).write_onto(b)
-// //     }
-// // }
-//
-// impl<W: tor_bytes::Writeable + ?Sized> Writeable for W {
-//     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
-//         (*self).write_onto(b)
-//     }
-// }
+use rand_core::{CryptoRng, RngCore};
 
+pub const REPRESENTATIVE_LENGTH: usize = 32;
 
-// pub trait Readable: Sized {
-//     /// Try to extract an object of this type from a Reader.
-//     ///
-//     /// Implementations should generally try to be efficient: this is
-//     /// not the right place to check signatures or perform expensive
-//     /// operations.  If you have an object that must not be used until
-//     /// it is finally validated, consider making this function return
-//     /// a wrapped type that can be unwrapped later on once it gets
-//     /// checked.
-//     fn take_from(b: &mut Reader<'_>) -> Result<Self>;
-// }
+/// Curve25519 keys that are guaranteed to have a valid Elligator2 representative.
+/// As only certain Curve25519 keys can be obfuscated with Elligator2, the
+/// representative must be checked when generating the secret key.
+///
+/// The probablility that a key does not have a representable elligator2 encoding
+/// is ~50%, so we are (statistiscally) guaranteed to find a representable key
+/// in relatively few iterations.
+pub struct Representable;
 
-// impl<R: Readable + ?Sized> tor_bytes::Readable for R {
-//     fn take_from(b: &mut Reader<'_>) -> Result<Self> {
-//         Self::take_from(b)
-//     }
-// }
+const RETRY_LIMIT: usize = 128;
 
-// impl<R: tor_bytes::Readable + ?Sized> Readable for &R {
-//     fn take_from(b: &mut Reader<'_>) -> Result<Self> {
-//         Self::take_from(b)
-//     }
-// }
+#[allow(unused)]
+impl Representable {
+    /// Generate a new Elligator2 representable ['StaticSecret'] with the supplied RNG.
+    pub fn static_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> StaticSecret {
+        let mut private = StaticSecret::random_from_rng(&mut rng);
+        let mut repres: Option<PublicRepresentative> = (&private).into();
 
-// impl<R: tor_bytes::Readable + ?Sized> Readable for R {
-//     fn take_from(b: &mut Reader<'_>) -> Result<Self> {
-//         Self::take_from(b)
-//     }
-// }
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = StaticSecret::random_from_rng(&mut rng);
+            repres = (&private).into();
+        }
 
+        panic!("failed to generate representable secret, bad RNG provided");
+    }
 
+    /// Generate a new Elligator2 representable ['ReusableSecret'] with the supplied RNG.
+    pub fn reusable_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> ReusableSecret {
+        let mut private = ReusableSecret::random_from_rng(&mut rng);
+        let mut repres: Option<PublicRepresentative> = (&private).into();
 
-// /// A keypair containing a [`StaticSecret`] and its corresponding public key.
-// #[allow(clippy::exhaustive_structs)]
-// #[derive(Clone, Educe)]
-// #[educe(Debug)]
-// pub struct StaticKeypair {
-//     /// The secret part of the key.
-//     #[educe(Debug(ignore))]
-//     pub secret: StaticSecret,
-//     /// The public part of this key.
-//     pub public: PublicKey,
-// }
-//
-//
-// impl Writeable for PublicKey {
-//     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
-//         b.write_all(self.as_bytes());
-//         Ok(())
-//     }
-// }
-//
-// impl Readable for PublicKey {
-//     fn take_from(b: &mut Reader<'_>) -> Result<Self> {
-//         let bytes: [u8; 32] = b.extract()?;
-//         Ok(bytes.into())
-//     }
-// }
-//
-// impl Writeable for SharedSecret {
-//     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
-//         b.write_all(self.as_bytes());
-//         Ok(())
-//     }
-// }
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = ReusableSecret::random_from_rng(&mut rng);
+            repres = (&private).into();
+        }
 
+        panic!("failed to generate representable secret, bad RNG provided");
+    }
+
+    /// Generate a new Elligator2 representable ['EphemeralSecret'] with the supplied RNG.
+    pub fn ephemeral_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> EphemeralSecret {
+        let mut private = EphemeralSecret::random_from_rng(&mut rng);
+        let mut repres: Option<PublicRepresentative> = (&private).into();
+
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = EphemeralSecret::random_from_rng(&mut rng);
+            repres = (&private).into();
+        }
+
+        panic!("failed to generate representable secret, bad RNG provided");
+    }
+
+    /// Generate a new Elligator2 representable ['StaticSecret'].
+    pub fn random_static() -> StaticSecret {
+        let mut private = StaticSecret::random();
+        let mut repres: Option<PublicRepresentative> = (&private).into();
+
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = StaticSecret::random();
+            repres = (&private).into();
+        }
+
+        panic!("failed to generate representable secret, getrandom failed");
+    }
+
+    /// Generate a new Elligator2 representable ['ReusableSecret'].
+    pub fn random_reusable() -> ReusableSecret {
+        let mut private = ReusableSecret::random();
+        let mut repres: Option<PublicRepresentative> = (&private).into();
+
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = ReusableSecret::random();
+            repres = (&private).into();
+        }
+
+        panic!("failed to generate representable secret, getrandom failed");
+    }
+
+    /// Generate a new Elligator2 representable ['EphemeralSecret'].
+    pub fn random_ephemeral() -> EphemeralSecret {
+        let mut private = EphemeralSecret::random();
+        let mut repres: Option<PublicRepresentative> = (&private).into();
+
+        for _ in 0..RETRY_LIMIT {
+            if repres.is_some() {
+                return private;
+            }
+            private = EphemeralSecret::random();
+            repres = (&private).into();
+        }
+
+        panic!("failed to generate representable secret, getrandom failed");
+    }
+}

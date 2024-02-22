@@ -1,5 +1,4 @@
-use super::*;
-use crate::{obfs4::proto::Server, test_utils::init_subscriber, Result};
+use crate::{obfs4::Server, test_utils::init_subscriber, Result};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, trace};
@@ -11,8 +10,9 @@ use std::time::Duration;
 async fn public_handshake() -> Result<()> {
     init_subscriber();
     let (mut c, mut s) = tokio::io::duplex(65_536);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -31,8 +31,9 @@ async fn public_iface() -> Result<()> {
     init_subscriber();
     let message = b"awoewaeojawenwaefaw lfawn;awe da;wfenalw fawf aw";
     let (mut c, mut s) = tokio::io::duplex(65_536);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -76,8 +77,9 @@ async fn transfer_10k_x1() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -129,7 +131,7 @@ async fn transfer_10k_x3() -> Result<()> {
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::getrandom();
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -182,8 +184,9 @@ async fn transfer_1M_1024x1024() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -234,8 +237,9 @@ async fn transfer_512k_x1() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 512);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -271,10 +275,13 @@ async fn transfer_512k_x1() -> Result<()> {
                 panic!("client failed to read after {i} iterations: timeout");
             }
         }
-        i+=1;
+        i += 1;
     }
 
-    assert_eq!(received, expected_total, "incorrect amount received {received} != {expected_total}");
+    assert_eq!(
+        received, expected_total,
+        "incorrect amount received {received} != {expected_total}"
+    );
     Ok(())
 }
 
@@ -283,8 +290,9 @@ async fn transfer_2_x() -> Result<()> {
     init_subscriber();
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
+    let mut rng = rand::thread_rng();
 
-    let mut o4_server = proto::Server::new_from_random();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {
@@ -316,7 +324,8 @@ async fn transfer_2_x() -> Result<()> {
 
     let mut i = 0;
     loop {
-        let res_timeout = tokio::time::timeout(Duration::from_millis(10000), r.read(&mut buf)).await;
+        let res_timeout =
+            tokio::time::timeout(Duration::from_millis(10000), r.read(&mut buf)).await;
 
         let res = res_timeout.unwrap();
         let n = res?;
@@ -335,7 +344,7 @@ async fn transfer_2_x() -> Result<()> {
                 panic!("received more than expected {received} > {expected_total}")
             }
         }
-        i+=1;
+        i += 1;
     }
 
     if received != expected_total {

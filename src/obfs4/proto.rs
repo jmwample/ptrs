@@ -6,6 +6,7 @@ use crate::{
     obfs4::{
         constants::*,
         framing::{self, MessageTypes},
+        sessions::Session,
     },
     Result,
 };
@@ -15,7 +16,7 @@ use futures::{Sink, Stream};
 use pin_project::pin_project;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::time::{Duration,Instant};
+use tokio::time::{Duration, Instant};
 use tokio_util::codec::{Decoder, Framed};
 use tracing::{debug, trace};
 
@@ -26,22 +27,10 @@ use std::{
     task::{Context, Poll},
 };
 
-mod client;
-pub use client::{Client, ClientBuilder};
-mod server;
-#[allow(unused)]
-pub use server::{Server, ServerBuilder};
-
-mod utils;
-pub(crate) use utils::*;
-
-mod sessions;
-pub(crate) use sessions::Session;
-
 use super::framing::{FrameError, Messages};
 
-mod handshake_client;
-mod handshake_server;
+// mod handshake_client;
+// mod handshake_server;
 
 #[allow(dead_code, unused)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -60,7 +49,7 @@ pub(crate) enum MaybeTimeout {
 }
 
 impl MaybeTimeout {
-    fn duration(&self) -> Option<Duration> {
+    pub(crate) fn duration(&self) -> Option<Duration> {
         match self {
             MaybeTimeout::Default_ => Some(CLIENT_HANDSHAKE_TIMEOUT),
             MaybeTimeout::Fixed(i) => {
@@ -228,7 +217,6 @@ where
         let mut len_sent: usize = 0;
         let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
         while msg_len - len_sent > framing::MAX_MESSAGE_PAYLOAD_LENGTH {
-
             // package one chunk of the mesage as a payload
             let payload = framing::Messages::Payload(
                 buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH].to_vec(),

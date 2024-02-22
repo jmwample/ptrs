@@ -2,17 +2,17 @@
 
 use crate::{traits::*, Result};
 
-// pub mod client;
-// pub mod server;
-//
+pub mod client;
+pub mod server;
+
 pub mod framing;
 pub mod proto;
-pub use proto::{Client, ClientBuilder};
-pub use proto::{Server, ServerBuilder};
-
-pub(crate) mod handshake;
+pub use client::{Client, ClientBuilder};
+pub use server::{Server, ServerBuilder};
 
 pub(crate) mod constants;
+pub(crate) mod handshake;
+pub(crate) mod sessions;
 
 const NAME: &str = "obfs4";
 
@@ -25,25 +25,17 @@ pub enum Builder {
 impl Builder {
     pub fn from_statefile(location: &str, is_client: bool) -> Result<Self> {
         if is_client {
-            Ok(Builder::client(
-                 ClientBuilder::from_statefile(location)?,
-            ))
+            Ok(Builder::client(ClientBuilder::from_statefile(location)?))
         } else {
-            Ok(Builder::server(
-                 ServerBuilder::from_statefile(location)?,
-            ))
+            Ok(Builder::server(ServerBuilder::from_statefile(location)?))
         }
     }
 
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>, is_client: bool) -> Result<Self> {
         if is_client {
-            Ok(Builder::client(
-                ClientBuilder::from_params(param_strs)?,
-            ))
+            Ok(Builder::client(ClientBuilder::from_params(param_strs)?))
         } else {
-            Ok(Builder::server(
-                ServerBuilder::from_params(param_strs)?,
-            ))
+            Ok(Builder::server(ServerBuilder::from_params(param_strs)?))
         }
     }
 }

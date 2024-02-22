@@ -1,4 +1,4 @@
-//! Circuit extension handshake for Tor.
+//!  Generic Handshake for Tor. Extension of Tor circuit creation handshake design.
 //!
 //! Tor circuit handshakes all implement a one-way-authenticated key
 //! exchange, where a client that knows a public "onion key" for a
@@ -10,13 +10,6 @@
 //!
 //! Currently, this module implements only the "ntor" handshake used
 //! for circuits on today's Tor.
-pub(crate) mod fast;
-#[cfg(feature = "hs-common")]
-pub mod hs_ntor;
-pub(crate) mod ntor;
-#[cfg(feature = "ntor_v3")]
-pub(crate) mod ntor_v3;
-
 use std::borrow::Borrow;
 
 use crate::Result;
@@ -101,7 +94,11 @@ pub(crate) trait ServerHandshake {
     ///
     /// On success, return a key generator and a server handshake message
     /// to send in reply.
+    ///
+    /// The self parameter is a type / struct for (potentially shared) state
+    /// accessible during the server handshake.
     fn server<R: RngCore + CryptoRng, REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+        &self,
         rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
@@ -119,28 +116,6 @@ pub(crate) trait ServerHandshake {
 pub trait KeyGenerator {
     /// Consume the key
     fn expand(self, keylen: usize) -> Result<SecretBuf>;
-}
-
-/// Generates keys based on the KDF-TOR function.
-///
-/// This is deprecated and shouldn't be used for new keys.
-pub(crate) struct TapKeyGenerator {
-    /// Seed for the TAP KDF.
-    seed: SecretBuf,
-}
-
-impl TapKeyGenerator {
-    /// Create a key generator based on a provided seed
-    pub(crate) fn new(seed: SecretBuf) -> Self {
-        TapKeyGenerator { seed }
-    }
-}
-
-impl KeyGenerator for TapKeyGenerator {
-    fn expand(self, keylen: usize) -> Result<SecretBuf> {
-        use crate::common::kdf::{Kdf, LegacyKdf};
-        LegacyKdf::new(1).derive(&self.seed[..], keylen)
-    }
 }
 
 /// Generates keys based on SHAKE-256.
@@ -166,16 +141,38 @@ impl KeyGenerator for ShakeKeyGenerator {
 
 /// An error produced by a Relay's attempt to handle a client's onion handshake.
 #[derive(Clone, Debug, thiserror::Error)]
-pub(crate) enum RelayHandshakeError {
+pub enum RelayHandshakeError {
+    /// Occurs when a check did not fail, but requires updated input from the
+    /// calling context. For example, a handshake that requires more bytes to
+    /// before it can succeed or fail.
+    #[error("try again with updated input")]
+    EAgain,
+
     /// An error in parsing  a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
+
     /// The client asked for a key we didn't have.
     #[error("Client asked for a key or ID that we don't have")]
     MissingKey,
+
     /// The client did something wrong with their handshake or cryptography.
     #[error("Bad handshake from client")]
     BadClientHandshake,
+
+    /// The server did something wrong with their handshake or cryptography or
+    /// an otherwise invalid response was received
+    #[error("Bad handshake from server")]
+    BadServerHandshake,
+
+    /// The client's handshake matched a previous handshake indicating a potential replay attack.
+    #[error("Handshake from client was seen recently -- potentially replayed.")]
+    ReplayedHandshake,
+
+    /// Error occured while creating a frame.
+    #[error("Problem occured while building handshake")]
+    FrameError(String),
+
     /// An internal error.
     #[error("Internal error")]
     Internal(#[from] tor_error::Bug),
@@ -184,4 +181,3 @@ pub(crate) enum RelayHandshakeError {
 /// Type alias for results from a relay's attempt to handle a client's onion
 /// handshake.
 pub(crate) type RelayHandshakeResult<T> = std::result::Result<T, RelayHandshakeError>;
-

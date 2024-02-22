@@ -1,8 +1,8 @@
 #![cfg(test)]
 #![allow(dead_code)]
 
-pub mod tests;
 mod fake_prng;
+pub mod tests;
 pub(crate) use fake_prng::*;
 
 use std::env;

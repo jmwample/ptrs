@@ -5,7 +5,7 @@ use std::{fmt::Display, str::FromStr};
 use hex::FromHexError;
 use sha2::digest::InvalidLength;
 
-use crate::common::ntor;
+use crate::common::ntor_arti::RelayHandshakeError;
 use crate::obfs4;
 
 /// Result type returning [`Error`] or `T`
@@ -38,30 +38,8 @@ pub enum Error {
         /// The error that occurred while parsing it.
         err: tor_cell::Error,
     },
+    HandshakeErr(RelayHandshakeError),
 
-    /// An error that occurred in the tor_bytes crate while decoding an
-    /// object.
-    BytesErr {
-        /// What we were trying to parse.
-        object: &'static str,
-        /// The error that occurred while parsing it.
-        err: tor_bytes::Error,
-    },
-
-    /// An error occurred while trying to create or encode some non-cell
-    /// message.
-    ///
-    /// This is likely the result of a bug: either in this crate, or the code
-    /// that provided the input.
-    NtorEncodeErr {
-        /// What we were trying to create or encode.
-        object: &'static str,
-        /// The error that occurred.
-        err: tor_bytes::EncodeError,
-    },
-
-
-    NtorError(ntor::NtorError),
     Obfs4Framing(obfs4::framing::FrameError),
 }
 
@@ -81,14 +59,14 @@ impl Display for Error {
             Error::NullTransport => write!(f, "NullTransport"),
             Error::HandshakeTimeout => write!(f, "handshake timed out"),
             Error::BadCircHandshakeAuth => write!(f, "failed authentication for circuit handshake"),
-            Error::InvalidKDFOutputLength => write!(f, "Tried to extract too many bytes from a KDF"),
+            Error::InvalidKDFOutputLength => {
+                write!(f, "Tried to extract too many bytes from a KDF")
+            }
+            Error::CellDecodeErr { object, err } => {
+                write!(f, "Unable to decode cell {object}: {err}")
+            }
+            Error::HandshakeErr(err) => write!(f, "handshake failed or unable to complete: {err}"),
 
-            Error::CellDecodeErr {object, err} => write!(f, "Unable to decode cell {object}: {err}"),
-            Error::BytesErr {object, err} => write!(f, "Unable to parse {object}: {err}"),
-            Error::NtorEncodeErr { object, err } => write!(f,"Problem while encoding {object}: {err}"),
-
-
-            Error::NtorError(e) => write!(f, "{e}"),
             Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
     }
@@ -100,18 +78,6 @@ impl Error {
     pub fn new<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> Self {
         Error::Other(e.into())
     }
-
-    /// Create an error for a tor_bytes error that occurred while parsing
-    /// something of type `object`.
-    pub(crate) fn from_bytes_err(err: tor_bytes::Error, object: &'static str) -> Error {
-        Error::BytesErr { err, object }
-    }
-
-    /// Create an error for a tor_bytes error that occurred while encoding
-    /// something of type `object`.
-    pub(crate) fn from_bytes_enc(err: tor_bytes::EncodeError, object: &'static str) -> Error {
-        Error::NtorEncodeErr { err, object }
-    }
 }
 
 impl From<Error> for std::io::Error {
@@ -122,7 +88,6 @@ impl From<Error> for std::io::Error {
         }
     }
 }
-
 
 impl FromStr for Error {
     type Err = Error;
@@ -198,9 +163,9 @@ impl From<obfs4::framing::FrameError> for Error {
     }
 }
 
-impl From<ntor::NtorError> for Error {
-    fn from(e: ntor::NtorError) -> Self {
-        Error::NtorError(e)
+impl From<RelayHandshakeError> for Error {
+    fn from(value: RelayHandshakeError) -> Self {
+        Error::HandshakeErr(value)
     }
 }
 
@@ -212,7 +177,10 @@ impl From<tor_error::Bug> for Error {
 
 impl From<tor_cell::Error> for Error {
     fn from(value: tor_cell::Error) -> Self {
-        Error::CellDecodeErr{ object: "", err: value }
+        Error::CellDecodeErr {
+            object: "",
+            err: value,
+        }
     }
 }
 

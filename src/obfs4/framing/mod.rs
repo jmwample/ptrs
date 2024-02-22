@@ -52,6 +52,9 @@ pub use messages_v1::{MessageTypes, Messages};
 mod codecs;
 pub use codecs::EncryptingCodec as Obfs4Codec;
 
+pub(crate) mod handshake;
+pub use handshake::*;
+
 // mod frame_builder;
 // pub use frame_builder::FrameBuilder;
 

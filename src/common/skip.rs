@@ -7,7 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use std::time::Duration;
 
 /// copies all data from the reader to a sink. If the reader closes before
-/// the timeout due to na error or an EoF that result will be returned. 
+/// the timeout due to na error or an EoF that result will be returned.
 /// Otherwise if the timeout is reached, the stream will be shutdown
 /// and the result of that shutdown will be returned.
 ///
@@ -15,22 +15,22 @@ use std::time::Duration;
 /// shutdown to ensure consistent RST / FIN behavior on shutdown.
 pub async fn discard<S>(stream: S, d: Duration) -> Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     let (mut r, mut w) = tokio::io::split(stream);
     let result = tokio::time::timeout(d, async move {
         tokio::io::copy(&mut r, &mut tokio::io::sink()).await
-    }).await;
+    })
+    .await;
     if let Ok(r) = result {
         // Error Occurred in coppy or connection hit EoF which means the
         // connection should already be closed.
-        r.map(|_| ()).map_err(|e| e.into()) 
+        r.map(|_| ()).map_err(|e| e.into())
     } else {
         // stream out -- connection may not be closed -- close manually.
-        w.shutdown().await.map_err(|e| e.into()) 
+        w.shutdown().await.map_err(|e| e.into())
     }
 }
-
 
 #[cfg(test)]
 mod test {

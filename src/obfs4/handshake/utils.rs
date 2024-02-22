@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rand_core::RngCore;
 use subtle::ConstantTimeEq;
 
-use tracing::debug; // , trace};
+use tracing::trace; // , trace};
 
 pub fn get_epoch_hour() -> u64 {
     SystemTime::now()
@@ -16,7 +16,7 @@ pub fn get_epoch_hour() -> u64 {
 }
 
 pub fn make_pad(pad_len: usize) -> Result<Vec<u8>> {
-    debug!("[make_pad] generating {pad_len}B");
+    trace!("[make_pad] generating {pad_len}B");
     let mut pad = vec![u8::default(); pad_len];
     rand::thread_rng()
         .try_fill_bytes(&mut pad)
@@ -35,6 +35,13 @@ pub fn find_mac_mark(
     if buffer.len() < MARK_LENGTH {
         return None;
     }
+    trace!(
+        "finding mac mark: buf: {}B, {}-{}, from_tail: {}",
+        buffer.len(),
+        start_pos,
+        max_pos,
+        from_tail
+    );
 
     if start_pos > buffer.len() {
         return None;

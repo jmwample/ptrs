@@ -10,8 +10,8 @@ pub(crate) fn bool_to_choice(v: bool) -> Choice {
 
 /// Return true if two slices are equal.  Performs its operation in constant
 /// time, but returns a bool instead of a subtle::Choice.
+#[allow(unused)]
 pub(crate) fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
     let choice = a.ct_eq(b);
     choice.unwrap_u8() == 1
 }
-
