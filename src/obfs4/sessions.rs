@@ -83,6 +83,7 @@ pub(crate) struct ClientSession<S: ClientSessionState> {
     _state: S,
 }
 
+#[allow(unused)]
 struct ClientHandshakeFailed {
     details: String,
 }
@@ -241,8 +242,7 @@ impl ClientSession<Initialized> {
         T: AsyncRead + AsyncWrite + Unpin,
         R: RngCore + CryptoRng,
     {
-        let (state, chs_message) =
-            Obfs4NtorHandshake::client1(&mut rng, &materials.node_pubkey, &())?;
+        let (state, chs_message) = Obfs4NtorHandshake::client1(&mut rng, &materials, &())?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
@@ -329,6 +329,7 @@ pub(crate) struct ServerSession<'a, S: ServerSessionState> {
 
 pub(crate) struct ServerHandshaking {}
 
+#[allow(unused)]
 pub(crate) struct ServerHandshakeFailed {
     details: String,
 }
@@ -343,7 +344,7 @@ impl Fault for ServerHandshakeFailed {}
 
 impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(self.session_id)
+        String::from("s-") + &colorize(self.session_id)
     }
 
     pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
@@ -419,12 +420,10 @@ impl<'b> ServerSession<'b, Initialized> {
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = session.server.complete_handshake(
-            &mut stream,
-            materials,
-            &mut rng,
-            deadline,
-        );
+        let handshake_fut =
+            session
+                .server
+                .complete_handshake(&mut stream, materials, &mut rng, deadline);
 
         let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
@@ -467,10 +466,10 @@ impl Server {
     /// Complete the handshake with the client. This function assumes that the
     /// client has already sent a message and that we do not know yet if the
     /// message is valid.
-    async fn complete_handshake<'k, R, T>(
+    async fn complete_handshake<R, T>(
         &self,
         mut stream: T,
-        materials: SHSMaterials<'k>,
+        materials: SHSMaterials,
         mut rng: R,
         deadline: Option<Instant>,
     ) -> Result<impl Obfs4Keygen>
@@ -478,35 +477,34 @@ impl Server {
         T: AsyncRead + AsyncWrite + Unpin,
         R: RngCore + CryptoRng,
     {
+        let session_id = materials.session_id.clone();
+
         // wait for and attempt to consume the client hello message
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
         loop {
             let n = stream.read(&mut buf).await?;
-            trace!("{} successful read {n}B", materials.session_id);
+            trace!("{} successful read {n}B", session_id);
 
             match self.server(
                 &mut rng,
                 &mut |_: &()| Some(()),
-                &[materials.identity_keys.clone()],
-                &buf,
+                &[materials.clone()],
+                &buf[..n],
             ) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
                     return Ok(keygen);
                 }
                 Err(RelayHandshakeError::EAgain) => {
-                    trace!("{} reading more", materials.session_id);
+                    trace!("{} reading more", session_id);
                     continue;
                 }
                 Err(e) => {
-                    trace!(
-                        "{} failed to parse client handshake: {e}",
-                        materials.session_id,
-                    );
+                    trace!( "{} failed to parse client handshake: {e}", session_id);
                     // if a deadline was set and has not passed already, discard
                     // from the stream until the deadline, then close.
                     if deadline.is_some_and(|d| d > Instant::now()) {
-                        debug!("{} discarding due to: {e}", materials.session_id);
+                        debug!("{} discarding due to: {e}", session_id);
                         discard(&mut stream, deadline.unwrap() - Instant::now()).await?
                     }
                     stream.shutdown().await?;

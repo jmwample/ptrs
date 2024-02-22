@@ -2,7 +2,7 @@
 
 use crate::{
     common::{
-        colorize, ct, curve25519::{
+        ct, curve25519::{
             EphemeralSecret, PublicKey, SharedSecret, StaticSecret, Representable
         }, kdf::{Kdf, Ntor1Kdf}, ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
@@ -24,7 +24,7 @@ use tracing::warn;
 use digest::Mac;
 use hmac::Hmac;
 use rand_core::{CryptoRng, RngCore};
-use subtle::{Choice, ConstantTimeEq};
+use subtle::ConstantTimeEq;
 
 mod handshake_client;
 mod handshake_server;
@@ -39,7 +39,6 @@ pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
 #[cfg(test)]
 pub(crate) use handshake_client::{client_handshake_obfs4_no_keygen, client_handshake2_no_auth_check_obfs4};
 
-use super::framing::KEY_LENGTH;
 
 pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
@@ -51,7 +50,7 @@ pub(crate) const M_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 pub(crate) struct Obfs4NtorHandshake;
 
 impl ClientHandshake for Obfs4NtorHandshake {
-    type KeyType = Obfs4NtorPublicKey;
+    type KeyType = CHSMaterials;
     type StateType = NtorHandshakeState;
     type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = ();
@@ -72,7 +71,7 @@ impl ClientHandshake for Obfs4NtorHandshake {
 }
 
 impl ServerHandshake for Server {
-    type KeyType = Obfs4NtorSecretKey;
+    type KeyType = SHSMaterials;
     type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = ();
     type ServerAuxData = ();
@@ -94,18 +93,7 @@ impl ServerHandshake for Server {
             warn!("Multiple keys provided, but only the first key will be used");
         }
 
-        // temporary session id until we can establish a shared session id
-        // derived from the key generation material.
-        let mut session_id = [0u8; SESSION_ID_LEN];
-        let mut len_seed = [0u8; SEED_LENGTH];
-        rng.fill_bytes(&mut session_id);
-        rng.fill_bytes(&mut len_seed);
-
-        let shs_materials = SHSMaterials {
-            identity_keys: &key[0],
-            len_seed,
-            session_id: colorize(session_id),
-        };
+        let shs_materials = key[0].clone();
 
         self.server_handshake_obfs4(rng, msg, shs_materials)
     }

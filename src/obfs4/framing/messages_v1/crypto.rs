@@ -58,8 +58,8 @@ impl Message for KyberAcceptMessage {
 #[allow(unused)]
 mod tests {
     use pqc_kyber::*;
-    use x25519_dalek::{EphemeralSecret, PublicKey};
 
+    use crate::common::curve25519::{Representable, PublicKey};
     use crate::obfs4::handshake::Obfs4NtorSecretKey;
 
     type Result<T> = std::result::Result<T, Error>;
@@ -125,7 +125,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         // Generate Keypair
-        let alice_secret = EphemeralSecret::random_from_rng(&mut rng);
+        let alice_secret = Representable::ephemeral_from_rng(&mut rng);
         let alice_public = PublicKey::from(&alice_secret);
         let keys_alice = keypair(&mut rng)?;
         // alice -> bob public keys
@@ -134,7 +134,7 @@ mod tests {
 
         assert_eq!(kyber1024x_pubkey.len(), 1600);
 
-        let bob_secret = EphemeralSecret::random_from_rng(&mut rng);
+        let bob_secret = Representable::ephemeral_from_rng(&mut rng);
         let bob_public = PublicKey::from(&bob_secret);
 
         // Bob encapsulates a shared secret using Alice's public key

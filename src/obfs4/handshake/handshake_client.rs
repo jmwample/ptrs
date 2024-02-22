@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH, StaticSecret, Representable},
+        curve25519::{
+            PublicKey, PublicRepresentative, Representable, StaticSecret, REPRESENTATIVE_LENGTH,
+        },
         HmacSha256,
     },
     obfs4::{
@@ -50,20 +52,13 @@ pub(crate) struct NtorHandshakeState {
 /// Perform a client handshake, generating an onionskin and a state object
 pub(super) fn client_handshake_obfs4<R>(
     rng: &mut R,
-    relay_public: &Obfs4NtorPublicKey,
+    materials: &HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)>
 where
     R: RngCore + CryptoRng,
 {
     let my_sk = Representable::static_from_rng(rng);
-
-    let materials = HandshakeMaterials {
-        node_pubkey: *relay_public,
-        pad_len: 0,
-        session_id: "".into(),
-    }; // TODO
-
-    client_handshake_obfs4_no_keygen(my_sk, materials)
+    client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
 
 /// Helper: client handshake _without_ generating  new keys.
@@ -74,7 +69,11 @@ pub(crate) fn client_handshake_obfs4_no_keygen(
     let repres: Option<PublicRepresentative> = (&ephem).into();
 
     // build client handshake message
-    let mut ch_msg = ClientHandshakeMessage::new(repres.unwrap(), materials.pad_len, "".into());
+    let mut ch_msg = ClientHandshakeMessage::new(
+        repres.unwrap(),
+        materials.pad_len,
+        materials.session_id.clone(),
+    );
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
     let mut key = materials.node_pubkey.pk.as_bytes().to_vec();

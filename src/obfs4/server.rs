@@ -143,6 +143,8 @@ impl Server {
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
 
+        // Generated identity secret key does not need to be elligator2 representable
+        // so we can use the regular dalek_x25519 key generation.
         let sk = StaticSecret::random_from_rng(rng);
 
         let pk = Obfs4NtorPublicKey {

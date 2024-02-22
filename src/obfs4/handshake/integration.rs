@@ -16,7 +16,7 @@
 
 use super::*;
 use crate::{
-    common::curve25519,
+    common::{curve25519, colorize},
     common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake},
     obfs4::Server,
     test_utils::FakePRNG,
@@ -40,19 +40,18 @@ fn test_obfs4_roundtrip() -> Result<()> {
     let x = Obfs4NtorSecretKey::generate_for_test(&mut rng);
     let y = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
-    let chs_materials = CHSMaterials {
-        node_pubkey: relay_private.pk,
-        session_id: "".into(),
-        pad_len: 0,
-    };
+    let mut sid = [0u8; SESSION_ID_LEN];
+    rand::thread_rng().fill_bytes(&mut sid);
+
+    let chs_materials = CHSMaterials::new(relay_private.pk, colorize(sid));
 
     let mut server = Server::new_from_random(&mut rng);
     server.identity_keys = relay_private;
 
     let shs_materials = SHSMaterials {
-        identity_keys: &server.identity_keys,
+        identity_keys: server.identity_keys.clone(),
         len_seed: [0u8; SEED_LENGTH],
-        session_id: "".into(),
+        session_id: "s-yyy".into(),
     };
 
 
@@ -82,20 +81,21 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
         id: relay_identity,
         pk: relay_public,
     };
-    let (state, cmsg) = Obfs4NtorHandshake::client1(&mut rng, &relay_ntpk, &())?;
+    let hs_materials = CHSMaterials::new(relay_ntpk, "c-xxx".into());
+    let (state, cmsg) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &())?;
 
     let relay_ntsk = Obfs4NtorSecretKey {
         pk: relay_ntpk,
         sk: relay_secret,
     };
-    let relay_ntsks = [relay_ntsk.clone()];
     let mut server = Server::new_from_random(&mut rng);
-    server.identity_keys = relay_ntsk;
+    server.identity_keys = relay_ntsk.clone();
+    let shs_materials = [SHSMaterials::new(&relay_ntsk, "s-yyy".into(), [0u8;SEED_LENGTH])];
 
     let (skeygen, smsg) = server.server(
         &mut rng,
         &mut |_: &()| Some(()),
-        &relay_ntsks,
+        &shs_materials,
         &cmsg,
     )
     .unwrap();
@@ -134,14 +134,14 @@ fn test_obfs4_testvec_compat() -> Result<()> {
 
     let chs_materials = CHSMaterials {
         node_pubkey: pk,
-        session_id: "".into(),
+        session_id: "c-xxx".into(),
         pad_len: 0,
     };
 
     let shs_materials = SHSMaterials {
-        identity_keys: &server.identity_keys,
+        identity_keys: server.identity_keys.clone(),
         len_seed: [0u8; SEED_LENGTH],
-        session_id: "".into(),
+        session_id: "s-yyy".into(),
     };
 
     let (state, create_msg) = client_handshake_obfs4_no_keygen(x, chs_materials).unwrap();
@@ -230,7 +230,7 @@ fn failing_handshakes() {
         pk: relay_ntpk.clone(),
         sk: relay_secret,
     };
-    let relay_ntsks = &[relay_ntsk];
+
     let wrong_ntpk1 = Obfs4NtorPublicKey {
         id: wrong_identity,
         pk: relay_public,
@@ -242,22 +242,27 @@ fn failing_handshakes() {
 
     let resources = &Server::new_from_random(&mut rng);
 
+
     // If the client uses the wrong keys, the relay should reject the
     // handshake.
-    let (_, handshake1) = Obfs4NtorHandshake::client1(&mut rng, &wrong_ntpk1, &()).unwrap();
-    let (_, handshake2) = Obfs4NtorHandshake::client1(&mut rng, &wrong_ntpk2, &()).unwrap();
-    let (st3, handshake3) = Obfs4NtorHandshake::client1(&mut rng, &relay_ntpk, &()).unwrap();
+    let mut hs_materials = CHSMaterials::new(wrong_ntpk1.clone(), "c-xxx".into());
+    let (_, handshake1) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
+    hs_materials.node_pubkey = wrong_ntpk2;
+    let (_, handshake2) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
+    hs_materials.node_pubkey = relay_ntpk;
+    let (st3, handshake3) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
 
+    let shs_materials = [SHSMaterials::new(&relay_ntsk, "s-yyy".into(), [0u8;SEED_LENGTH])];
     let ans1 = resources.server(
         &mut rng,
         &mut |_: &()| Some(()),
-        relay_ntsks,
+        &shs_materials,
         &handshake1,
     );
     let ans2 = resources.server(
         &mut rng,
         &mut |_: &()| Some(()),
-        relay_ntsks,
+        &shs_materials,
         &handshake2,
     );
 
@@ -269,7 +274,7 @@ fn failing_handshakes() {
     let (_, mut smsg) = resources.server(
         &mut rng,
         &mut |_: &()| Some(()),
-        relay_ntsks,
+        &shs_materials,
         &handshake3,
     )
     .unwrap();

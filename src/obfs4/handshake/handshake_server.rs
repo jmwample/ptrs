@@ -21,14 +21,14 @@ use tracing::{debug, trace};
 
 use std::time::Instant;
 
-// #[derive(Debug)]
-pub(crate) struct HandshakeMaterials<'a> {
-    pub(crate) identity_keys: &'a Obfs4NtorSecretKey,
+#[derive(Clone)]
+pub(crate) struct HandshakeMaterials {
+    pub(crate) identity_keys: Obfs4NtorSecretKey,
     pub(crate) session_id: String,
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
 
-impl<'a> HandshakeMaterials<'a> {
+impl<'a> HandshakeMaterials {
     pub fn get_hmac(&self) -> HmacSha256 {
         let mut key = self.identity_keys.pk.pk.as_bytes().to_vec();
         key.append(&mut self.identity_keys.pk.id.as_bytes().to_vec());
@@ -44,7 +44,7 @@ impl<'a> HandshakeMaterials<'a> {
         'b: 'a,
     {
         HandshakeMaterials {
-            identity_keys,
+            identity_keys: identity_keys.clone(),
             session_id,
             len_seed,
         }
@@ -87,7 +87,6 @@ impl Server {
         let mut client_hs = match self.try_parse_client_handshake(msg, &mut materials) {
             Ok(chs) => chs,
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
-                trace!("{} reading more", materials.session_id);
                 return Err(RelayHandshakeError::EAgain);
             }
             Err(e) => {
@@ -138,7 +137,7 @@ impl Server {
     pub(crate) fn complete_server_hs<'a>(
         &self,
         client_hs: &ClientHandshakeMessage,
-        materials: HandshakeMaterials<'a>,
+        materials: HandshakeMaterials,
         session_repres: PublicRepresentative,
         keygen: &mut NtorHkdfKeyGenerator,
         authcode: Authcode,
@@ -208,6 +207,8 @@ impl Server {
         let m = h.finalize_reset().into_bytes();
         let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 
+        trace!("{} mark?:{}", materials.session_id, hex::encode(mark));
+
         // find mark + mac position
         let pos = match find_mac_mark(
             mark,
@@ -218,7 +219,7 @@ impl Server {
         ) {
             Some(p) => p,
             None => {
-                trace!("didn't find mark");
+                trace!("{} didn't find mark", materials.session_id);
                 if buf.len() > MAX_HANDSHAKE_LENGTH {
                     Err(Error::HandshakeErr(RelayHandshakeError::BadClientHandshake))?
                 }
