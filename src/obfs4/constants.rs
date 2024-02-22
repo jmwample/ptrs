@@ -3,10 +3,7 @@
 use tor_llcrypto::pk::rsa::RSA_ID_LEN;
 
 use crate::{
-    common::{
-        drbg,
-        curve25519::REPRESENTATIVE_LENGTH,
-    },
+    common::{curve25519::REPRESENTATIVE_LENGTH, drbg},
     obfs4::framing,
     obfs4::handshake::AUTHCODE_LENGTH,
 };
@@ -26,8 +23,7 @@ pub const MAC_LENGTH: usize = SHA256_SIZE / 2;
 pub const CLIENT_MIN_PAD_LENGTH: usize =
     (SERVER_MIN_HANDSHAKE_LENGTH + INLINE_SEED_FRAME_LENGTH) - CLIENT_MIN_HANDSHAKE_LENGTH;
 pub const CLIENT_MAX_PAD_LENGTH: usize = MAX_HANDSHAKE_LENGTH - CLIENT_MIN_HANDSHAKE_LENGTH;
-pub const CLIENT_MIN_HANDSHAKE_LENGTH: usize =
-    REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
+pub const CLIENT_MIN_HANDSHAKE_LENGTH: usize = REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
 
 pub const SERVER_MIN_PAD_LENGTH: usize = 0;
 pub const SERVER_MAX_PAD_LENGTH: usize =

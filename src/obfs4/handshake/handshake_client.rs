@@ -23,7 +23,7 @@ pub(crate) struct HandshakeMaterials {
     pub(crate) session_id: String,
 }
 
-impl<'a> HandshakeMaterials {
+impl HandshakeMaterials {
     pub(crate) fn new(node_pubkey: Obfs4NtorPublicKey, session_id: String) -> Self {
         HandshakeMaterials {
             node_pubkey,
@@ -110,7 +110,7 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
 
-    let (key_seed, authcode) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
+    let (key_seed, authcode) = ntor_derive(&xy, &xb, node_pubkey, &my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))?;
 
     let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
@@ -159,23 +159,6 @@ where
     let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
 
     Ok((keygen, authcode))
-
-    // // try to parse the message as an incoming server handshake.
-    // let (mut shs_msg, n) = try_parse(msg, state)?;
-
-    // let their_pk = shs_msg.server_pubkey();
-    // let _auth: Authcode = shs_msg.server_auth();
-
-    // let node_pubkey = &state.materials.node_pubkey;
-    // let my_public: PublicKey = (&state.my_sk).into();
-
-    // let xy = state.my_sk.diffie_hellman(&their_pk);
-    // let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
-
-    // let (key_seed, auth) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
-    //     .map_err(into_internal!("Error deriving keys"))
-    //     .map_err(|e| Error::Bug(e))?;
-    // let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
 }
 
 fn try_parse(
@@ -239,86 +222,3 @@ fn try_parse(
     // received the incorrect mac
     Err(RelayHandshakeError::BadServerHandshake.into())
 }
-
-/*
-pub(crate) fn complete(keygen: NtorHkdfKeyGenerator, materials: &HandshakeMaterials) -> Result {
-    let ntor_hs_failed: Option<ntor::HandShakeResult> = ntor::HandShakeResult::client_handshake(
-        self.materials.session_keys,
-        &self._h_state.server_hs.server_pubkey(),
-        &self.materials.node_pubkey,
-        &self.materials.node_id,
-    )
-    .into();
-    let ntor_hs_result: HandShakeResult = ntor_hs_failed.ok_or(Error::NtorError(
-        ntor::NtorError::HSFailure("failed to derive sharedsecret".into()),
-    ))?;
-
-    compare_auth(&ntor_hs_result.auth, self._h_state.server_hs.server_auth())?;
-
-    // use the derived seed value to bootstrap Read / Write crypto codec.
-    let okm = kdf(
-        ntor_hs_result.key_seed,
-        KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
-    );
-    let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-    let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
-        .try_into()
-        .unwrap();
-
-    let hs_complete_session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
-    self.materials.session_id = hs_complete_session_id;
-
-    let codec = Obfs4Codec::new(ekm, dkm);
-
-    Ok(ClientHandshake {
-        materials: self.materials,
-        _h_state: ClientHandshakeSuccess {
-            codec,
-            remainder: self._h_state.remainder,
-            session_id: hs_complete_session_id,
-        },
-    })
-}
-
-pub(crate) async fn retrieve_server_response() -> Result<(Bufmut, )> {
-    // Wait for and attempt to consume server handshake
-    let mut remainder = BytesMut::new();
-    let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
-    let server_hs: ServerHandshakeMessage;
-    loop {
-        let n = stream.read(&mut buf).await?;
-        if n == 0 {
-            Err(Error::IOError(IoError::new(
-                IoErrorKind::UnexpectedEof,
-                "read 0B in client handshake",
-            )))?
-        }
-        debug!(
-            "{} read {n}/{}B of server handshake",
-            self.session_id(),
-            buf.len()
-        );
-
-        // validate sever
-        server_hs = match self.try_parse(&mut buf[..n]) {
-            Ok((shs, _len)) => {
-                // TODO: make sure bytes after server hello get put back
-                // into the read buffer for message handling
-                remainder.put(&buf[n - SEED_MESSAGE_LENGTH..n]);
-                shs
-            }
-            Err(Error::Obfs4Framing(RelayHandshakeError::EAgain)) => continue,
-            Err(e) => return Err(e)?,
-        };
-        break;
-    }
-
-    Ok(ClientHandshake {
-        materials: self.materials,
-        _h_state: ServerHandshakeReceived {
-            remainder,
-            server_hs,
-        },
-    })
-}
-*/

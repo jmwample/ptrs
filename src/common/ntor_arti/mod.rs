@@ -181,4 +181,3 @@ pub(crate) enum RelayHandshakeError {
 /// Type alias for results from a relay's attempt to handle a client's onion
 /// handshake.
 pub(crate) type RelayHandshakeResult<T> = std::result::Result<T, RelayHandshakeError>;
-

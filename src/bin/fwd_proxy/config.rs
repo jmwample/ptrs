@@ -8,7 +8,8 @@ use obfs::obfs4::{ClientBuilder, Server};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},
-    sync::mpsc::Sender, task::JoinSet,
+    sync::mpsc::Sender,
+    task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn, Level};
@@ -122,14 +123,18 @@ impl ExitConfig {
         info!("started server listening on {}", self.listen_address);
 
         let server = Server::getrandom();
-        println!("{}\n{}", server.client_params(), server.client_params().as_opts());
+        println!(
+            "{}\n{}",
+            server.client_params(),
+            server.client_params().as_opts()
+        );
 
         let t_name = "obfs4";
 
         let mut sessions = JoinSet::new();
 
         let close_c = close.clone();
-        tokio::spawn(async move{
+        tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = close_c.cancelled() => {
@@ -168,7 +173,9 @@ impl ExitConfig {
 
             debug!("connection successfully revealed ->{t_name}-[{socket_addr}]");
             let handler = self.handler;
-            sessions.spawn(async move {handler.handle(stream, close_c).await;});
+            sessions.spawn(async move {
+                handler.handle(stream, close_c).await;
+            });
 
             // let (up, dn) = handler.handle(stream, close_c);
         }
@@ -267,7 +274,6 @@ struct ServerArgs {
     // /// pluggable transport by name
     // #[arg(short, long, default_value_t = String::from("plain"))]
     // transport: String,
-
     /// The backend handler to use ["echo", "socks5"]
     #[arg(short, long, default_value_t = String::from("echo"))]
     backend: String,
@@ -297,7 +303,6 @@ struct ClientArgs {
     // /// pluggable transport by name
     // #[arg(short, long, default_value_t = String::from("plain"))]
     // transport: String,
-
     /// Optional argument enabling debug logging
     #[arg(long, default_value_t = false, conflicts_with = "trace")]
     debug: bool,

@@ -1,13 +1,13 @@
-
 use crate::{
-    Result,
     common::{
-        curve25519::{PublicRepresentative, PublicKey},
+        curve25519::{PublicKey, PublicRepresentative},
         HmacSha256,
     },
     obfs4::{
-        constants::*, handshake::{AUTHCODE_LENGTH, Authcode, get_epoch_hour, make_pad},
+        constants::*,
+        handshake::{get_epoch_hour, make_pad, Authcode, AUTHCODE_LENGTH},
     },
+    Result,
 };
 
 use bytes::BufMut;
@@ -16,7 +16,6 @@ use rand::Rng;
 use tracing::trace;
 
 // -----------------------------[ Server ]-----------------------------
-
 
 pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTHCODE_LENGTH],
@@ -27,7 +26,11 @@ pub struct ServerHandshakeMessage {
 }
 
 impl ServerHandshakeMessage {
-    pub fn new(repres: PublicRepresentative, server_auth: [u8; AUTHCODE_LENGTH], epoch_hr: String) -> Self {
+    pub fn new(
+        repres: PublicRepresentative,
+        server_auth: [u8; AUTHCODE_LENGTH],
+        epoch_hr: String,
+    ) -> Self {
         Self {
             server_auth,
             pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
@@ -88,10 +91,7 @@ impl ServerHandshakeMessage {
     }
 }
 
-
-
 // -----------------------------[ Client ]-----------------------------
-
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
@@ -105,11 +105,7 @@ pub struct ClientHandshakeMessage {
 }
 
 impl ClientHandshakeMessage {
-    pub fn new(
-        repres: PublicRepresentative,
-        pad_len: usize,
-        epoch_hour: String,
-    ) -> Self {
+    pub fn new(repres: PublicRepresentative, pad_len: usize, epoch_hour: String) -> Self {
         Self {
             pad_len,
             repres,
@@ -134,7 +130,7 @@ impl ClientHandshakeMessage {
     #[allow(unused)]
     /// Return the elligator2 representative of the public key value.
     pub fn get_representative(&self) -> PublicRepresentative {
-        self.repres.clone()
+        self.repres
     }
 
     /// return the epoch hour used in the ntor handshake.

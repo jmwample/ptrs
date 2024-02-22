@@ -25,4 +25,3 @@ impl<'a> rand_core::RngCore for FakePRNG<'a> {
     }
 }
 impl rand_core::CryptoRng for FakePRNG<'_> {}
-

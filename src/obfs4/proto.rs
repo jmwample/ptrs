@@ -16,7 +16,7 @@ use futures::{Sink, Stream};
 use pin_project::pin_project;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::time::{Duration,Instant};
+use tokio::time::{Duration, Instant};
 use tokio_util::codec::{Decoder, Framed};
 use tracing::{debug, trace};
 
@@ -26,7 +26,6 @@ use std::{
     result::Result as StdResult,
     task::{Context, Poll},
 };
-
 
 use super::framing::{FrameError, Messages};
 
@@ -218,7 +217,6 @@ where
         let mut len_sent: usize = 0;
         let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
         while msg_len - len_sent > framing::MAX_MESSAGE_PAYLOAD_LENGTH {
-
             // package one chunk of the mesage as a payload
             let payload = framing::Messages::Payload(
                 buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH].to_vec(),

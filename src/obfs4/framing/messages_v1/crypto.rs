@@ -1,20 +1,19 @@
-
-use crate::obfs4::framing::{Message, MessageType, FrameError};
 use super::MessageTypes;
+use crate::obfs4::framing::{FrameError, Message, MessageType};
 
 #[derive(PartialEq, Debug)]
 pub enum CryptoExtension {
-    Kyber
+    Kyber,
 }
 
 #[allow(unused)]
 impl CryptoExtension {
     pub(crate) fn get_offer() -> impl Message {
-        KyberOfferMessage{}
+        KyberOfferMessage {}
     }
 
     pub(crate) fn create_accept() -> impl Message {
-        KyberAcceptMessage{}
+        KyberAcceptMessage {}
     }
 }
 
@@ -59,7 +58,7 @@ impl Message for KyberAcceptMessage {
 mod tests {
     use pqc_kyber::*;
 
-    use crate::common::curve25519::{Representable, PublicKey};
+    use crate::common::curve25519::{PublicKey, Representable};
     use crate::obfs4::handshake::Obfs4NtorSecretKey;
 
     type Result<T> = std::result::Result<T, Error>;

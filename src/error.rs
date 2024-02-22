@@ -81,11 +81,17 @@ impl Display for Error {
             Error::NullTransport => write!(f, "NullTransport"),
             Error::HandshakeTimeout => write!(f, "handshake timed out"),
             Error::BadCircHandshakeAuth => write!(f, "failed authentication for circuit handshake"),
-            Error::InvalidKDFOutputLength => write!(f, "Tried to extract too many bytes from a KDF"),
+            Error::InvalidKDFOutputLength => {
+                write!(f, "Tried to extract too many bytes from a KDF")
+            }
 
-            Error::CellDecodeErr {object, err} => write!(f, "Unable to decode cell {object}: {err}"),
-            Error::BytesErr {object, err} => write!(f, "Unable to parse {object}: {err}"),
-            Error::NtorEncodeErr { object, err } => write!(f,"Problem while encoding {object}: {err}"),
+            Error::CellDecodeErr { object, err } => {
+                write!(f, "Unable to decode cell {object}: {err}")
+            }
+            Error::BytesErr { object, err } => write!(f, "Unable to parse {object}: {err}"),
+            Error::NtorEncodeErr { object, err } => {
+                write!(f, "Problem while encoding {object}: {err}")
+            }
 
             Error::HandshakeErr(err) => write!(f, "handshake failed or unable to complete: {err}"),
 
@@ -122,7 +128,6 @@ impl From<Error> for std::io::Error {
         }
     }
 }
-
 
 impl FromStr for Error {
     type Err = Error;
@@ -212,7 +217,10 @@ impl From<tor_error::Bug> for Error {
 
 impl From<tor_cell::Error> for Error {
     fn from(value: tor_cell::Error) -> Self {
-        Error::CellDecodeErr{ object: "", err: value }
+        Error::CellDecodeErr {
+            object: "",
+            err: value,
+        }
     }
 }
 

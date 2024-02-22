@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH, Representable},
+        curve25519::{PublicKey, PublicRepresentative, Representable, REPRESENTATIVE_LENGTH},
         ntor_arti::RelayHandshakeError,
         HmacSha256,
     },
@@ -9,9 +9,9 @@ use crate::{
         framing::{
             build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
         }, // constants::*,
-           // handshake::{
-           //     utils::find_mac_mark,
-           // },
+        // handshake::{
+        //     utils::find_mac_mark,
+        // },
         Server,
     },
 };
@@ -113,15 +113,19 @@ impl Server {
         let okay =
             ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
 
-
         let (key_seed, authcode) =
             ntor_derive(&xy, &xb, &materials.identity_keys.pk, &their_pk, &ephem_pub)
                 .map_err(into_internal!("Error deriving keys"))?;
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
-        let mut reply =
-            self.complete_server_hs(&client_hs, materials, session_repres.unwrap(), &mut keygen, authcode)?;
+        let mut reply = self.complete_server_hs(
+            &client_hs,
+            materials,
+            session_repres.unwrap(),
+            &mut keygen,
+            authcode,
+        )?;
 
         tor_bytes::Writer::write(&mut reply, &ephem_pub.as_bytes())
             .and_then(|_| reply.write_and_consume(authcode))
@@ -136,7 +140,7 @@ impl Server {
         }
     }
 
-    pub(crate) fn complete_server_hs<'a>(
+    pub(crate) fn complete_server_hs(
         &self,
         client_hs: &ClientHandshakeMessage,
         materials: HandshakeMaterials,

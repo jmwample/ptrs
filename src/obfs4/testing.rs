@@ -275,10 +275,13 @@ async fn transfer_512k_x1() -> Result<()> {
                 panic!("client failed to read after {i} iterations: timeout");
             }
         }
-        i+=1;
+        i += 1;
     }
 
-    assert_eq!(received, expected_total, "incorrect amount received {received} != {expected_total}");
+    assert_eq!(
+        received, expected_total,
+        "incorrect amount received {received} != {expected_total}"
+    );
     Ok(())
 }
 
@@ -321,7 +324,8 @@ async fn transfer_2_x() -> Result<()> {
 
     let mut i = 0;
     loop {
-        let res_timeout = tokio::time::timeout(Duration::from_millis(10000), r.read(&mut buf)).await;
+        let res_timeout =
+            tokio::time::timeout(Duration::from_millis(10000), r.read(&mut buf)).await;
 
         let res = res_timeout.unwrap();
         let n = res?;
@@ -340,7 +344,7 @@ async fn transfer_2_x() -> Result<()> {
                 panic!("received more than expected {received} > {expected_total}")
             }
         }
-        i+=1;
+        i += 1;
     }
 
     if received != expected_total {

@@ -4,10 +4,10 @@ use crate::{
     common::{colorize, HmacSha256},
     obfs4::{
         constants::*,
-        sessions,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
         handshake::Obfs4NtorPublicKey,
         proto::{MaybeTimeout, Obfs4Stream, IAT},
+        sessions,
     },
     stream::Stream,
     Error, Result,

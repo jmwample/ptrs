@@ -15,4 +15,3 @@ pub(crate) fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
     let choice = a.ct_eq(b);
     choice.unwrap_u8() == 1
 }
-

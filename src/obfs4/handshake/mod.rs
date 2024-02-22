@@ -2,29 +2,34 @@
 
 use crate::{
     common::{
-        ct, curve25519::{
-            EphemeralSecret, PublicKey, SharedSecret, StaticSecret, Representable
-        }, kdf::{Kdf, Ntor1Kdf}, ntor_arti::{
+        ct,
+        curve25519::{EphemeralSecret, PublicKey, Representable, SharedSecret, StaticSecret},
+        kdf::{Kdf, Ntor1Kdf},
+        ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
             ServerHandshake,
-        }
+        },
     },
-    obfs4::{constants::*, framing::{Obfs4Codec, KEY_MATERIAL_LENGTH}, Server},
+    obfs4::{
+        constants::*,
+        framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},
+        Server,
+    },
     Error, Result,
 };
 
 use std::borrow::Borrow;
 
 use bytes::BytesMut;
+use digest::Mac;
+use hmac::Hmac;
+use rand_core::{CryptoRng, RngCore};
+use subtle::ConstantTimeEq;
 use tor_bytes::{EncodeResult, SecretBuf, Writer};
 use tor_error::into_internal;
 use tor_llcrypto::d::Sha256;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tracing::warn;
-use digest::Mac;
-use hmac::Hmac;
-use rand_core::{CryptoRng, RngCore};
-use subtle::ConstantTimeEq;
 
 mod handshake_client;
 mod handshake_server;
@@ -33,12 +38,13 @@ mod utils;
 // TODO: this is a special tool that will help us later.
 pub(crate) use utils::*;
 
-use handshake_client::{client_handshake_obfs4, client_handshake2_obfs4, NtorHandshakeState};
 pub(crate) use handshake_client::HandshakeMaterials as CHSMaterials;
-pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
 #[cfg(test)]
-pub(crate) use handshake_client::{client_handshake_obfs4_no_keygen, client_handshake2_no_auth_check_obfs4};
-
+pub(crate) use handshake_client::{
+    client_handshake2_no_auth_check_obfs4, client_handshake_obfs4_no_keygen,
+};
+use handshake_client::{client_handshake2_obfs4, client_handshake_obfs4, NtorHandshakeState};
+pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
 
 pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
 pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
@@ -64,7 +70,10 @@ impl ClientHandshake for Obfs4NtorHandshake {
         client_handshake_obfs4(rng, key)
     }
 
-    fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<(Self::ServerAuxData, Self::KeyGen)> {
+    fn client2<T: AsRef<[u8]>>(
+        state: Self::StateType,
+        msg: T,
+    ) -> Result<(Self::ServerAuxData, Self::KeyGen)> {
         let (keygen, remainder) = client_handshake2_obfs4(msg, &state)?;
         Ok((BytesMut::from(&remainder[..]), keygen))
     }
@@ -116,7 +125,10 @@ impl Obfs4NtorPublicKey {
     /// Construct a new Obfs4NtorPublicKey from its components.
     #[allow(unused)]
     pub(crate) fn new(pk: [u8; NODE_PUBKEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
-        Self { pk: pk.into(), id: id.into() }
+        Self {
+            pk: pk.into(),
+            id: id.into(),
+        }
     }
 }
 
@@ -132,11 +144,7 @@ pub(crate) struct Obfs4NtorSecretKey {
 impl Obfs4NtorSecretKey {
     /// Construct a new Obfs4NtorSecretKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(
-        sk: StaticSecret,
-        pk: PublicKey,
-        id: RsaIdentity,
-    ) -> Self {
+    pub(crate) fn new(sk: StaticSecret, pk: PublicKey, id: RsaIdentity) -> Self {
         Self {
             pk: Obfs4NtorPublicKey { id, pk },
             sk,
@@ -181,12 +189,9 @@ pub(crate) struct NtorHkdfKeyGenerator {
 impl NtorHkdfKeyGenerator {
     /// Create a new key generator to expand a given seed
     pub(crate) fn new(seed: SecretBuf, is_client: bool) -> Self {
-
         // use the seed value to bootstrap Read / Write crypto codec.
-        let okm = Self::kdf(
-            &seed[..],
-            KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN,
-        ).expect("bug: failed to derive key material from seed");
+        let okm = Self::kdf(&seed[..], KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN)
+            .expect("bug: failed to derive key material from seed");
 
         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
             .try_into()
@@ -222,9 +227,8 @@ impl KeyGenerator for NtorHkdfKeyGenerator {
 }
 
 /// Alias for an HMAC output, used to validate correctness of a handshake.
-pub(crate) type Authcode = [u8;32];
+pub(crate) type Authcode = [u8; 32];
 pub(crate) const AUTHCODE_LENGTH: usize = 32;
-
 
 /// helper: compute a key generator and an authentication code from a set
 /// of ntor parameters.
@@ -237,7 +241,7 @@ fn ntor_derive(
     x: &PublicKey,
     y: &PublicKey,
 ) -> EncodeResult<(SecretBuf, Authcode)> {
-// ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
+    // ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {
     let server_string = &b"Server"[..];
 
     // obfs4 uses a different order than Ntor V1 and accidentally writes the
@@ -245,10 +249,10 @@ fn ntor_derive(
     let mut suffix = SecretBuf::new();
     suffix.write(&server_pk.pk.as_bytes())?; // b
     suffix.write(&server_pk.pk.as_bytes())?; // b
-    suffix.write(x.as_bytes())?;             // x
-    suffix.write(y.as_bytes())?;             // y
-    suffix.write(PROTO_ID)?;                 // PROTOID
-    suffix.write(&server_pk.id)?;            // ID
+    suffix.write(x.as_bytes())?; // x
+    suffix.write(y.as_bytes())?; // y
+    suffix.write(PROTO_ID)?; // PROTOID
+    suffix.write(&server_pk.id)?; // ID
 
     // secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)
     // ^ these are the equivalent x25519 shared secrets concatenated
@@ -257,7 +261,7 @@ fn ntor_derive(
     let mut message = SecretBuf::new();
     message.write(xy.as_bytes())?; // EXP(X,y)
     message.write(xb.as_bytes())?; // EXP(X,b)
-    message.write(&suffix[..])?;   // b | b | x | y | PROTOID | ID
+    message.write(&suffix[..])?; // b | b | x | y | PROTOID | ID
 
     // verify = HMAC_SHA256(msg, T_VERIFY)
     let verify = {
@@ -273,8 +277,8 @@ fn ntor_derive(
     // key duplicated), but in a different order than Ntor V1.
     let mut auth_input = Vec::new();
     auth_input.write_and_consume(verify)?; // verify
-    auth_input.write(&suffix[..])?;        // b | b | x | y | PROTOID | ID
-    auth_input.write(server_string)?;      // "Server"
+    auth_input.write(&suffix[..])?; // b | b | x | y | PROTOID | ID
+    auth_input.write(server_string)?; // "Server"
 
     // auth = HMAC_SHA256(auth_input, T_MAC)
     let auth_mac = {
@@ -282,7 +286,7 @@ fn ntor_derive(
         m.update(&auth_input[..]);
         m.finalize()
     };
-    let auth: [u8;32] = auth_mac.into_bytes()[..].try_into().unwrap();
+    let auth: [u8; 32] = auth_mac.into_bytes()[..].try_into().unwrap();
 
     // key_seed = HMAC_SHA256(message, T_KEY)
     let key_seed_bytes = {
@@ -298,13 +302,13 @@ fn ntor_derive(
 
 /// Obfs4 helper trait to ensure that a returned key generator can be used
 /// to create a usable codec and retrieve a session id.
-pub trait Obfs4Keygen: KeyGenerator + Into<Obfs4Codec>{
+pub trait Obfs4Keygen: KeyGenerator + Into<Obfs4Codec> {
     fn session_id(&mut self) -> [u8; SESSION_ID_LEN];
 }
 
 impl Obfs4Keygen for NtorHkdfKeyGenerator {
     fn session_id(&mut self) -> [u8; SESSION_ID_LEN] {
-        self.session_id.clone()
+        self.session_id
     }
 }
 

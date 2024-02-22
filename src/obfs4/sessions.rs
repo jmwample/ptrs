@@ -500,7 +500,7 @@ impl Server {
                     continue;
                 }
                 Err(e) => {
-                    trace!( "{} failed to parse client handshake: {e}", session_id);
+                    trace!("{} failed to parse client handshake: {e}", session_id);
                     // if a deadline was set and has not passed already, discard
                     // from the stream until the deadline, then close.
                     if deadline.is_some_and(|d| d > Instant::now()) {

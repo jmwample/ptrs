@@ -1,4 +1,3 @@
-
 /*
 const SEED_LENGTH: usize = 24;
 

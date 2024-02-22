@@ -13,7 +13,9 @@
 // kludge something together using a fake Rng, but that might be more
 // trouble than we want to go looking for.
 #[allow(unused)]
-pub use x25519_dalek::{EphemeralSecret, ReusableSecret, PublicKey, SharedSecret, StaticSecret, PublicRepresentative};
+pub use x25519_dalek::{
+    EphemeralSecret, PublicKey, PublicRepresentative, ReusableSecret, SharedSecret, StaticSecret,
+};
 
 use rand_core::{CryptoRng, RngCore};
 
@@ -32,7 +34,6 @@ const RETRY_LIMIT: usize = 128;
 
 #[allow(unused)]
 impl Representable {
-
     /// Generate a new Elligator2 representable ['StaticSecret'] with the supplied RNG.
     pub fn static_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> StaticSecret {
         let mut private = StaticSecret::random_from_rng(&mut rng);

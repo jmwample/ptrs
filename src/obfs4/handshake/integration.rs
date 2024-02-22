@@ -16,10 +16,12 @@
 
 use super::*;
 use crate::{
-    common::{curve25519, colorize},
-    common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake},
+    common::{
+        colorize, curve25519,
+        ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake},
+    },
     obfs4::Server,
-    test_utils::FakePRNG,
+    test_utils::{init_subscriber, FakePRNG},
     Result,
 };
 
@@ -54,12 +56,12 @@ fn test_obfs4_roundtrip() -> Result<()> {
         session_id: "s-yyy".into(),
     };
 
-
     let (state, create_msg) = client_handshake_obfs4_no_keygen(x.sk, chs_materials).unwrap();
 
     let ephem = make_fake_ephem_key(&y.sk.as_bytes()[..]);
-    let (s_keygen, created_msg) =
-        server.server_handshake_obfs4_no_keygen(ephem, &create_msg[..], shs_materials).unwrap();
+    let (s_keygen, created_msg) = server
+        .server_handshake_obfs4_no_keygen(ephem, &create_msg[..], shs_materials)
+        .unwrap();
 
     let (c_keygen, _) = client_handshake2_obfs4(created_msg, &state)?;
 
@@ -90,15 +92,15 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
     };
     let mut server = Server::new_from_random(&mut rng);
     server.identity_keys = relay_ntsk.clone();
-    let shs_materials = [SHSMaterials::new(&relay_ntsk, "s-yyy".into(), [0u8;SEED_LENGTH])];
+    let shs_materials = [SHSMaterials::new(
+        &relay_ntsk,
+        "s-yyy".into(),
+        [0u8; SEED_LENGTH],
+    )];
 
-    let (skeygen, smsg) = server.server(
-        &mut rng,
-        &mut |_: &()| Some(()),
-        &shs_materials,
-        &cmsg,
-    )
-    .unwrap();
+    let (skeygen, smsg) = server
+        .server(&mut rng, &mut |_: &()| Some(()), &shs_materials, &cmsg)
+        .unwrap();
 
     let (_extensions, ckeygen) = Obfs4NtorHandshake::client2(state, smsg)?;
 
@@ -112,6 +114,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
 
 #[test]
 fn test_obfs4_testvec_compat() -> Result<()> {
+    init_subscriber();
     let mut rng = rand::thread_rng();
 
     let b_sk = hex!("a83fdd04eb9ed77a2b38d86092a09a1cecfb93a7bdec0da35e542775b2e7af6e");
@@ -132,26 +135,20 @@ fn test_obfs4_testvec_compat() -> Result<()> {
 
     let x: StaticSecret = x_sk.into();
 
-    let chs_materials = CHSMaterials {
-        node_pubkey: pk,
-        session_id: "c-xxx".into(),
-        pad_len: 0,
-    };
+    let chs_materials = CHSMaterials::new(pk, "c-xxx".into());
 
-    let shs_materials = SHSMaterials {
-        identity_keys: server.identity_keys.clone(),
-        len_seed: [0u8; SEED_LENGTH],
-        session_id: "s-yyy".into(),
-    };
+    let shs_materials =
+        SHSMaterials::new(&server.identity_keys, "s-yyy".into(), [0u8; SEED_LENGTH]);
 
     let (state, create_msg) = client_handshake_obfs4_no_keygen(x, chs_materials).unwrap();
 
-    let (s_keygen, created_msg) = server.server_handshake_obfs4_no_keygen(
-        make_fake_ephem_key(&y_sk[..]), // convert the StaticSecret to an EphemeralSecret for api to allow from hex
-        &create_msg[..],
-        shs_materials,
-    )
-    .unwrap();
+    let (s_keygen, created_msg) = server
+        .server_handshake_obfs4_no_keygen(
+            make_fake_ephem_key(&y_sk[..]), // convert the StaticSecret to an EphemeralSecret for api to allow from hex
+            &create_msg[..],
+            shs_materials,
+        )
+        .unwrap();
 
     let (c_keygen, auth) = client_handshake2_no_auth_check_obfs4(created_msg, &state)?;
     let seed = c_keygen.seed.clone();
@@ -242,7 +239,6 @@ fn failing_handshakes() {
 
     let resources = &Server::new_from_random(&mut rng);
 
-
     // If the client uses the wrong keys, the relay should reject the
     // handshake.
     let mut hs_materials = CHSMaterials::new(wrong_ntpk1.clone(), "c-xxx".into());
@@ -252,7 +248,11 @@ fn failing_handshakes() {
     hs_materials.node_pubkey = relay_ntpk;
     let (st3, handshake3) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
 
-    let shs_materials = [SHSMaterials::new(&relay_ntsk, "s-yyy".into(), [0u8;SEED_LENGTH])];
+    let shs_materials = [SHSMaterials::new(
+        &relay_ntsk,
+        "s-yyy".into(),
+        [0u8; SEED_LENGTH],
+    )];
     let ans1 = resources.server(
         &mut rng,
         &mut |_: &()| Some(()),
@@ -271,13 +271,14 @@ fn failing_handshakes() {
 
     // If the relay's message is tampered with, the client will
     // reject the handshake.
-    let (_, mut smsg) = resources.server(
-        &mut rng,
-        &mut |_: &()| Some(()),
-        &shs_materials,
-        &handshake3,
-    )
-    .unwrap();
+    let (_, mut smsg) = resources
+        .server(
+            &mut rng,
+            &mut |_: &()| Some(()),
+            &shs_materials,
+            &handshake3,
+        )
+        .unwrap();
     smsg[60] ^= 7;
     let ans3 = Obfs4NtorHandshake::client2(st3, smsg);
     assert!(ans3.is_err());

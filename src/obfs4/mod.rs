@@ -25,25 +25,17 @@ pub enum Builder {
 impl Builder {
     pub fn from_statefile(location: &str, is_client: bool) -> Result<Self> {
         if is_client {
-            Ok(Builder::client(
-                 ClientBuilder::from_statefile(location)?,
-            ))
+            Ok(Builder::client(ClientBuilder::from_statefile(location)?))
         } else {
-            Ok(Builder::server(
-                 ServerBuilder::from_statefile(location)?,
-            ))
+            Ok(Builder::server(ServerBuilder::from_statefile(location)?))
         }
     }
 
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>, is_client: bool) -> Result<Self> {
         if is_client {
-            Ok(Builder::client(
-                ClientBuilder::from_params(param_strs)?,
-            ))
+            Ok(Builder::client(ClientBuilder::from_params(param_strs)?))
         } else {
-            Ok(Builder::server(
-                ServerBuilder::from_params(param_strs)?,
-            ))
+            Ok(Builder::server(ServerBuilder::from_params(param_strs)?))
         }
     }
 }

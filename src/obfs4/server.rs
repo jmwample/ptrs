@@ -10,12 +10,12 @@ use crate::{
         HmacSha256,
     },
     obfs4::{
+        client::ClientBuilder,
         constants::*,
-        sessions::Session,
         framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
         handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
-        proto::{MaybeTimeout, IAT, Obfs4Stream},
-        client::ClientBuilder,
+        proto::{MaybeTimeout, Obfs4Stream, IAT},
+        sessions::Session,
     },
     stream::Stream,
     Error, Result,
@@ -76,7 +76,7 @@ impl ServerBuilder {
 
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
-    pub fn node_keys(mut self, keys: [u8; KEY_LENGTH*2]) -> Self {
+    pub fn node_keys(mut self, keys: [u8; KEY_LENGTH * 2]) -> Self {
         let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
         let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
         self.identity_keys.sk = sk.into();
@@ -133,7 +133,6 @@ pub struct Server {
     pub(crate) identity_keys: Obfs4NtorSecretKey,
 
     pub(crate) replay_filter: ReplayFilter,
-
     // pub(crate) metrics: Metrics,
 }
 
@@ -209,7 +208,9 @@ impl Server {
         }
     }
 
-    pub(crate) fn new_server_session(&self) -> Result<sessions::ServerSession<'_, sessions::Initialized>> {
+    pub(crate) fn new_server_session(
+        &self,
+    ) -> Result<sessions::ServerSession<'_, sessions::Initialized>> {
         let mut session_id = [0u8; SESSION_ID_LEN];
         rand::thread_rng().fill_bytes(&mut session_id);
         Ok(sessions::ServerSession {
@@ -225,6 +226,4 @@ impl Server {
             _state: sessions::Initialized {},
         })
     }
-
 }
-

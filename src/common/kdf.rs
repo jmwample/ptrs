@@ -1,4 +1,3 @@
-
 //! Key derivation functions
 //!
 //! Tor has three relevant key derivation functions that it uses for
@@ -96,7 +95,7 @@ mod test {
     use super::*;
     use hex_literal::hex;
 
-   #[test]
+    #[test]
     fn clearbox_ntor1_kdf() {
         // Calculate Ntor1Kdf, and make sure we get the same result by
         // following the calculation in the spec.
@@ -157,4 +156,3 @@ mod test {
         assert_eq!(&result.unwrap()[..], &expected[..]);
     }
 }
-

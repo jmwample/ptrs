@@ -3,7 +3,7 @@
 
 use tokio::task::JoinSet;
 
-use std::fmt::{Formatter, Error};
+use std::fmt::{Error, Formatter};
 
 mod metrics;
 pub use metrics::Metrics;
@@ -15,7 +15,7 @@ pub struct TunnelManager<T> {
 }
 
 /// All methods should be implemented using locks or as otherwise atomic operations
-/// otherwise printed metrics may miss-count the number of events happening around 
+/// otherwise printed metrics may miss-count the number of events happening around
 /// epoch transitions.
 pub trait Metric {
     // Required methods
@@ -30,4 +30,3 @@ pub trait Metric {
     /// and resets any reset-able counters.
     fn print_and_reset(&self, f: &mut Formatter<'_>) -> Result<(), Error>;
 }
-

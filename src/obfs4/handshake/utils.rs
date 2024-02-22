@@ -35,7 +35,13 @@ pub fn find_mac_mark(
     if buffer.len() < MARK_LENGTH {
         return None;
     }
-    trace!("finding mac mark: buf: {}B, {}-{}, from_tail: {}", buffer.len(), start_pos, max_pos, from_tail);
+    trace!(
+        "finding mac mark: buf: {}B, {}-{}, from_tail: {}",
+        buffer.len(),
+        start_pos,
+        max_pos,
+        from_tail
+    );
 
     if start_pos > buffer.len() {
         return None;
