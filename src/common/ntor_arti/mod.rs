@@ -141,7 +141,7 @@ impl KeyGenerator for ShakeKeyGenerator {
 
 /// An error produced by a Relay's attempt to handle a client's onion handshake.
 #[derive(Clone, Debug, thiserror::Error)]
-pub(crate) enum RelayHandshakeError {
+pub enum RelayHandshakeError {
     /// Occurs when a check did not fail, but requires updated input from the
     /// calling context. For example, a handshake that requires more bytes to
     /// before it can succeed or fail.

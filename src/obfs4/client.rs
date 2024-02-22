@@ -29,7 +29,8 @@ use std::{
 
 pub struct ClientBuilder {
     pub iat_mode: IAT,
-    pub station_pubkey: Obfs4NtorPublicKey,
+    pub station_pubkey: [u8; KEY_LENGTH],
+    pub station_id: [u8; NODE_ID_LENGTH],
     pub statefile_location: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -37,14 +38,10 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
-        let station_pubkey = Obfs4NtorPublicKey {
-            pk: [0_u8; KEY_LENGTH].into(),
-            id: [0_u8; NODE_ID_LENGTH].into(),
-        };
-
         Ok(Self {
             iat_mode: IAT::Off,
-            station_pubkey,
+            station_pubkey: [0_u8; KEY_LENGTH],
+            station_id: [0_u8; NODE_ID_LENGTH],
             statefile_location: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -52,21 +49,17 @@ impl ClientBuilder {
 
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
-        let station_pubkey = Obfs4NtorPublicKey {
-            pk: [0_u8; KEY_LENGTH].into(),
-            id: [0_u8; NODE_ID_LENGTH].into(),
-        };
-
         Ok(Self {
             iat_mode: IAT::Off,
-            station_pubkey,
+            station_pubkey: [0_u8; KEY_LENGTH],
+            station_id: [0_u8; NODE_ID_LENGTH],
             statefile_location: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
 
     pub fn with_node_pubkey(mut self, pubkey: [u8; KEY_LENGTH]) -> Self {
-        self.station_pubkey.pk = pubkey.into();
+        self.station_pubkey = pubkey;
         self
     }
 
@@ -76,7 +69,7 @@ impl ClientBuilder {
     }
 
     pub fn with_node_id(mut self, id: [u8; NODE_ID_LENGTH]) -> Self {
-        self.station_pubkey.id = id.into();
+        self.station_id = id;
         self
     }
 
@@ -103,7 +96,10 @@ impl ClientBuilder {
     pub fn build(self) -> Client {
         Client {
             iat_mode: self.iat_mode,
-            station_pubkey: self.station_pubkey,
+            station_pubkey: Obfs4NtorPublicKey {
+                id: self.station_id.into(),
+                pk: self.station_pubkey.into(),
+            },
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }

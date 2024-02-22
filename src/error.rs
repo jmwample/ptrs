@@ -38,28 +38,6 @@ pub enum Error {
         /// The error that occurred while parsing it.
         err: tor_cell::Error,
     },
-
-    /// An error that occurred in the tor_bytes crate while decoding an
-    /// object.
-    BytesErr {
-        /// What we were trying to parse.
-        object: &'static str,
-        /// The error that occurred while parsing it.
-        err: tor_bytes::Error,
-    },
-
-    /// An error occurred while trying to create or encode some non-cell
-    /// message.
-    ///
-    /// This is likely the result of a bug: either in this crate, or the code
-    /// that provided the input.
-    NtorEncodeErr {
-        /// What we were trying to create or encode.
-        object: &'static str,
-        /// The error that occurred.
-        err: tor_bytes::EncodeError,
-    },
-
     HandshakeErr(RelayHandshakeError),
 
     Obfs4Framing(obfs4::framing::FrameError),
@@ -84,15 +62,9 @@ impl Display for Error {
             Error::InvalidKDFOutputLength => {
                 write!(f, "Tried to extract too many bytes from a KDF")
             }
-
             Error::CellDecodeErr { object, err } => {
                 write!(f, "Unable to decode cell {object}: {err}")
             }
-            Error::BytesErr { object, err } => write!(f, "Unable to parse {object}: {err}"),
-            Error::NtorEncodeErr { object, err } => {
-                write!(f, "Problem while encoding {object}: {err}")
-            }
-
             Error::HandshakeErr(err) => write!(f, "handshake failed or unable to complete: {err}"),
 
             Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
@@ -105,18 +77,6 @@ unsafe impl Send for Error {}
 impl Error {
     pub fn new<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> Self {
         Error::Other(e.into())
-    }
-
-    /// Create an error for a tor_bytes error that occurred while parsing
-    /// something of type `object`.
-    pub(crate) fn from_bytes_err(err: tor_bytes::Error, object: &'static str) -> Error {
-        Error::BytesErr { err, object }
-    }
-
-    /// Create an error for a tor_bytes error that occurred while encoding
-    /// something of type `object`.
-    pub(crate) fn from_bytes_enc(err: tor_bytes::EncodeError, object: &'static str) -> Error {
-        Error::NtorEncodeErr { err, object }
     }
 }
 

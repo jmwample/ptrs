@@ -201,7 +201,8 @@ impl Server {
 
     pub fn client_params(&self) -> ClientBuilder {
         ClientBuilder {
-            station_pubkey: self.identity_keys.pk,
+            station_pubkey: *self.identity_keys.pk.pk.as_bytes(),
+            station_id: self.identity_keys.pk.id.as_bytes().try_into().unwrap(),
             iat_mode: self.iat_mode,
             statefile_location: None,
             handshake_timeout: MaybeTimeout::Default_,
