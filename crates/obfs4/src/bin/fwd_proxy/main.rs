@@ -9,7 +9,6 @@ mod socks5;
 
 use config::{Cli, ProxyConfig};
 
-use anyhow::Result;
 use clap::Parser;
 use tokio::{self, signal, sync::mpsc::channel};
 use tokio_util::sync::CancellationToken;
@@ -23,10 +22,13 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     // shutdown signal to indicate to all active thread processes that they should close
     let shutdown_signal = CancellationToken::new();
 
+    let config = Cli::parse();
+    let proxy_runner: ProxyConfig<_> = config.try_into()?;
+
     tokio::select! {
         // launch proxy runner based on the parsed config. If config parsing fails we fail and
         // return the parse error.
-        out = parse_config()?.run(shutdown_signal.clone(), send.clone()) => {
+        out = proxy_runner.run(shutdown_signal.clone(), send.clone()) => {
             if let Err(e) = out {
                 error!("encountered error:{:?}", e);
                 panic!("\tshutting down");
@@ -52,8 +54,8 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     Ok(())
 }
 
-/// Parse command-line arguments and execute the appropriate commands
-pub fn parse_config() -> Result<ProxyConfig, anyhow::Error> {
-    let conf: ProxyConfig = Cli::parse().try_into()?;
-    Ok(conf)
-}
+// /// Parse command-line arguments and execute the appropriate commands
+// pub fn parse_config() -> Result<ProxyConfig<impl Builder+Default>, anyhow::Error> {
+//     // Cli::parse().try_into()
+//     <Cli as TryInto<ProxyConfig<_>>>::try_into(Cli::parse())
+// }

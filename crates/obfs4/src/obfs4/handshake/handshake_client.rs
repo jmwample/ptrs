@@ -1,15 +1,10 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{
-            PublicKey, PublicRepresentative, Representable, StaticSecret, REPRESENTATIVE_LENGTH,
-        },
+        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::{
-        framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
-        handshake::utils::find_mac_mark,
-    },
+    obfs4::framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
 };
 
 use rand::Rng;

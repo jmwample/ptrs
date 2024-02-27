@@ -27,10 +27,10 @@ pub enum Role {
 }
 
 pub trait Builder {
-    fn handler(&self, r: &Role) -> Result<impl Transport + Send + Sync>;
+    fn build(&self, r: &Role) -> Result<impl Wrap + Send + Sync>;
 }
 
-pub trait Transport: TryConfigure + Named {
+pub trait Wrap: TryConfigure + Named {
     fn wrap<'a>(
         &self,
         s: impl Stream<'a>,

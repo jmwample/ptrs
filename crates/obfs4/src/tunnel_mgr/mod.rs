@@ -4,15 +4,12 @@
 use tokio::task::JoinSet;
 
 use std::fmt::{Error, Formatter};
+use std::sync::{Arc, Mutex};
 
 mod metrics;
 pub use metrics::Metrics;
 
-/// All tasks must return the same type `T`.
-pub struct TunnelManager<T> {
-    pub sessions: JoinSet<T>,
-    pub metrics: Metrics,
-}
+use crate::common::ntor_arti::ServerHandshake;
 
 /// All methods should be implemented using locks or as otherwise atomic operations
 /// otherwise printed metrics may miss-count the number of events happening around
@@ -29,4 +26,11 @@ pub trait Metric {
     /// Atomic operation that does both a formatted write of the stored metrics
     /// and resets any reset-able counters.
     fn print_and_reset(&self, f: &mut Formatter<'_>) -> Result<(), Error>;
+}
+
+/// All tasks must return the same type `T`.
+pub struct TunnelManager<R, M: Metric, S: ServerHandshake> {
+    pub sessions: Arc<Mutex<JoinSet<R>>>,
+    pub metrics: M,
+    pub server: S,
 }

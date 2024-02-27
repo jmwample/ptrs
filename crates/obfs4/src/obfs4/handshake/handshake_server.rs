@@ -1,18 +1,11 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, Representable, REPRESENTATIVE_LENGTH},
-        ntor_arti::RelayHandshakeError,
+        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::{
-        framing::{
-            build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
-        }, // constants::*,
-        // handshake::{
-        //     utils::find_mac_mark,
-        // },
-        Server,
+    obfs4::framing::{
+        build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
     },
 };
 
