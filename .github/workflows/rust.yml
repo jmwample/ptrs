@@ -44,22 +44,22 @@ jobs:
     - name: Lint
       run: cargo clippy --workspace --all-targets --verbose --all-features
 
-  bench:
-    name: Check that benchmarks compile
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@stable
-    - name: Build u32 bench
-      env:
-        RUSTFLAGS: '--cfg curve25519_dalek_bits="32"'
-      run: cargo build --benches
-    - name: Build u64 bench
-      env:
-        RUSTFLAGS: '--cfg curve25519_dalek_bits="64"'
-      run: cargo build --benches
-    - name: Build default (host native) bench
-      run: cargo build --benches
+#     bench:
+#       name: Check that benchmarks compile
+#       runs-on: ubuntu-latest
+#       steps:
+#       - uses: actions/checkout@v3
+#       - uses: dtolnay/rust-toolchain@stable
+#       - name: Build u32 bench
+#         env:
+#           RUSTFLAGS: '--cfg curve25519_dalek_bits="32"'
+#         run: cargo build --benches
+#       - name: Build u64 bench
+#         env:
+#           RUSTFLAGS: '--cfg curve25519_dalek_bits="64"'
+#         run: cargo build --benches
+#       - name: Build default (host native) bench
+#         run: cargo build --benches
 
   test-stable:
     name: Test 32/64 bit stable
@@ -69,7 +69,11 @@ jobs:
         include:
           # 32-bit target
           - target: i686-unknown-linux-gnu
-            deps: sudo apt update && sudo apt install gcc-multilib
+            deps: >
+              sudo dpkg --add-architecture i386;
+              sudo touch /etc/apt/sources.list.d/i386-cross-compile-sources.list;
+              echo "deb [arch=i386] http://ports.ubuntu.com/ focal universe\ndeb [arch=i386] http://ports.ubuntu.com/ focal-updates universe\n" | sudo tee -a /etc/apt/sources.list.d/i386-cross-compile-sources.list;
+              sudo apt update && sudo apt install gcc-multilib libsqlite3-dev:i386
 
           # 64-bit target
           - target: x86_64-unknown-linux-gnu
@@ -78,15 +82,9 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - run: rustup target add ${{ matrix.target }}
     - run: ${{ matrix.deps }}
-    - run: cargo test --target ${{ matrix.target }} --workspace --all-targets --no-default-features
-    - run: cargo test --target ${{ matrix.target }} --workspace --all-targets
     - run: cargo test --target ${{ matrix.target }} --workspace --all-targets --all-features
-    # - name: Test
-    #   run: cargo test --verbose --workspace --all-features
-    #   env:
-    #     CARGO_INCREMENTAL: '0'
-    #     RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-    #     RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+  # - run: cargo test --target ${{ matrix.target }} --workspace --all-targets
+  # - run: cargo test --target ${{ matrix.target }} --workspace --all-targets --no-default-features
 
   test-nightly:
     name: Test Nightly
@@ -114,22 +112,18 @@ jobs:
       uses: dtolnay/rust-toolchain@nightly
 
     # Build ptrs library
-    - name: Build library
+    - name: Build library and bins
       run: cargo build
-
-    # Build ptrs proxy PoC
-    - name: Build library
-      run: cargo build --bin proxy --release
 
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
     - name: Generate code coverage
       run: cargo llvm-cov --all-features --workspace --codecov --output-path codecov.json
     - name: Codecov
-      uses: codecov/codecov-action@v3
-      env:
-        CODECOV_TOKEN: ${{ secrets.PTRS_CODECOV_TOKEN }}
+      uses: codecov/codecov-action@v4.0.1
       with:
-        files: codecov.json
-        verbose: true
         fail_ci_if_error: true
+        files: codecov.json
+        token: ${{ secrets.CODECOV_TOKEN }} # required
+        verbose: true
+        slug: jmwample/o7

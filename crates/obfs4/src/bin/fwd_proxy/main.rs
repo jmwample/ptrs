@@ -1,8 +1,3 @@
-#![feature(noop_waker)]
-#![feature(trait_alias)]
-#![feature(slice_flatten)]
-#![feature(stdarch_x86_avx512)]
-
 mod config;
 mod handler;
 mod socks5;
@@ -10,7 +5,7 @@ mod socks5;
 use config::{Cli, ProxyConfig};
 
 use clap::Parser;
-use tokio::{self, signal, sync::mpsc::channel};
+use tokio::{signal, sync::mpsc::channel};
 use tokio_util::sync::CancellationToken;
 
 use tracing::{debug, error};
@@ -23,7 +18,8 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     let shutdown_signal = CancellationToken::new();
 
     let config = Cli::parse();
-    let proxy_runner: ProxyConfig<_> = config.try_into()?;
+    let proxy_runner = ProxyConfig::try_from(&config)?;
+    // let builder = Box::new(&config.pt) as Box<dyn Builder>;
 
     tokio::select! {
         // launch proxy runner based on the parsed config. If config parsing fails we fail and

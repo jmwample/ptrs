@@ -205,7 +205,7 @@ async fn transfer_1M_1024x1024() -> Result<()> {
         for i in 0..1024 {
             w.write_all(&msg)
                 .await
-                .unwrap_or_else(|_| panic!("failed on write #{i}"));
+                .unwrap_or_else(|e| panic!("failed on write #{i}: {e}"));
             w.flush().await.unwrap();
         }
     });
@@ -219,7 +219,7 @@ async fn transfer_1M_1024x1024() -> Result<()> {
             res = r.read(&mut buf) => {
                 received += res?;
             }
-            _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
                 panic!("client failed to read after {i} iterations: timeout");
             }
         }

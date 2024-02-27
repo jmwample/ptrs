@@ -89,7 +89,8 @@ pub(crate) const KEY_LENGTH: usize = 32;
 /// Size of the HMAC tag used for the frame security.
 pub(crate) const TAG_SIZE: usize = 16;
 
-///
+/// This is the expected length of the Key material that is used to seed the
+/// encrypting / decryptong codec, i.e. in framing/codec and handshake/
 pub(crate) const KEY_MATERIAL_LENGTH: usize = KEY_LENGTH + NONCE_PREFIX_LENGTH + drbg::SEED_LENGTH;
 
 pub trait Marshall {

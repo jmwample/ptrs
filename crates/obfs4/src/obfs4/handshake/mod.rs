@@ -23,13 +23,15 @@ use std::borrow::Borrow;
 use bytes::BytesMut;
 use digest::Mac;
 use hmac::Hmac;
-use rand_core::{CryptoRng, RngCore};
 use subtle::ConstantTimeEq;
 use tor_bytes::{EncodeResult, SecretBuf, Writer};
 use tor_error::into_internal;
 use tor_llcrypto::d::Sha256;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tracing::warn;
+
+#[cfg(test)]
+use rand::{CryptoRng, RngCore};
 
 mod handshake_client;
 mod handshake_server;
@@ -62,12 +64,11 @@ impl ClientHandshake for Obfs4NtorHandshake {
     type ClientAuxData = ();
     type ServerAuxData = BytesMut;
 
-    fn client1<R: RngCore + CryptoRng, M: Borrow<()>>(
-        rng: &mut R,
+    fn client1<M: Borrow<()>>(
         key: &Self::KeyType,
         _client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
-        client_handshake_obfs4(rng, key)
+        client_handshake_obfs4(key)
     }
 
     fn client2<T: AsRef<[u8]>>(
@@ -85,9 +86,8 @@ impl ServerHandshake for Server {
     type ClientAuxData = ();
     type ServerAuxData = ();
 
-    fn server<R: RngCore + CryptoRng, REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+    fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
-        rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
         msg: T,
@@ -98,13 +98,15 @@ impl ServerHandshake for Server {
 
         if key.is_empty() {
             return Err(RelayHandshakeError::MissingKey);
-        } else if key.len() > 1 {
+        }
+
+        if key.len() > 1 {
             warn!("Multiple keys provided, but only the first key will be used");
         }
 
         let shs_materials = key[0].clone();
 
-        self.server_handshake_obfs4(rng, msg, shs_materials)
+        self.server_handshake_obfs4(msg, shs_materials)
     }
 }
 

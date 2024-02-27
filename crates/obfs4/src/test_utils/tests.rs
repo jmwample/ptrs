@@ -3,10 +3,7 @@ use crate::Result;
 
 // use futures::join;
 
-use tokio::{
-    self,
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf},
-};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
 use tracing::debug;
 /*

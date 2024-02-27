@@ -1,7 +1,6 @@
 use crate::handler::{EchoHandler, Handler, Socks5Handler};
-use obfs::traits::Builder;
 
-use std::{convert::TryFrom, default::Default, marker::PhantomData, net, str::FromStr, sync::Arc};
+use std::{net, sync::Arc};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -20,13 +19,13 @@ pub const DEFAULT_SERVER_ADDRESS: &str = "127.0.0.1:9001";
 pub const DEFAULT_REMOTE_ADDRESS: &str = "127.0.0.1:9010";
 pub const DEFAULT_LOG_LEVEL: Level = Level::INFO;
 
-pub enum ProxyConfig<B> {
-    Entrance(EntranceConfig<B>),
-    Socks5Exit(ExitConfig<B, Socks5Handler>),
-    EchoExit(ExitConfig<B, EchoHandler>),
+pub enum ProxyConfig {
+    Entrance(EntranceConfig),
+    Socks5Exit(ExitConfig),
+    EchoExit(ExitConfig),
 }
 
-impl<B: Builder + Default> ProxyConfig<B> {
+impl ProxyConfig {
     pub async fn run(
         self,
         close: CancellationToken,
@@ -34,24 +33,24 @@ impl<B: Builder + Default> ProxyConfig<B> {
     ) -> Result<(), anyhow::Error> {
         match self {
             ProxyConfig::Entrance(config) => config.run(close, wait).await,
-            ProxyConfig::Socks5Exit(config) => Arc::new(config).run(close, wait).await,
-            ProxyConfig::EchoExit(config) => Arc::new(config).run(close, wait).await,
+            ProxyConfig::Socks5Exit(config) => {
+                Arc::new(config).run::<Socks5Handler>(close, wait).await
+            }
+            ProxyConfig::EchoExit(config) => Arc::new(config).run::<EchoHandler>(close, wait).await,
         }
     }
 }
 
-pub struct EntranceConfig<B> {
-    pt: String,
+pub struct EntranceConfig {
     pt_args: Vec<String>,
 
     listen_address: net::SocketAddr,
     remote_address: net::SocketAddr,
 
     level: Level,
-    builder: B,
 }
 
-impl<B: Builder + Default> EntranceConfig<B> {
+impl EntranceConfig {
     pub async fn run(
         self,
         close: CancellationToken,
@@ -93,38 +92,29 @@ impl<B: Builder + Default> EntranceConfig<B> {
     }
 }
 
-impl<B: Builder + Default> Default for EntranceConfig<B> {
+impl Default for EntranceConfig {
     fn default() -> Self {
         Self {
-            pt: String::from("plain"),
             pt_args: vec![],
 
             listen_address: DEFAULT_LISTEN_ADDRESS.parse().unwrap(),
             remote_address: DEFAULT_REMOTE_ADDRESS.parse().unwrap(),
             level: DEFAULT_LOG_LEVEL,
-            builder: B::default(),
         }
     }
 }
 
-pub struct ExitConfig<B, H> {
-    pt: String,
+#[allow(unused)] // TODO: parse args and things
+pub struct ExitConfig {
     pt_args: Vec<String>,
+    level: Level,
 
     // handler: Handler,
     listen_address: net::SocketAddr,
-
-    level: Level,
-    builder: B,
-    phantom_backend: PhantomData<H>,
 }
 
-impl<B: Builder + Default, H: Handler> ExitConfig<B, H> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub async fn run(
+impl ExitConfig {
+    pub async fn run<H: Handler + Send + Sync + 'static>(
         self: Arc<Self>,
         close: CancellationToken,
         _wait: Sender<()>,
@@ -151,11 +141,8 @@ impl<B: Builder + Default, H: Handler> ExitConfig<B, H> {
                     break
                 }
                 r = sessions.join_next() => {
-                    match r {
-                        Some(Err(e)) => {
-                            warn!("handler error: \"{e}\", session closed");
-                        }
-                        _ => {}
+                    if let Some(Err(e)) = r {
+                        warn!("handler error: \"{e}\", session closed");
                     }
                 }
                 r = listener.accept() => {
@@ -181,7 +168,7 @@ impl<B: Builder + Default, H: Handler> ExitConfig<B, H> {
                     };
 
                     debug!("connection successfully opened ->{t_name}-[{socket_addr}]");
-                    sessions.spawn(Self::H::handle(proxy_stream, close_c));
+                    sessions.spawn(H::handle(proxy_stream, close_c));
                 }
             }
         }
@@ -195,25 +182,21 @@ impl<B: Builder + Default, H: Handler> ExitConfig<B, H> {
     }
 }
 
-impl<B: Default, H> Default for ExitConfig<B, H> {
+impl Default for ExitConfig {
     fn default() -> Self {
         Self {
-            pt: String::from("plain"),
             pt_args: vec![],
             listen_address: DEFAULT_SERVER_ADDRESS.parse().unwrap(),
             level: DEFAULT_LOG_LEVEL,
-            // handler: Handlers::Echo,
-            builder: B::default(),
-            phantom_backend: PhantomData,
         }
     }
 }
 
-impl<B: Builder + Default> TryFrom<Cli> for ProxyConfig<B> {
+impl TryFrom<&Cli> for ProxyConfig {
     type Error = anyhow::Error;
 
-    fn try_from(cli: Cli) -> Result<Self, Self::Error> {
-        match cli.command {
+    fn try_from(cli: &Cli) -> Result<Self, Self::Error> {
+        match &cli.command {
             Some(Commands::Server(args)) => {
                 match &*args.backend {
                     "socks5" => {} // ExitConfig::<B, Socks5Handler>::new(),
@@ -233,7 +216,6 @@ impl<B: Builder + Default> TryFrom<Cli> for ProxyConfig<B> {
                 trace!("{:?}", args);
 
                 // TODO: parse pt name and arguments.
-                let pt = "".to_string();
                 let pt_args = vec![];
 
                 let listen_address = args.listen_addr.parse()?;
@@ -241,23 +223,17 @@ impl<B: Builder + Default> TryFrom<Cli> for ProxyConfig<B> {
                 match &*args.backend {
                     "socks5" => {
                         let config = ExitConfig {
-                            pt,
                             pt_args,
                             listen_address,
                             level,
-                            builder: B::default(),
-                            phantom_backend: PhantomData,
                         };
                         Ok(ProxyConfig::Socks5Exit(config))
                     }
                     "echo" => {
                         let config = ExitConfig {
-                            pt,
                             pt_args,
                             listen_address,
                             level,
-                            builder: B::default(),
-                            phantom_backend: PhantomData,
                         };
                         Ok(ProxyConfig::EchoExit(config))
                     }
@@ -280,7 +256,6 @@ impl<B: Builder + Default> TryFrom<Cli> for ProxyConfig<B> {
                 config.listen_address = args.listen_addr.parse()?;
 
                 // TODO: parse pt name and arguments.
-                config.pt = "".to_string();
                 config.pt_args = vec![];
 
                 Ok(ProxyConfig::Entrance(config))

@@ -1,19 +1,17 @@
 #![allow(dead_code)]
 use crate::socks5;
 use futures::Future;
-use obfs::{Error, Result};
+use obfs::Result;
 
-use std::str::FromStr;
-
-use tokio::{
-    self,
-    io::{copy, split, AsyncRead, AsyncWrite},
-};
+use tokio::io::{copy, split, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
 pub trait Handler {
-    fn handle<RW>(stream: RW, close_c: CancellationToken) -> impl Future<Output = Result<()>>
+    fn handle<RW>(
+        stream: RW,
+        close_c: CancellationToken,
+    ) -> impl Future<Output = Result<()>> + Send + Sync
     where
         RW: AsyncRead + AsyncWrite + Unpin + Send + Sync;
 }

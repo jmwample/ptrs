@@ -41,10 +41,7 @@ pub trait Wrap: TryConfigure + Named {
 
 // On hold for now
 pub trait Dialer: TryConfigure + Named {
-    fn connect<'a>(
-        &self,
-        addr: SocketAddr,
-    ) -> impl Future<Output = Result<impl Stream<'a> + Send + Sync + 'a>>;
+    fn connect<'a>(&self, addr: SocketAddr) -> impl Future<Output = Result<impl Stream<'a> + 'a>>;
 }
 
 // ==================== listener =====================
