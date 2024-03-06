@@ -78,9 +78,9 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - run: rustup target add ${{ matrix.target }}
     - run: ${{ matrix.deps }}
-    - run: cargo test --target ${{ matrix.target }} --no-default-features
-    - run: cargo test --target ${{ matrix.target }}
-    - run: cargo test --target ${{ matrix.target }} --all-features
+    - run: cargo test --target ${{ matrix.target }} --workspace --all-targets --no-default-features
+    - run: cargo test --target ${{ matrix.target }} --workspace --all-targets
+    - run: cargo test --target ${{ matrix.target }} --workspace --all-targets --all-features
     # - name: Test
     #   run: cargo test --verbose --workspace --all-features
     #   env:
@@ -94,7 +94,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@nightly
-    - run: cargo test
+    - run: cargo test --workspace --all-targets
 
   build:
     name: Build
