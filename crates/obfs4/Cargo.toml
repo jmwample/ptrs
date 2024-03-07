@@ -8,6 +8,11 @@ name = "obfs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
+name = "lyrebird"
+test = false
+bench = false
+
+[[bin]]
 name = "fwd_proxy"
 test = false
 bench = false
