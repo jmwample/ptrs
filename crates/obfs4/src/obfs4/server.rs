@@ -177,14 +177,14 @@ impl Server {
         }
     }
 
-    pub async fn wrap<T>(&self, stream: T) -> Result<Obfs4Stream<'_, T>>
+    pub async fn wrap<T>(&self, stream: T) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
         let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake(stream, deadline).await
+        session.handshake(self, stream, deadline).await
     }
 
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {
@@ -211,13 +211,13 @@ impl Server {
 
     pub(crate) fn new_server_session(
         &self,
-    ) -> Result<sessions::ServerSession<'_, sessions::Initialized>> {
+    ) -> Result<sessions::ServerSession<sessions::Initialized>> {
         let mut session_id = [0u8; SESSION_ID_LEN];
         rand::thread_rng().fill_bytes(&mut session_id);
         Ok(sessions::ServerSession {
             // fixed by server
-            identity_keys: &self.identity_keys,
-            server: self,
+            identity_keys: self.identity_keys.clone(),
+            biased: self.biased,
 
             // generated per session
             session_id,

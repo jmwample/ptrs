@@ -1,21 +1,15 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative, Representable, REPRESENTATIVE_LENGTH},
-        ntor_arti::RelayHandshakeError,
+        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::{
-        framing::{
-            build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
-        }, // constants::*,
-        // handshake::{
-        //     utils::find_mac_mark,
-        // },
-        Server,
+    obfs4::framing::{
+        build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage,
     },
 };
 
+use rand::thread_rng;
 use tokio_util::codec::Encoder;
 use tracing::{debug, trace};
 
@@ -55,16 +49,15 @@ impl Server {
     /// Perform a server-side ntor handshake.
     ///
     /// On success returns a key generator and a server onionskin.
-    pub(super) fn server_handshake_obfs4<R, T>(
+    pub(super) fn server_handshake_obfs4<T>(
         &self,
-        rng: &mut R,
         msg: T,
         materials: HandshakeMaterials,
     ) -> RelayHandshakeResult<(NtorHkdfKeyGenerator, Vec<u8>)>
     where
-        R: RngCore + CryptoRng,
         T: AsRef<[u8]>,
     {
+        let rng = thread_rng();
         let session_sk = Representable::ephemeral_from_rng(rng);
 
         self.server_handshake_obfs4_no_keygen(session_sk, msg, materials)

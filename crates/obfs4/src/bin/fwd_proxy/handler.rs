@@ -1,42 +1,35 @@
 #![allow(dead_code)]
 use crate::socks5;
-use obfs::{Error, Result};
+use futures::Future;
+use obfs::Result;
 
-use std::str::FromStr;
-
-use tokio::{
-    self,
-    io::{copy, split, AsyncRead, AsyncWrite},
-};
+use tokio::io::{copy, split, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Handler {
-    Socks5,
-    Echo(EchoHandler),
+pub trait Handler {
+    fn handle<RW>(
+        stream: RW,
+        close_c: CancellationToken,
+    ) -> impl Future<Output = Result<()>> + Send + Sync
+    where
+        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync;
 }
 
-impl Handler {
-    pub async fn handle<'s, RW>(self, stream: RW, close_c: CancellationToken) -> Result<()>
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Handlers {
+    Socks5,
+    Echo,
+}
+
+impl Handlers {
+    pub async fn handle<'s, RW>(&self, stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 's,
+        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         match self {
-            Handler::Socks5 => Socks5Handler::handle(stream, close_c).await,
-            Handler::Echo(h) => h.handle(stream, close_c).await,
-        }
-    }
-}
-
-impl FromStr for Handler {
-    type Err = Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "socks5" => Ok(Handler::Socks5),
-            "echo" => Ok(Handler::Echo(EchoHandler)),
-            _ => Err(Error::Other("unknown handler".into())),
+            Handlers::Socks5 => Socks5Handler::handle(stream, close_c).await,
+            Handlers::Echo => EchoHandler::handle(stream, close_c).await,
         }
     }
 }
@@ -44,10 +37,10 @@ impl FromStr for Handler {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Socks5Handler;
 
-impl Socks5Handler {
-    pub async fn handle<'s, RW>(stream: RW, close_c: CancellationToken) -> Result<()>
+impl Handler for Socks5Handler {
+    async fn handle<RW>(stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 's,
+        RW: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         tokio::select! {
             r = socks5::handle_socks_conn(stream) => {
@@ -70,7 +63,7 @@ impl Socks5Handler {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EchoHandler;
 
-impl EchoHandler {
+impl Handler for EchoHandler {
     /// Handle a stream by echoing any data received back to the sender.
     ///
     /// This method takes a stream and a cancellation token. It reads data from the stream
@@ -81,9 +74,9 @@ impl EchoHandler {
     ///
     /// * `stream` - The stream to handle.
     /// * `close_c` - The cancellation token.
-    async fn handle<'a, RW>(&self, stream: RW, close_c: CancellationToken) -> Result<()>
+    async fn handle<RW>(stream: RW, close_c: CancellationToken) -> Result<()>
     where
-        RW: AsyncRead + AsyncWrite + Unpin + Send + 'a,
+        RW: AsyncRead + AsyncWrite + Unpin + Send,
     {
         let (mut reader, mut writer) = split(stream);
         tokio::select! {

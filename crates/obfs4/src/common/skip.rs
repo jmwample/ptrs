@@ -34,7 +34,6 @@ where
 
 #[cfg(test)]
 mod test {
-    use tokio::io::AsyncWriteExt;
     use tokio::time::Instant;
 
     use super::*;
@@ -48,7 +47,7 @@ mod test {
         let discard_fut = discard(s, d);
 
         tokio::spawn(async move {
-            const MSG: &'static str = "abcdefghijklmnopqrstuvwxyz";
+            const MSG: &str = "abcdefghijklmnopqrstuvwxyz";
             loop {
                 if let Err(e) = c.write(MSG.as_bytes()).await {
                     assert!(Instant::now() > expected_end);

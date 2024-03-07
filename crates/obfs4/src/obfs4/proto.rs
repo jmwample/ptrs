@@ -3,11 +3,7 @@ use crate::{
         drbg,
         probdist::{self, WeightedDist},
     },
-    obfs4::{
-        constants::*,
-        framing::{self, MessageTypes},
-        sessions::Session,
-    },
+    obfs4::{constants::*, framing, sessions::Session},
     Result,
 };
 
@@ -66,20 +62,20 @@ impl MaybeTimeout {
 }
 
 #[pin_project]
-pub struct Obfs4Stream<'a, T>
+pub struct Obfs4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     // s: Arc<Mutex<O4Stream<'a, T>>>,
     #[pin]
-    s: O4Stream<'a, T>,
+    s: O4Stream<T>,
 }
 
-impl<'a, T> Obfs4Stream<'a, T>
+impl<T> Obfs4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    pub(crate) fn from_o4(o4: O4Stream<'a, T>) -> Self {
+    pub(crate) fn from_o4(o4: O4Stream<T>) -> Self {
         Obfs4Stream {
             // s: Arc::new(Mutex::new(o4)),
             s: o4,
@@ -88,7 +84,7 @@ where
 }
 
 #[pin_project]
-pub(crate) struct O4Stream<'a, T>
+pub(crate) struct O4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -98,10 +94,10 @@ where
     pub length_dist: probdist::WeightedDist,
     pub iat_dist: probdist::WeightedDist,
 
-    pub session: Session<'a>,
+    pub session: Session,
 }
 
-impl<'a, T> O4Stream<'a, T>
+impl<T> O4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -109,8 +105,8 @@ where
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
         codec: framing::Obfs4Codec,
-        session: Session<'a>,
-    ) -> O4Stream<'a, T> {
+        session: Session,
+    ) -> O4Stream<T> {
         let stream = codec.framed(inner);
         let len_seed = session.len_seed();
 
@@ -151,6 +147,7 @@ where
         }
     }
 
+    /*// TODO Apply pad_burst logic and IAT policy to packet assembly (probably as part of AsyncRead / AsyncWrite impl)
     /// Attempts to pad a burst of data so that the last packet is of the length
     /// `to_pad_to`. This can involve creating multiple packets, making this
     /// slightly complex.
@@ -190,10 +187,10 @@ where
         } else {
             Ok(())
         }
-    }
+    } */
 }
 
-impl<'a, T> AsyncWrite for O4Stream<'a, T>
+impl<T> AsyncWrite for O4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -265,7 +262,7 @@ where
     }
 }
 
-impl<'a, T> AsyncRead for O4Stream<'a, T>
+impl<T> AsyncRead for O4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -314,7 +311,7 @@ where
     }
 }
 
-impl<'a, T> AsyncWrite for Obfs4Stream<'a, T>
+impl<T> AsyncWrite for Obfs4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -338,7 +335,7 @@ where
     }
 }
 
-impl<'a, T> AsyncRead for Obfs4Stream<'a, T>
+impl<T> AsyncRead for Obfs4Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {

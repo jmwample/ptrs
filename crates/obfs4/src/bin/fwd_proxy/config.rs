@@ -1,6 +1,6 @@
-use crate::handler::{EchoHandler, Handler};
+use crate::handler::{EchoHandler, Handler, Socks5Handler};
 
-use std::{convert::TryFrom, default::Default, net, str::FromStr};
+use std::{net, sync::Arc};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -21,7 +21,8 @@ pub const DEFAULT_LOG_LEVEL: Level = Level::INFO;
 
 pub enum ProxyConfig {
     Entrance(EntranceConfig),
-    Exit(ExitConfig),
+    Socks5Exit(ExitConfig),
+    EchoExit(ExitConfig),
 }
 
 impl ProxyConfig {
@@ -32,13 +33,15 @@ impl ProxyConfig {
     ) -> Result<(), anyhow::Error> {
         match self {
             ProxyConfig::Entrance(config) => config.run(close, wait).await,
-            ProxyConfig::Exit(config) => config.run(close, wait).await,
+            ProxyConfig::Socks5Exit(config) => {
+                Arc::new(config).run::<Socks5Handler>(close, wait).await
+            }
+            ProxyConfig::EchoExit(config) => Arc::new(config).run::<EchoHandler>(close, wait).await,
         }
     }
 }
 
 pub struct EntranceConfig {
-    pt: String,
     pt_args: Vec<String>,
 
     listen_address: net::SocketAddr,
@@ -59,8 +62,8 @@ impl EntranceConfig {
         let t_name = "obfs4";
 
         loop {
-            let client = ClientBuilder::from_params(self.pt_args.clone())?.build();
             let (in_stream, socket_addr) = listener.accept().await?;
+            let client = ClientBuilder::from_params(self.pt_args.clone())?.build();
             trace!("new tcp connection {socket_addr}");
 
             let mut out_stream = TcpStream::connect(self.remote_address)
@@ -92,7 +95,6 @@ impl EntranceConfig {
 impl Default for EntranceConfig {
     fn default() -> Self {
         Self {
-            pt: String::from("plain"),
             pt_args: vec![],
 
             listen_address: DEFAULT_LISTEN_ADDRESS.parse().unwrap(),
@@ -102,27 +104,25 @@ impl Default for EntranceConfig {
     }
 }
 
+#[allow(unused)] // TODO: parse args and things
 pub struct ExitConfig {
-    pt: String,
     pt_args: Vec<String>,
-
-    handler: Handler,
-
-    listen_address: net::SocketAddr,
-
     level: Level,
+
+    // handler: Handler,
+    listen_address: net::SocketAddr,
 }
 
 impl ExitConfig {
-    pub async fn run(
-        self,
+    pub async fn run<H: Handler + Send + Sync + 'static>(
+        self: Arc<Self>,
         close: CancellationToken,
         _wait: Sender<()>,
     ) -> Result<(), anyhow::Error> {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let server = Server::getrandom();
+        let server = Arc::new(Server::getrandom());
         println!(
             "{}\n{}",
             server.client_params(),
@@ -131,95 +131,114 @@ impl ExitConfig {
 
         let t_name = "obfs4";
 
-        let mut sessions = JoinSet::new();
+        let sessions = &mut JoinSet::new();
 
         let close_c = close.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = close_c.cancelled() => {
-                        break
-                    }
-                    r = sessions.join_next() => {
-                        match r {
-                            Some(Err(e)) => {
-                                warn!("handler error: \"{e}\", session closed");
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            sessions.abort_all();
-            let start = std::time::Instant::now();
-            while !sessions.is_empty() && start.elapsed().as_millis() < 3000 {
-                _ = sessions.join_next().await;
-            }
-        });
 
         loop {
-            let (stream, socket_addr) = listener.accept().await?;
-            trace!("new tcp connection {socket_addr}");
-
-            let close_c = close.clone();
-
-            let stream = match server.wrap(stream).await {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("failed to wrap in_stream ->({socket_addr}): {:?}", e);
-                    continue;
+            tokio::select! {
+                _ = close_c.cancelled() => {
+                    break
                 }
-            };
+                r = sessions.join_next() => {
+                    if let Some(Err(e)) = r {
+                        warn!("handler error: \"{e}\", session closed");
+                    }
+                }
+                r = listener.accept() => {
+                    let (stream, socket_addr) = match r {
+                        Err(e) => {
+                            warn!("connection listener returned error {e}");
+                            close_c.cancel();
+                            continue
+                        }
+                        Ok(s) => s,
+                    };
 
-            debug!("connection successfully revealed ->{t_name}-[{socket_addr}]");
-            let handler = self.handler;
-            sessions.spawn(async move {
-                handler.handle(stream, close_c).await;
-            });
+                    debug!("new tcp connection {socket_addr}");
 
-            // let (up, dn) = handler.handle(stream, close_c);
+                    let close_c = close.clone();
+
+                    let proxy_stream = match server.wrap(stream).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("failed to wrap in_stream ->({socket_addr}): {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    debug!("connection successfully opened ->{t_name}-[{socket_addr}]");
+                    sessions.spawn(H::handle(proxy_stream, close_c));
+                }
+            }
         }
+
+        sessions.abort_all();
+        let start = std::time::Instant::now();
+        while !sessions.is_empty() && start.elapsed().as_millis() < 3000 {
+            _ = sessions.join_next().await;
+        }
+        Ok(())
     }
 }
 
 impl Default for ExitConfig {
     fn default() -> Self {
         Self {
-            pt: String::from("plain"),
             pt_args: vec![],
             listen_address: DEFAULT_SERVER_ADDRESS.parse().unwrap(),
             level: DEFAULT_LOG_LEVEL,
-            handler: Handler::Echo(EchoHandler),
         }
     }
 }
 
-impl TryFrom<Cli> for ProxyConfig {
+impl TryFrom<&Cli> for ProxyConfig {
     type Error = anyhow::Error;
 
-    fn try_from(cli: Cli) -> Result<Self, Self::Error> {
-        match cli.command {
+    fn try_from(cli: &Cli) -> Result<Self, Self::Error> {
+        match &cli.command {
             Some(Commands::Server(args)) => {
-                let mut config = ExitConfig::default();
-                if args.debug {
-                    config.level = Level::DEBUG;
-                } else if args.trace {
-                    config.level = Level::TRACE;
+                match &*args.backend {
+                    "socks5" => {} // ExitConfig::<B, Socks5Handler>::new(),
+                    "echo" => {}   // ExitConfig::<B, EchoHandler>::new(),
+                    _ => return Err(anyhow!("unknown backend")),
                 }
-                tracing_subscriber::fmt()
-                    .with_max_level(config.level)
-                    .init();
+
+                let level = if args.debug {
+                    Level::DEBUG
+                } else if args.trace {
+                    Level::TRACE
+                } else {
+                    Level::ERROR
+                };
+
+                tracing_subscriber::fmt().with_max_level(level).init();
                 trace!("{:?}", args);
 
-                config.pt = "".to_string();
-                config.pt_args = vec![];
+                // TODO: parse pt name and arguments.
+                let pt_args = vec![];
 
-                config.listen_address = args.listen_addr.parse()?;
+                let listen_address = args.listen_addr.parse()?;
 
-                config.handler = Handler::from_str(&args.backend)
-                    .map_err(|e| anyhow!("failed to parse backend: {:?}", e))?;
-
-                Ok(ProxyConfig::Exit(config))
+                match &*args.backend {
+                    "socks5" => {
+                        let config = ExitConfig {
+                            pt_args,
+                            listen_address,
+                            level,
+                        };
+                        Ok(ProxyConfig::Socks5Exit(config))
+                    }
+                    "echo" => {
+                        let config = ExitConfig {
+                            pt_args,
+                            listen_address,
+                            level,
+                        };
+                        Ok(ProxyConfig::EchoExit(config))
+                    }
+                    _ => Err(anyhow!("unknown backend")),
+                }
             }
             Some(Commands::Client(args)) => {
                 let mut config = EntranceConfig::default();
@@ -236,7 +255,7 @@ impl TryFrom<Cli> for ProxyConfig {
                 config.remote_address = args.remote.parse()?;
                 config.listen_address = args.listen_addr.parse()?;
 
-                config.pt = "".to_string();
+                // TODO: parse pt name and arguments.
                 config.pt_args = vec![];
 
                 Ok(ProxyConfig::Entrance(config))

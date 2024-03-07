@@ -16,13 +16,8 @@
 
 use super::*;
 use crate::{
-    common::{
-        colorize, curve25519,
-        ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake},
-    },
-    obfs4::Server,
+    common::{colorize, curve25519},
     test_utils::{init_subscriber, FakePRNG},
-    Result,
 };
 
 use hex_literal::hex;
@@ -84,7 +79,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
         pk: relay_public,
     };
     let hs_materials = CHSMaterials::new(relay_ntpk, "c-xxx".into());
-    let (state, cmsg) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &())?;
+    let (state, cmsg) = Obfs4NtorHandshake::client1(&hs_materials, &())?;
 
     let relay_ntsk = Obfs4NtorSecretKey {
         pk: relay_ntpk,
@@ -99,7 +94,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
     )];
 
     let (skeygen, smsg) = server
-        .server(&mut rng, &mut |_: &()| Some(()), &shs_materials, &cmsg)
+        .server(&mut |_: &()| Some(()), &shs_materials, &cmsg)
         .unwrap();
 
     let (_extensions, ckeygen) = Obfs4NtorHandshake::client2(state, smsg)?;
@@ -115,7 +110,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
 #[test]
 fn test_obfs4_testvec_compat() -> Result<()> {
     init_subscriber();
-    let mut rng = rand::thread_rng();
+    let rng = rand::thread_rng();
 
     let b_sk = hex!("a83fdd04eb9ed77a2b38d86092a09a1cecfb93a7bdec0da35e542775b2e7af6e");
     let x_sk = hex!("308ff4f3a0ebe8c1a93bcd40d67e3eec6b856aa5c07ef6d5a3d3cedf13dcf150");
@@ -130,7 +125,7 @@ fn test_obfs4_testvec_compat() -> Result<()> {
         pk: (&sk).into(),
     };
     let relay_sk = Obfs4NtorSecretKey { pk, sk };
-    let mut server = Server::new_from_random(&mut rng);
+    let mut server = Server::new_from_random(rng);
     server.identity_keys = relay_sk;
 
     let x: StaticSecret = x_sk.into();
@@ -157,7 +152,7 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let s_keys = s_keygen.expand(72)?;
 
     assert_eq!(&s_keys[..], &c_keys[..]);
-    assert_eq!(hex::encode(&auth), expected_auth);
+    assert_eq!(hex::encode(auth), expected_auth);
     assert_eq!(hex::encode(&seed[..]), expected_seed);
 
     Ok(())
@@ -242,29 +237,19 @@ fn failing_handshakes() {
     // If the client uses the wrong keys, the relay should reject the
     // handshake.
     let mut hs_materials = CHSMaterials::new(wrong_ntpk1.clone(), "c-xxx".into());
-    let (_, handshake1) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
+    let (_, handshake1) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
     hs_materials.node_pubkey = wrong_ntpk2;
-    let (_, handshake2) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
+    let (_, handshake2) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
     hs_materials.node_pubkey = relay_ntpk;
-    let (st3, handshake3) = Obfs4NtorHandshake::client1(&mut rng, &hs_materials, &()).unwrap();
+    let (st3, handshake3) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
 
     let shs_materials = [SHSMaterials::new(
         &relay_ntsk,
         "s-yyy".into(),
         [0u8; SEED_LENGTH],
     )];
-    let ans1 = resources.server(
-        &mut rng,
-        &mut |_: &()| Some(()),
-        &shs_materials,
-        &handshake1,
-    );
-    let ans2 = resources.server(
-        &mut rng,
-        &mut |_: &()| Some(()),
-        &shs_materials,
-        &handshake2,
-    );
+    let ans1 = resources.server(&mut |_: &()| Some(()), &shs_materials, &handshake1);
+    let ans2 = resources.server(&mut |_: &()| Some(()), &shs_materials, &handshake2);
 
     assert!(ans1.is_err());
     assert!(ans2.is_err());
@@ -272,12 +257,7 @@ fn failing_handshakes() {
     // If the relay's message is tampered with, the client will
     // reject the handshake.
     let (_, mut smsg) = resources
-        .server(
-            &mut rng,
-            &mut |_: &()| Some(()),
-            &shs_materials,
-            &handshake3,
-        )
+        .server(&mut |_: &()| Some(()), &shs_materials, &handshake3)
         .unwrap();
     smsg[60] ^= 7;
     let ans3 = Obfs4NtorHandshake::client2(st3, smsg);

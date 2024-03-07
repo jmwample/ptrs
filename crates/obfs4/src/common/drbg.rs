@@ -9,7 +9,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use getrandom::getrandom;
-use hex::{self, FromHex};
+use hex::FromHex;
 use rand_core::{impls, Error as RandError, RngCore};
 use siphasher::{prelude::*, sip::SipHasher24};
 

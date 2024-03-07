@@ -1,15 +1,10 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{
-            PublicKey, PublicRepresentative, Representable, StaticSecret, REPRESENTATIVE_LENGTH,
-        },
+        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::{
-        framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
-        handshake::utils::find_mac_mark,
-    },
+    obfs4::framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
 };
 
 use rand::Rng;
@@ -50,13 +45,10 @@ pub(crate) struct NtorHandshakeState {
 }
 
 /// Perform a client handshake, generating an onionskin and a state object
-pub(super) fn client_handshake_obfs4<R>(
-    rng: &mut R,
+pub(super) fn client_handshake_obfs4(
     materials: &HandshakeMaterials,
-) -> Result<(NtorHandshakeState, Vec<u8>)>
-where
-    R: RngCore + CryptoRng,
-{
+) -> Result<(NtorHandshakeState, Vec<u8>)> {
+    let rng = rand::thread_rng();
     let my_sk = Representable::static_from_rng(rng);
     client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
@@ -153,7 +145,7 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
 
-    let (key_seed, authcode) = ntor_derive(&xy, &xb, &node_pubkey, &my_public, &their_pk)
+    let (key_seed, authcode) = ntor_derive(&xy, &xb, node_pubkey, &my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))?;
 
     let keygen = NtorHkdfKeyGenerator::new(key_seed, true);

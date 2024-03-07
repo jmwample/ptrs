@@ -1,17 +1,11 @@
 use anyhow::{anyhow, Context as _, Result};
-use futures::{
-    task::{Context, Waker},
-    Future,
-};
 use obfs::stream::Stream;
 use safelog::sensitive;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::pin;
 use tracing::{debug, warn};
 
 use tor_socksproto::{SocksAuth, SocksCmd};
 
-use std::io::Result as IoResult;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -22,7 +16,6 @@ use std::str::FromStr;
 /// Uses `isolation_info` to decide which circuits this connection
 /// may use.  Requires that `isolation_info` is a pair listing the listener
 /// id and the source address for the socks request.
-//pub(crate) async fn handle_socks_conn<'s, S>(socks_stream: S) -> Result<Vec<Box<dyn Future<Output=()>>>>
 pub(crate) async fn handle_socks_conn<'s, S>(
     socks_stream: S,
 ) -> Result<Option<(impl Stream<'s>, impl Stream<'s>)>>
@@ -139,74 +132,6 @@ where
             Ok(None)
         }
     }
-}
-
-async fn copy_interactive_ignore<'s, R, W>(reader: R, writer: W)
-where
-    R: AsyncRead + Unpin + 's,
-    W: AsyncWrite + Unpin + 's,
-{
-    let _ = copy_interactive(reader, writer);
-}
-
-/// Copy all the data from `reader` into `writer` until we encounter an EOF or
-/// an error.
-///
-/// Unlike as futures::io::copy(), this function is meant for use with
-/// interactive readers and writers, where the reader might pause for
-/// a while, but where we want to send data on the writer as soon as
-/// it is available.
-///
-/// This function assumes that the writer might need to be flushed for
-/// any buffered data to be sent.  It tries to minimize the number of
-/// flushes, however, by only flushing the writer when the reader has no data.
-async fn copy_interactive<'s, R, W>(mut reader: R, mut writer: W) -> IoResult<()>
-where
-    R: AsyncRead + Unpin + 's,
-    W: AsyncWrite + Unpin + 's,
-{
-    use futures::task::Poll;
-
-    let mut buf = [0_u8; 1024];
-
-    // At this point we could just loop, calling read().await,
-    // write_all().await, and flush().await.  But we want to be more
-    // clever than that: we only want to flush when the reader is
-    // stalled.  That way we can pack our data into as few cells as
-    // possible, but flush it immediately whenever there's no more
-    // data coming.
-    let loop_result: IoResult<()> = loop {
-        let read_future = reader.read(&mut buf[..]);
-        pin!(read_future);
-        match read_future.poll(&mut Context::from_waker(&Waker::noop())) {
-            Poll::Ready(Err(e)) => break Err(e),
-            Poll::Ready(Ok(0)) => break Ok(()), // EOF
-            Poll::Ready(Ok(n)) => {
-                writer.write_all(&buf[..n]).await?;
-                continue;
-            }
-            Poll::Pending => writer.flush().await?,
-        }
-
-        // The read future is pending, so we should wait on it.
-        match reader.read(&mut buf[..]).await {
-            Err(e) => break Err(e),
-            Ok(0) => break Ok(()),
-            Ok(n) => writer.write_all(&buf[..n]).await?,
-        }
-    };
-
-    // Make sure that we flush any lingering data if we can.
-    //
-    // If there is a difference between closing and dropping, then we
-    // only want to do a "proper" close if the reader closed cleanly.
-    let flush_result = if loop_result.is_ok() {
-        writer.shutdown().await
-    } else {
-        writer.flush().await
-    };
-
-    loop_result.or(flush_result)
 }
 
 /// write_all the data to the writer & flush the writer if write_all is successful.

@@ -14,7 +14,6 @@ use std::borrow::Borrow;
 
 use crate::Result;
 //use zeroize::Zeroizing;
-use rand_core::{CryptoRng, RngCore};
 use tor_bytes::SecretBuf;
 
 /// A ClientHandshake is used to generate a client onionskin and
@@ -35,8 +34,7 @@ pub(crate) trait ClientHandshake {
     ///
     /// On success, return a state object that will be used to
     /// complete the handshake, along with the message to send.
-    fn client1<R: RngCore + CryptoRng, M: Borrow<Self::ClientAuxData>>(
-        rng: &mut R,
+    fn client1<M: Borrow<Self::ClientAuxData>>(
         key: &Self::KeyType,
         client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)>;
@@ -88,18 +86,17 @@ pub(crate) trait ServerHandshake {
     /// Type of extra data returned by server (without forward secrecy).
     type ServerAuxData;
 
-    /// Perform the server handshake.  Take as input a strong PRNG in `rng`, a
-    /// function for processing requested extensions, a slice of all our private
-    /// onion keys, and the client's message.
+    /// Perform the server handshake.  Take as input a function for processing
+    /// requested extensions, a slice of all our private onion keys, and the
+    /// client's message.
     ///
     /// On success, return a key generator and a server handshake message
     /// to send in reply.
     ///
     /// The self parameter is a type / struct for (potentially shared) state
     /// accessible during the server handshake.
-    fn server<R: RngCore + CryptoRng, REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+    fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
-        rng: &mut R,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
         msg: T,

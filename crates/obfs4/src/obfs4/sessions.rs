@@ -23,7 +23,7 @@ use crate::{
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::BytesMut;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 use tokio_util::codec::Decoder;
@@ -38,12 +38,12 @@ pub(crate) struct Established;
 /// The session broke due to something like a timeout, reset, lost connection, etc.
 trait Fault {}
 
-pub enum Session<'a> {
+pub enum Session {
     Client(ClientSession<Established>),
-    Server(ServerSession<'a, Established>),
+    Server(ServerSession<Established>),
 }
 
-impl<'a> Session<'a> {
+impl Session {
     pub fn id(&self) -> String {
         match self {
             Session::Client(cs) => format!("c{}", cs.session_id()),
@@ -54,7 +54,7 @@ impl<'a> Session<'a> {
     pub fn biased(&self) -> bool {
         match self {
             Session::Client(cs) => cs.biased,
-            Session::Server(ss) => ss.server.biased, //biased,
+            Session::Server(ss) => ss.biased, //biased,
         }
     }
 
@@ -168,11 +168,11 @@ impl ClientSession<Initialized> {
     /// TODO: make sure failure modes align with golang obfs4
     /// - FIN/RST based on buffered data.
     /// - etc.
-    pub async fn handshake<'a, T>(
+    pub async fn handshake<T>(
         self,
         mut stream: T,
         deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<'a, T>>
+    ) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -181,11 +181,9 @@ impl ClientSession<Initialized> {
 
         let materials = CHSMaterials::new(session.node_pubkey, session.session_id());
 
-        let mut rng = rand::thread_rng();
-
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
-        let handshake_fut = Self::complete_handshake(&mut stream, materials, &mut rng, deadline);
+        let handshake_fut = Self::complete_handshake(&mut stream, materials, deadline);
         let (mut remainder, mut keygen) =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -232,17 +230,15 @@ impl ClientSession<Initialized> {
         Ok(Obfs4Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<R, T>(
+    async fn complete_handshake<T>(
         mut stream: T,
         materials: CHSMaterials,
-        mut rng: R,
         deadline: Option<Instant>,
     ) -> Result<(BytesMut, impl Obfs4Keygen)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
-        R: RngCore + CryptoRng,
     {
-        let (state, chs_message) = Obfs4NtorHandshake::client1(&mut rng, &materials, &())?;
+        let (state, chs_message) = Obfs4NtorHandshake::client1(&materials, &())?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
@@ -314,10 +310,11 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 //                   Server Sessions States                         //
 // ================================================================ //
 
-pub(crate) struct ServerSession<'a, S: ServerSessionState> {
+pub(crate) struct ServerSession<S: ServerSessionState> {
     // fixed by server
-    pub(crate) identity_keys: &'a Obfs4NtorSecretKey,
-    pub(crate) server: &'a Server,
+    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) biased: bool,
+    // pub(crate) server: &'a Server,
 
     // generated per session
     pub(crate) session_id: [u8; SESSION_ID_LEN],
@@ -342,7 +339,7 @@ impl ServerSessionState for Established {}
 impl ServerSessionState for ServerHandshakeFailed {}
 impl Fault for ServerHandshakeFailed {}
 
-impl<'a, S: ServerSessionState> ServerSession<'a, S> {
+impl<S: ServerSessionState> ServerSession<S> {
     pub fn session_id(&self) -> String {
         String::from("s-") + &colorize(self.session_id)
     }
@@ -357,14 +354,11 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 
     /// Helper function to perform state transitions.
-    fn transition<'s, T: ServerSessionState>(self, _state: T) -> ServerSession<'s, T>
-    where
-        'a: 's,
-    {
+    fn transition<T: ServerSessionState>(self, _state: T) -> ServerSession<T> {
         ServerSession {
             // fixed by server
             identity_keys: self.identity_keys,
-            server: self.server,
+            biased: self.biased,
 
             // generated per session
             session_id: self.session_id,
@@ -376,14 +370,11 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 
     /// Helper function to perform state transition on error.
-    fn fault<'s, F: Fault + ServerSessionState>(self, f: F) -> ServerSession<'s, F>
-    where
-        'a: 's,
-    {
+    fn fault<F: Fault + ServerSessionState>(self, f: F) -> ServerSession<F> {
         ServerSession {
             // fixed by server
             identity_keys: self.identity_keys,
-            server: self.server,
+            biased: self.biased,
 
             // generated per session
             session_id: self.session_id,
@@ -395,35 +386,29 @@ impl<'a, S: ServerSessionState> ServerSession<'a, S> {
     }
 }
 
-impl<'b> ServerSession<'b, Initialized> {
+impl ServerSession<Initialized> {
     /// Attempt to complete the handshake with a new client connection.
-    pub async fn handshake<'a, T>(
+    pub async fn handshake<T>(
         self,
+        server: &Server,
         mut stream: T,
         deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<'a, T>>
+    ) -> Result<Obfs4Stream<T>>
     where
-        'b: 'a,
         T: AsyncRead + AsyncWrite + Unpin,
     {
         // set up for handshake
         let mut session = self.transition(ServerHandshaking {});
 
         let materials = SHSMaterials::new(
-            session.identity_keys,
+            &session.identity_keys,
             session.session_id(),
             session.len_seed.to_bytes(),
         );
 
-        // complete handshake
-        let mut rng = rand::rngs::OsRng;
-
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut =
-            session
-                .server
-                .complete_handshake(&mut stream, materials, &mut rng, deadline);
+        let handshake_fut = server.complete_handshake(&mut stream, materials, deadline);
 
         let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
@@ -466,16 +451,14 @@ impl Server {
     /// Complete the handshake with the client. This function assumes that the
     /// client has already sent a message and that we do not know yet if the
     /// message is valid.
-    async fn complete_handshake<R, T>(
+    async fn complete_handshake<T>(
         &self,
         mut stream: T,
         materials: SHSMaterials,
-        mut rng: R,
         deadline: Option<Instant>,
     ) -> Result<impl Obfs4Keygen>
     where
         T: AsyncRead + AsyncWrite + Unpin,
-        R: RngCore + CryptoRng,
     {
         let session_id = materials.session_id.clone();
 
@@ -485,12 +468,7 @@ impl Server {
             let n = stream.read(&mut buf).await?;
             trace!("{} successful read {n}B", session_id);
 
-            match self.server(
-                &mut rng,
-                &mut |_: &()| Some(()),
-                &[materials.clone()],
-                &buf[..n],
-            ) {
+            match self.server(&mut |_: &()| Some(()), &[materials.clone()], &buf[..n]) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
                     return Ok(keygen);

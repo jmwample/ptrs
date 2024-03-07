@@ -56,7 +56,12 @@ impl WeightedDist {
         let mut buf = [0_u8; 8];
         // Generate a fair die roll fro a $n$-sided die; call the side $i$.
         getrandom::getrandom(&mut buf).unwrap();
+
+        #[cfg(target_pointer_width = "64")]
         let i = usize::from_ne_bytes(buf) % dist.values.len();
+
+        #[cfg(target_pointer_width = "32")]
+        let i = usize::from_ne_bytes(buf[0..4].try_into().unwrap()) % dist.values.len();
 
         // flip a coin that comes up heads with probability $prob[i]$.
         getrandom::getrandom(&mut buf).unwrap();
@@ -89,7 +94,7 @@ impl InnerWeightedDist {
     // Creates a slice containing a random number of random values that, when
     // scaled by adding self.min_value, will fall into [min, max].
     fn gen_values<R: Rng + ?Sized>(&mut self, rng: &mut R) {
-        let mut n_values = self.max_value + 1 - self.min_value;
+        let mut n_values = self.max_value - self.min_value;
 
         let mut values: Vec<i32> = (0..=n_values).collect();
         values.shuffle(rng);

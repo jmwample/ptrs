@@ -1,7 +1,6 @@
 #![doc = include_str!("../../../doc/crate.md")]
-#![feature(trait_alias)]
-#![feature(slice_flatten)]
-// #![feature(stdarch_x86_avx512)]
+
+// #![feature(trait_alias)]
 
 // #![allow(dead_code)]
 // #![allow(warnings)]

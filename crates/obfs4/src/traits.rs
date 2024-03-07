@@ -27,10 +27,10 @@ pub enum Role {
 }
 
 pub trait Builder {
-    fn handler(&self, r: &Role) -> Result<impl Transport + Send + Sync>;
+    fn build(&self, r: &Role) -> Result<impl Wrap + Send + Sync>;
 }
 
-pub trait Transport: TryConfigure + Named {
+pub trait Wrap: TryConfigure + Named {
     fn wrap<'a>(
         &self,
         s: impl Stream<'a>,
@@ -41,10 +41,7 @@ pub trait Transport: TryConfigure + Named {
 
 // On hold for now
 pub trait Dialer: TryConfigure + Named {
-    fn connect<'a>(
-        &self,
-        addr: SocketAddr,
-    ) -> impl Future<Output = Result<impl Stream<'a> + Send + Sync + 'a>>;
+    fn connect<'a>(&self, addr: SocketAddr) -> impl Future<Output = Result<impl Stream<'a> + 'a>>;
 }
 
 // ==================== listener =====================
