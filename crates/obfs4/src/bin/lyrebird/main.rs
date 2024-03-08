@@ -1,21 +1,30 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
 use fast_socks5::client::{Config, Socks5Stream};
 use fast_socks5::server::{AcceptAuthentication, Socks5Server};
-use std::str::FromStr;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
-use tokio::time::Duration;
+use tokio::{
+    signal::unix::SignalKind,
+    io::AsyncWriteExt,
+    net::{TcpListener, TcpStream},
+    sync::oneshot,
+    time::Duration,
+};
 use tokio_stream::StreamExt;
-use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
-use tor_linkspec::PtTransportName;
+// use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
+// use tor_linkspec::PtTransportName;
 use tor_ptmgr::ipc::{
     PluggableClientTransport, PluggableServerTransport, PluggableTransport, PtClientParameters,
     PtCommonParameters, PtServerParameters,
 };
 use tor_rtcompat::PreferredRuntime;
-use tor_socksproto::{SocksAuth, SocksVersion};
+// use tor_socksproto::{SocksAuth, SocksVersion};
+use tracing::{info, Level};
+use tracing_subscriber::{filter::LevelFilter, prelude::*};
+
+use std::env;
+use std::fs::DirBuilder;
+use std::os::unix::fs::DirBuilderExt;
+use std::str::FromStr;
 
 /// The location where the obfs4 server will store its state
 const SERVER_STATE_LOCATION: &str = "/tmp/arti-pt";
@@ -27,51 +36,79 @@ const CLIENT_STATE_LOCATION: &str = "/tmp/arti-pt-client";
 #[error("Error while obtaining bridge line data")]
 struct BridgeLineParseError;
 
-/// Specify which mode we wish to use the program in
-#[derive(Subcommand)]
-enum Command {
-    /// Enable client mode
-    Client {
-        /// The local port that programs will point traffic to
-        #[arg(short, long, default_value = "9050")]
-        client_port: u16,
-        /// Remote IP that connections should go to, this is an
-        /// obfs4 server
-        #[arg(required = true)]
-        remote_obfs4_ip: String,
-        /// Remote port that connections should go to, this is an
-        /// obfs4 server
-        #[arg(required = true)]
-        remote_obfs4_port: u16,
-        /// Info about the server process that is required to connect
-        /// successfully
-        #[arg(required = true)]
-        obfs4_auth_info: String,
-    },
-    /// Enable server mode
-    Server {
-        /// Address on which the obfs4 server should listen in for
-        /// incoming connections
-        #[arg(required = true)]
-        listen_address: String,
-        /// The local port the obfs4 server directs connections to
-        ///
-        /// Programs generally don't interact directly with it,
-        /// so this doesn't need to be set
-        #[arg(default_value = "4000")]
-        final_socks5_port: u16,
-    },
-}
-
 /// Tunnel SOCKS5 traffic through obfs4 connections
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[command(subcommand)]
-    command: Command,
-    /// Binary to use to launch obfs4 client
-    #[arg(required = true)]
-    obfs4_path: String,
+    /// Log to {TOR_PT_STATE_LOCATION}/obfs4proxy.log
+    #[arg(long, default_value_t=false)]
+    enable_logging: bool,
+
+    /// Log Level (ERROR/WARN/INFO/DEBUG/TRACE)
+    #[arg(long, default_value_t=String::from("ERROR"))]
+    log_level: String,
+
+    /// Disable the address scrubber on logging
+    #[arg(long, default_value_t=false)]
+    unsafe_logging: bool,
+}
+
+
+fn is_client() -> Result<bool> {
+    let is_client = env::var_os("TOR_PT_CLIENT_TRANSPORTS");
+    let is_server = env::var_os("TOR_PT_SERVER_TRANSPORTS");
+
+    match (is_client, is_server) {
+        (Some(_), Some(_)) => Err(anyhow!("ENV-ERROR TOR_PT_[CLIENT,SERVER]_TRANSPORTS both set")),
+        (Some(_), None) => Ok(true),
+        (None, Some(_)) => Ok(false),
+        (None, None) => Err(anyhow!("not launched as a managed transport")),
+    }
+}
+
+fn make_state_dir() -> Result<String> {
+    let path = env::var("TOR_PT_STATE_LOCATION").context("missing required TOR_PT_STATE_LOCATION env var")?;
+
+    DirBuilder::new().recursive(true).mode(0o700).create(&path)?;
+    Ok(path)
+}
+
+/// initialize the logging receiver(s) for things to be logged into using the
+/// tracing / tracing_subscriber libraries
+// TODO: unsafe / should scrub to remove addresses. GeoIP. Json for file log writer.
+fn init_logging_recvr(enable: bool, _should_scrub: bool, level_str: &str, statedir: &str) -> Result<()> {
+    // let filter_unsafe = FilterFn::new(|mut md|{
+
+    //     if md.fields().contains(Field::new("client_addr")) {
+    //         md.field("client_addr");
+    //     }
+
+    //     true
+    // });
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .pretty()
+        .with_writer(std::io::stdout)
+        .with_filter(LevelFilter::INFO);
+
+    let log_layers = if enable {
+        let level = Level::from_str(level_str)?;
+
+        let file = std::fs::File::create(format!("{statedir}/obfs4proxy.log"))?;
+
+        let state_dir_layer = tracing_subscriber::fmt::layer()
+            .with_writer(file)
+            .with_filter(LevelFilter::from_level(level));
+
+
+        console_layer.and_then(state_dir_layer).boxed()
+    } else {
+        console_layer.boxed()
+    };
+
+    tracing_subscriber::registry().with(log_layers).init();
+
+    Ok(())
 }
 
 /// Store the data we need to connect to the obfs4 client
@@ -160,49 +197,6 @@ async fn connect_to_obfs4_client(
     .await?)
 }
 
-/// Launch obfs4 client process
-async fn launch_obfs4_client_process(
-    obfs4_path: String,
-) -> anyhow::Result<PluggableClientTransport> {
-    let (common_params, client_params) = build_client_config("obfs4")?;
-    let mut client_pt = PluggableClientTransport::new(
-        obfs4_path.into(),
-        vec![
-            "-enableLogging".to_string(),
-            "-logLevel".to_string(),
-            "DEBUG".to_string(),
-            "-unsafeLogging".to_string(),
-        ],
-        common_params,
-        client_params,
-    );
-    client_pt.launch(PreferredRuntime::current()?).await?;
-    Ok(client_pt)
-}
-
-/// Launch obfs4 server process
-async fn launch_obfs4_server_process(
-    obfs4_path: String,
-    listen_address: String,
-    final_socks5_endpoint: String,
-) -> anyhow::Result<PluggableServerTransport> {
-    let (common_params, server_params) =
-        build_server_config("obfs4", &listen_address, &final_socks5_endpoint)?;
-
-    let mut server_pt = PluggableServerTransport::new(
-        obfs4_path.into(),
-        vec![
-            "-enableLogging".to_string(),
-            "-logLevel".to_string(),
-            "DEBUG".to_string(),
-            "-unsafeLogging".to_string(),
-        ],
-        common_params,
-        server_params,
-    );
-    server_pt.launch(PreferredRuntime::current()?).await?;
-    Ok(server_pt)
-}
 
 /// Launch the dumb TCP pipe, whose only job is to abstract away the obfs4 client
 /// and its complicated setup, and just forward bytes between the obfs4 client
@@ -251,64 +245,176 @@ async fn run_socks5_server(endpoint: &str) -> Result<oneshot::Receiver<bool>> {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+
     let args = Args::parse();
-    let obfs4_path = args.obfs4_path;
-    match args.command {
-        Command::Client {
-            client_port,
-            remote_obfs4_ip,
-            remote_obfs4_port,
-            obfs4_auth_info: obfs4_server_conf,
-        } => {
-            let entry_addr = format!("127.0.0.1:{}", client_port);
 
-            let client_pt = launch_obfs4_client_process(obfs4_path).await?;
-            let client_endpoint = client_pt
-                .transport_methods()
-                .get(&PtTransportName::from_str("obfs4")?)
-                .unwrap()
-                .endpoint()
-                .to_string();
+    // Make state directory
+    let statedir = make_state_dir()?;
 
-            let settings = settings_to_protocol(SocksVersion::V5, obfs4_server_conf)?;
-            match settings {
-                Protocol::Socks(_, auth) => match auth {
-                    SocksAuth::Username(raw_username, raw_password) => {
-                        let username = String::from_utf8(raw_username)?;
-                        let password = match raw_password.is_empty() {
-                            true => String::from("\0"),
-                            false => String::from_utf8(raw_password)?,
-                        };
-                        let creds = ForwardingCreds {
-                            username,
-                            password,
-                            forward_endpoint: client_endpoint,
-                            obfs4_server_ip: remote_obfs4_ip,
-                            obfs4_server_port: remote_obfs4_port,
-                        };
-                        println!();
-                        println!("Listening on: {}", entry_addr);
-                        run_forwarding_server(&entry_addr, creds).await?;
-                    }
-                    _ => eprintln!("Unable to get credentials for obfs4 client process!"),
-                },
-                _ => eprintln!("Unexpected protocol"),
-            }
-        }
-        Command::Server {
-            listen_address,
-            final_socks5_port,
-        } => {
-            let final_socks5_endpoint = format!("127.0.0.1:{}", final_socks5_port);
-            let exit_rx = run_socks5_server(&final_socks5_endpoint).await?;
-            println!();
-            println!("Listening on: {}", listen_address);
-            launch_obfs4_server_process(obfs4_path, listen_address, final_socks5_endpoint).await?;
-            let auth_info = read_cert_info().unwrap();
-            println!();
-            println!("Authentication info is: {}", auth_info);
-            exit_rx.await.unwrap();
-        }
+    // launch tracing subscriber with filter level
+    init_logging_recvr(args.enable_logging, !args.unsafe_logging, &args.log_level, &statedir)?;
+
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+
+    // launch runners
+    if is_client()? { // running as CLIENT
+        let client = client_setup()?;
+        client.launch(cancel_token.clone(), PreferredRuntime::current()?).await?;
+
+    } else { // running as SERVER
+        let server = server_setup()?;
+        server.launch(cancel_token.clone(), PreferredRuntime::current()?).await?;
     }
+
+    info!("accepting connections");
+
+
+    // At this point, the pt config protocol is finished, and incoming
+    // connections will be processed.  Wait till the parent dies
+    // (immediate exit), a SIGTERM is received (immediate exit),
+    // or a SIGINT is received.
+    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
+    // let mut sighup = tokio::signal::unix::signal(SignalKind::hangup())?;
+    tokio::select! {
+        _ = sigint.recv()=> {
+            info!("received iterrupt, shutting down");
+            cancel_token.cancel();
+        }
+        _ = sigterm.recv() => {
+            info!("terminated");
+            return Ok(())
+        }
+        // // Use SIGHUP to induce a reload without restarting - not necessary atm.
+        // _ = sighup.recv() => return Ok(()),
+    }
+
+
+    // Ok, it was the first SIGINT, close all listeners, and wait till,
+    // the parent dies, all the current connections are closed, or either
+    // a SIGINT/SIGTERM is received, and exit.
+    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
+    tokio::select! {
+        _ = tunnel_manager.shutdown() => {}
+        _ = sigint.recv()=> {}
+        _ = sigterm.recv() => {}
+    }
+
     Ok(())
 }
+
+
+    // for _, ln := range ptListeners {
+    // >   ln.Close()
+    // }
+
+    // match args.command {
+    //     Command::Client {
+    //         client_port,
+    //         remote_obfs4_ip,
+    //         remote_obfs4_port,
+    //         obfs4_auth_info: obfs4_server_conf,
+    //     } => {
+    //         let entry_addr = format!("127.0.0.1:{}", client_port);
+
+    //         let client_pt = launch_obfs4_client_process(obfs4_path).await?;
+    //         let client_endpoint = client_pt
+    //             .transport_methods()
+    //             .get(&PtTransportName::from_str("obfs4")?)
+    //             .unwrap()
+    //             .endpoint()
+    //             .to_string();
+
+    //         let settings = settings_to_protocol(SocksVersion::V5, obfs4_server_conf)?;
+    //         match settings {
+    //             Protocol::Socks(_, auth) => match auth {
+    //                 SocksAuth::Username(raw_username, raw_password) => {
+    //                     let username = String::from_utf8(raw_username)?;
+    //                     let password = match raw_password.is_empty() {
+    //                         true => String::from("\0"),
+    //                         false => String::from_utf8(raw_password)?,
+    //                     };
+    //                     let creds = ForwardingCreds {
+    //                         username,
+    //                         password,
+    //                         forward_endpoint: client_endpoint,
+    //                         obfs4_server_ip: remote_obfs4_ip,
+    //                         obfs4_server_port: remote_obfs4_port,
+    //                     };
+    //                     info!("Listening on: {}", entry_addr);
+    //                     run_forwarding_server(&entry_addr, creds).await?;
+    //                 }
+    //                 _ => eprintln!("Unable to get credentials for obfs4 client process!"),
+    //             },
+    //             _ => eprintln!("Unexpected protocol"),
+    //         }
+    //     }
+    //     Command::Server {
+    //         listen_address,
+    //         final_socks5_port,
+    //     } => {
+    //         let final_socks5_endpoint = format!("127.0.0.1:{}", final_socks5_port);
+    //         let exit_rx = run_socks5_server(&final_socks5_endpoint).await?;
+    //         info!("Listening on: {}", listen_address);
+    //         launch_obfs4_server_process(obfs4_path, listen_address, final_socks5_endpoint).await?;
+    //         let auth_info = read_cert_info().unwrap();
+    //         info!("Authentication info is: {}", auth_info);
+    //         exit_rx.await.unwrap();
+    //     }
+    // }
+
+/*
+/// Launch obfs4 client process
+async fn launch_obfs4_client_process(
+    obfs4_path: String,
+) -> Result<PluggableClientTransport> {
+    let (common_params, client_params) = build_client_config("obfs4")?;
+
+    info!("Launching pluggable transport obfs4");
+
+    // let mut client_pt = PluggableClientTransport::new(
+    //     obfs4_path.into(),
+    //     vec![
+    //         "-enableLogging".to_string(),
+    //         "-logLevel".to_string(),
+    //         "DEBUG".to_string(),
+    //         "-unsafeLogging".to_string(),
+    //     ],
+    //     common_params,
+    //     client_params,
+    // );
+    // client_pt.launch(PreferredRuntime::current()?).await?;
+
+    Ok(client_pt)
+}
+
+/// Launch obfs4 server process
+async fn launch_obfs4_server_process(
+    obfs4_path: String,
+    listen_address: String,
+    final_socks5_endpoint: String,
+) -> Result<PluggableServerTransport> {
+    let (common_params, server_params) =
+        build_server_config("obfs4", &listen_address, &final_socks5_endpoint)?;
+
+
+    info!("Launching pluggable transport obfs4");
+
+    // let mut server_pt = PluggableServerTransport::new(
+    //     obfs4_path.into(),
+    //     vec![
+    //         "-enableLogging".to_string(),
+    //         "-logLevel".to_string(),
+    //         "DEBUG".to_string(),
+    //         "-unsafeLogging".to_string(),
+    //     ],
+    //     common_params,
+    //     server_params,
+    // );
+    // server_pt.launch(PreferredRuntime::current()?).await?;
+
+    Ok(server_pt)
+} */
+
