@@ -2,7 +2,9 @@
 
 
 members = [
-    "crates/obfs4"
+    "crates/obfs4",
+    "crates/ptrs",
+    "crates/lyrebird",
 ]
 
 resolver = "2"

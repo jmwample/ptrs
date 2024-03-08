@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use fast_socks5::client::{Config, Socks5Stream};
 use fast_socks5::server::{AcceptAuthentication, Socks5Server};
+use futures::task::SpawnExt;
 use tokio::{
     signal::unix::SignalKind,
     io::AsyncWriteExt,
@@ -241,6 +242,16 @@ async fn run_socks5_server(endpoint: &str) -> Result<oneshot::Receiver<bool>> {
     Ok(rx)
 }
 
+struct ClientPT {
+    pt: ptrs::PluggableTransport,
+}
+
+fn client_setup() -> ClientPT {
+    ClientPT {
+        pt: obfs4::Client,
+    }
+}
+
 /// Main function, ties everything together and parses arguments etc.
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -260,11 +271,11 @@ async fn main() -> Result<()> {
     // launch runners
     if is_client()? { // running as CLIENT
         let client = client_setup()?;
-        client.launch(cancel_token.clone(), PreferredRuntime::current()?).await?;
+        PreferredRuntime::current()?.spawn(client.run(cancel_token.clone()))?;
 
     } else { // running as SERVER
         let server = server_setup()?;
-        server.launch(cancel_token.clone(), PreferredRuntime::current()?).await?;
+        PreferredRuntime::current()?.spawn(server.run(cancel_token.clone()))?;
     }
 
     info!("accepting connections");

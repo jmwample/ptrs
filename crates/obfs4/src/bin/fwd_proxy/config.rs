@@ -4,7 +4,7 @@ use std::{net, sync::Arc};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use obfs::obfs4::{ClientBuilder, Server};
+use obfs4::obfs4::{ClientBuilder, Server};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},

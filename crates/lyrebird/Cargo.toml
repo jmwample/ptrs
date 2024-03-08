@@ -1,5 +1,5 @@
 [package]
-name = "obfs"
+name = "lyrebird"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,14 +7,9 @@ edition = "2021"
 name = "obfs"
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "fwd_proxy"
-test = false
-bench = false
-
 [dependencies]
 getrandom = "0.2.11"
-rand = { version="0.8.5", fratures=["getrandom"]}
+rand = { version="0.8.5", features=["getrandom"]}
 rand_core = "0.6.4"
 
 digest = { version = "0.10.7", features=["mac"]}

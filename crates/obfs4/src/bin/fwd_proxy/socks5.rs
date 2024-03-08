@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context as _, Result};
-use obfs::stream::Stream;
+use obfs4::stream::Stream;
 use safelog::sensitive;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, warn};
