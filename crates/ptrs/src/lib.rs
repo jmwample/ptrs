@@ -2,6 +2,9 @@
 
 use futures::Future; // , Sink, TryStream};
 
+mod helpers;
+pub use helpers::*;
+
 /// Future containing a generic result. We use this for functions that take
 /// and/or return futures that will produce Read/Write tunnels once awaited.
 pub type F<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;

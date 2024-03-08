@@ -246,10 +246,26 @@ struct ClientPT {
     pt: ptrs::PluggableTransport,
 }
 
-fn client_setup() -> ClientPT {
-    ClientPT {
-        pt: obfs4::Client,
+fn client_setup(statedir: &str) -> Result<ClientPT> {
+
+    let client_pt_info = ptrs::ClientInfo::new()?;
+
+    for name in client_pt_info.methods {
+        info!(name);
     }
+
+    Ok(ClientPT {
+        pt: obfs4::ClientBuilder::from_state(statedir, args).boxed(),
+    })
+}
+
+struct ServerPT;
+
+fn server_setup(statedir: &str) -> Result<ServerPT> {
+
+    let server_info = ptrs::ServerInfo::new()?;
+
+    Ok(ServerPT)
 }
 
 /// Main function, ties everything together and parses arguments etc.
