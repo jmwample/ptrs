@@ -1,25 +1,37 @@
+//! Lyrebird client
+//!
+//! TODO: (priority: after mvp)
+//!   - use tunnel_manager for managing proxy connections so we can track metrics
+//!     about tunnel failures and bytes transferred.
+//!   - find a way to apply a rate limit to copy bidirectional
+//!   - use the better copy interactive for bidirectional copy
+
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use fast_socks5::client::{Config, Socks5Stream};
 use fast_socks5::server::{AcceptAuthentication, Socks5Server};
 use futures::task::SpawnExt;
+use futures::{AsyncRead, AsyncWrite};
 use tokio::{
-    signal::unix::SignalKind,
-    io::AsyncWriteExt,
+    io::{copy_bidirectional, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    signal::unix::SignalKind,
     sync::oneshot,
     time::Duration,
 };
 use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 // use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
 // use tor_linkspec::PtTransportName;
 use tor_ptmgr::ipc::{
-    PluggableClientTransport, PluggableServerTransport, PluggableTransport, PtClientParameters,
-    PtCommonParameters, PtServerParameters,
+    PtClientParameters,
+    PtCommonParameters,
+    PtServerParameters,
+    // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
 };
 use tor_rtcompat::PreferredRuntime;
 // use tor_socksproto::{SocksAuth, SocksVersion};
-use tracing::{info, Level};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use std::env;
@@ -42,7 +54,7 @@ struct BridgeLineParseError;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Log to {TOR_PT_STATE_LOCATION}/obfs4proxy.log
-    #[arg(long, default_value_t=false)]
+    #[arg(long, default_value_t = false)]
     enable_logging: bool,
 
     /// Log Level (ERROR/WARN/INFO/DEBUG/TRACE)
@@ -50,17 +62,18 @@ struct Args {
     log_level: String,
 
     /// Disable the address scrubber on logging
-    #[arg(long, default_value_t=false)]
+    #[arg(long, default_value_t = false)]
     unsafe_logging: bool,
 }
-
 
 fn is_client() -> Result<bool> {
     let is_client = env::var_os("TOR_PT_CLIENT_TRANSPORTS");
     let is_server = env::var_os("TOR_PT_SERVER_TRANSPORTS");
 
     match (is_client, is_server) {
-        (Some(_), Some(_)) => Err(anyhow!("ENV-ERROR TOR_PT_[CLIENT,SERVER]_TRANSPORTS both set")),
+        (Some(_), Some(_)) => Err(anyhow!(
+            "ENV-ERROR TOR_PT_[CLIENT,SERVER]_TRANSPORTS both set"
+        )),
         (Some(_), None) => Ok(true),
         (None, Some(_)) => Ok(false),
         (None, None) => Err(anyhow!("not launched as a managed transport")),
@@ -68,16 +81,25 @@ fn is_client() -> Result<bool> {
 }
 
 fn make_state_dir() -> Result<String> {
-    let path = env::var("TOR_PT_STATE_LOCATION").context("missing required TOR_PT_STATE_LOCATION env var")?;
+    let path = env::var("TOR_PT_STATE_LOCATION")
+        .context("missing required TOR_PT_STATE_LOCATION env var")?;
 
-    DirBuilder::new().recursive(true).mode(0o700).create(&path)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&path)?;
     Ok(path)
 }
 
 /// initialize the logging receiver(s) for things to be logged into using the
 /// tracing / tracing_subscriber libraries
 // TODO: unsafe / should scrub to remove addresses. GeoIP. Json for file log writer.
-fn init_logging_recvr(enable: bool, _should_scrub: bool, level_str: &str, statedir: &str) -> Result<()> {
+fn init_logging_recvr(
+    enable: bool,
+    _should_scrub: bool,
+    level_str: &str,
+    statedir: &str,
+) -> Result<()> {
     // let filter_unsafe = FilterFn::new(|mut md|{
 
     //     if md.fields().contains(Field::new("client_addr")) {
@@ -101,13 +123,182 @@ fn init_logging_recvr(enable: bool, _should_scrub: bool, level_str: &str, stated
             .with_writer(file)
             .with_filter(LevelFilter::from_level(level));
 
-
         console_layer.and_then(state_dir_layer).boxed()
     } else {
         console_layer.boxed()
     };
 
     tracing_subscriber::registry().with(log_layers).init();
+
+    Ok(())
+}
+
+// ================================================================ //
+//                            Client                                //
+// ================================================================ //
+
+async fn client_setup(
+    statedir: &str,
+    cancel_token: CancellationToken,
+) -> Result<oneshot::Receiver<bool>> {
+    let client_pt_info = ptrs::ClientInfo::new()?;
+    let (tx, rx) = oneshot::channel::<bool>();
+
+    for name in client_pt_info.methods {
+        info!(name);
+
+        let listener = tokio::net::TcpListener::bind(":8080").await?;
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => info!("{name} received shutdown signal"),
+                    res = listener.accept() => {
+                        let (conn, client_addr) = match res {
+                            Err(e) => {
+                                error!("failed to accept tcp connection");
+                                break;
+                            }
+                            Ok(c) => c,
+                        };
+                        tokio::spawn(client_handle_connection(
+                            conn,
+                            builder,
+                            client_pt_info.uri,
+                            elide_addr(client_addr),
+                        ));
+                    }
+                }
+            }
+
+            tx.send(true).unwrap()
+        });
+    }
+
+    Ok(rx)
+}
+
+/// This function assumes that the provided connection / socket manages reconstruction
+/// and reliability before passing to this layer.
+async fn client_handle_connection<T, B>(
+    conn: T,
+    builder: std::sync::Arc<B>,
+    proxy_uri: &url::Url,
+    client_addr: &str,
+) -> Result<()>
+where
+    T: AsyncRead + AsyncWrite + Send,
+    B: ptrs::Builder,
+{
+    let config = std::sync::Arc::new(fast_socks5::server::Config::default());
+    let socks5_conn = fast_socks5::server::Socks5Socket::new(conn, config);
+
+    let socks5_conn = socks5_conn.upgrade_to_socks5().await?;
+    let remote_addr = socks5_conn.target_addr();
+    let args = socks5_conn.get_args();
+
+    // // I am not sure we even enable socks auth for the local client proxy
+    // if socks5_conn.auth() != AuthenticationMethod::Password { username: (), password: () } {
+    //     warn!(address=client_addr, "failed to authenticate client socks5 conn");
+    //     return
+    // }
+
+    // prepare to open a connection to the remote pluggable transport server
+    let remote = tokio::net::TcpStream::connect(remote_addr);
+
+    // build the pluggable transport client and then dial, completing the
+    // connection and handshake when the `wrap(..)` is await-ed.
+    let pt_client = builder::with_args(args)?.build()?;
+    let pt_conn = match pt_client.wrap(remote).await {
+        Err(e) => {
+            warn!(address = client_addr, "handshake failed: {e:#?}");
+            return;
+        }
+        Ok(c) => c,
+    };
+
+    if let Err(e) = copy_bidirectional(&mut socks5_conn.into_inner(), &mut pt_conn).await {
+        warn!(addres = client_addr, "tunnel closed with error: {e:#?}");
+    }
+    Ok(())
+}
+
+// ================================================================ //
+//                            Server                                //
+// ================================================================ //
+
+fn server_setup(statedir: &str, _cancel_token: CancellationToken) -> Result<()> {
+    let server_info = ptrs::ServerInfo::new()?;
+
+    Ok(())
+}
+
+async fn server_handle_connection() -> Result<()> {
+    Ok(())
+}
+
+/// Main function, ties everything together and parses arguments etc.
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
+    let args = Args::parse();
+
+    // Make state directory
+    let statedir = make_state_dir()?;
+
+    // launch tracing subscriber with filter level
+    init_logging_recvr(
+        args.enable_logging,
+        !args.unsafe_logging,
+        &args.log_level,
+        &statedir,
+    )?;
+
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    // launch runners
+    let exit_rx = if is_client()? {
+        // running as CLIENT
+        client_setup(&statedir, cancel_token.clone()).await?
+    } else {
+        // running as SERVER
+        server_setup(&statedir, cancel_token.clone()).await?
+    };
+
+    info!("accepting connections");
+
+    // At this point, the pt config protocol is finished, and incoming
+    // connections will be processed.  Wait till the parent dies
+    // (immediate exit), a SIGTERM is received (immediate exit),
+    // or a SIGINT is received.
+    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
+    tokio::select! {
+        _ = exit_rx => {
+            info!("proxy closed");
+            return Ok(())
+        }
+        _ = sigterm.recv() => {
+            info!("proxy terminated");
+            return Ok(())
+        }
+        _ = sigint.recv()=> {
+            info!("received iterrupt, shutting down");
+            cancel_token.cancel();
+        }
+    }
+
+    // Ok, it was the first SIGINT, close all listeners, and wait till,
+    // the parent dies, all the current connections are closed, or either
+    // a SIGINT/SIGTERM is received, and exit.
+    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
+    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
+    tokio::select! {
+        _ = exit_rx => {}
+        _ = sigint.recv()=> {}
+        _ = sigterm.recv() => {}
+    }
 
     Ok(())
 }
@@ -198,7 +389,6 @@ async fn connect_to_obfs4_client(
     .await?)
 }
 
-
 /// Launch the dumb TCP pipe, whose only job is to abstract away the obfs4 client
 /// and its complicated setup, and just forward bytes between the obfs4 client
 /// and the client
@@ -242,155 +432,64 @@ async fn run_socks5_server(endpoint: &str) -> Result<oneshot::Receiver<bool>> {
     Ok(rx)
 }
 
-struct ClientPT {
-    pt: ptrs::PluggableTransport,
-}
+// for _, ln := range ptListeners {
+// >   ln.Close()
+// }
 
-fn client_setup(statedir: &str) -> Result<ClientPT> {
+// match args.command {
+//     Command::Client {
+//         client_port,
+//         remote_obfs4_ip,
+//         remote_obfs4_port,
+//         obfs4_auth_info: obfs4_server_conf,
+//     } => {
+//         let entry_addr = format!("127.0.0.1:{}", client_port);
 
-    let client_pt_info = ptrs::ClientInfo::new()?;
+//         let client_pt = launch_obfs4_client_process(obfs4_path).await?;
+//         let client_endpoint = client_pt
+//             .transport_methods()
+//             .get(&PtTransportName::from_str("obfs4")?)
+//             .unwrap()
+//             .endpoint()
+//             .to_string();
 
-    for name in client_pt_info.methods {
-        info!(name);
-    }
-
-    Ok(ClientPT {
-        pt: obfs4::ClientBuilder::from_state(statedir, args).boxed(),
-    })
-}
-
-struct ServerPT;
-
-fn server_setup(statedir: &str) -> Result<ServerPT> {
-
-    let server_info = ptrs::ServerInfo::new()?;
-
-    Ok(ServerPT)
-}
-
-/// Main function, ties everything together and parses arguments etc.
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
-    let args = Args::parse();
-
-    // Make state directory
-    let statedir = make_state_dir()?;
-
-    // launch tracing subscriber with filter level
-    init_logging_recvr(args.enable_logging, !args.unsafe_logging, &args.log_level, &statedir)?;
-
-    let cancel_token = tokio_util::sync::CancellationToken::new();
-
-
-    // launch runners
-    if is_client()? { // running as CLIENT
-        let client = client_setup()?;
-        PreferredRuntime::current()?.spawn(client.run(cancel_token.clone()))?;
-
-    } else { // running as SERVER
-        let server = server_setup()?;
-        PreferredRuntime::current()?.spawn(server.run(cancel_token.clone()))?;
-    }
-
-    info!("accepting connections");
-
-
-    // At this point, the pt config protocol is finished, and incoming
-    // connections will be processed.  Wait till the parent dies
-    // (immediate exit), a SIGTERM is received (immediate exit),
-    // or a SIGINT is received.
-    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
-    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
-    // let mut sighup = tokio::signal::unix::signal(SignalKind::hangup())?;
-    tokio::select! {
-        _ = sigint.recv()=> {
-            info!("received iterrupt, shutting down");
-            cancel_token.cancel();
-        }
-        _ = sigterm.recv() => {
-            info!("terminated");
-            return Ok(())
-        }
-        // // Use SIGHUP to induce a reload without restarting - not necessary atm.
-        // _ = sighup.recv() => return Ok(()),
-    }
-
-
-    // Ok, it was the first SIGINT, close all listeners, and wait till,
-    // the parent dies, all the current connections are closed, or either
-    // a SIGINT/SIGTERM is received, and exit.
-    let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
-    let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = tunnel_manager.shutdown() => {}
-        _ = sigint.recv()=> {}
-        _ = sigterm.recv() => {}
-    }
-
-    Ok(())
-}
-
-
-    // for _, ln := range ptListeners {
-    // >   ln.Close()
-    // }
-
-    // match args.command {
-    //     Command::Client {
-    //         client_port,
-    //         remote_obfs4_ip,
-    //         remote_obfs4_port,
-    //         obfs4_auth_info: obfs4_server_conf,
-    //     } => {
-    //         let entry_addr = format!("127.0.0.1:{}", client_port);
-
-    //         let client_pt = launch_obfs4_client_process(obfs4_path).await?;
-    //         let client_endpoint = client_pt
-    //             .transport_methods()
-    //             .get(&PtTransportName::from_str("obfs4")?)
-    //             .unwrap()
-    //             .endpoint()
-    //             .to_string();
-
-    //         let settings = settings_to_protocol(SocksVersion::V5, obfs4_server_conf)?;
-    //         match settings {
-    //             Protocol::Socks(_, auth) => match auth {
-    //                 SocksAuth::Username(raw_username, raw_password) => {
-    //                     let username = String::from_utf8(raw_username)?;
-    //                     let password = match raw_password.is_empty() {
-    //                         true => String::from("\0"),
-    //                         false => String::from_utf8(raw_password)?,
-    //                     };
-    //                     let creds = ForwardingCreds {
-    //                         username,
-    //                         password,
-    //                         forward_endpoint: client_endpoint,
-    //                         obfs4_server_ip: remote_obfs4_ip,
-    //                         obfs4_server_port: remote_obfs4_port,
-    //                     };
-    //                     info!("Listening on: {}", entry_addr);
-    //                     run_forwarding_server(&entry_addr, creds).await?;
-    //                 }
-    //                 _ => eprintln!("Unable to get credentials for obfs4 client process!"),
-    //             },
-    //             _ => eprintln!("Unexpected protocol"),
-    //         }
-    //     }
-    //     Command::Server {
-    //         listen_address,
-    //         final_socks5_port,
-    //     } => {
-    //         let final_socks5_endpoint = format!("127.0.0.1:{}", final_socks5_port);
-    //         let exit_rx = run_socks5_server(&final_socks5_endpoint).await?;
-    //         info!("Listening on: {}", listen_address);
-    //         launch_obfs4_server_process(obfs4_path, listen_address, final_socks5_endpoint).await?;
-    //         let auth_info = read_cert_info().unwrap();
-    //         info!("Authentication info is: {}", auth_info);
-    //         exit_rx.await.unwrap();
-    //     }
-    // }
+//         let settings = settings_to_protocol(SocksVersion::V5, obfs4_server_conf)?;
+//         match settings {
+//             Protocol::Socks(_, auth) => match auth {
+//                 SocksAuth::Username(raw_username, raw_password) => {
+//                     let username = String::from_utf8(raw_username)?;
+//                     let password = match raw_password.is_empty() {
+//                         true => String::from("\0"),
+//                         false => String::from_utf8(raw_password)?,
+//                     };
+//                     let creds = ForwardingCreds {
+//                         username,
+//                         password,
+//                         forward_endpoint: client_endpoint,
+//                         obfs4_server_ip: remote_obfs4_ip,
+//                         obfs4_server_port: remote_obfs4_port,
+//                     };
+//                     info!("Listening on: {}", entry_addr);
+//                     run_forwarding_server(&entry_addr, creds).await?;
+//                 }
+//                 _ => eprintln!("Unable to get credentials for obfs4 client process!"),
+//             },
+//             _ => eprintln!("Unexpected protocol"),
+//         }
+//     }
+//     Command::Server {
+//         listen_address,
+//         final_socks5_port,
+//     } => {
+//         let final_socks5_endpoint = format!("127.0.0.1:{}", final_socks5_port);
+//         let exit_rx = run_socks5_server(&final_socks5_endpoint).await?;
+//         info!("Listening on: {}", listen_address);
+//         launch_obfs4_server_process(obfs4_path, listen_address, final_socks5_endpoint).await?;
+//         let auth_info = read_cert_info().unwrap();
+//         info!("Authentication info is: {}", auth_info);
+//         exit_rx.await.unwrap();
+//     }
+// }
 
 /*
 /// Launch obfs4 client process
@@ -444,4 +543,3 @@ async fn launch_obfs4_server_process(
 
     Ok(server_pt)
 } */
-

@@ -9,6 +9,8 @@ pub use helpers::*;
 /// and/or return futures that will produce Read/Write tunnels once awaited.
 pub type F<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
 
+pub type PluggableTransportFut<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
+
 pub struct Passthrough;
 
 pub mod client {
