@@ -1,4 +1,12 @@
-// #![feature(associated_type_defaults)]
+//! # Pluggable Transports in Rust
+//!
+//! Traits and tools useful when building pluggable transports in rust.
+//!
+//! ```
+//! // TODO: example using passthrough transport
+//! ```
+
+use std::{net::{SocketAddrV4, SocketAddrV6}, time::Duration};
 
 use futures::Future; // , Sink, TryStream};
 
@@ -9,9 +17,65 @@ pub use helpers::*;
 /// and/or return futures that will produce Read/Write tunnels once awaited.
 pub type F<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
 
+/// Future containing a generic result. We use this for functions that take
+/// and/or return futures that will produce Read/Write tunnels once awaited.
 pub type PluggableTransportFut<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
 
-pub struct Passthrough;
+
+pub trait PluggableTransport {
+    type ClientBuilder: ClientBuilderByTypeInst;
+    type ServerBuilder: ServerBuilder;
+
+    fn name() -> String;
+}
+
+// Struct builder, passed by type and then built from default for each client
+// with params baked in as builder pattern.
+pub trait ClientBuilderByTypeInst: Default {
+    type Error: std::error::Error;
+    type ClientPT;
+
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
+
+    /// Pluggable transport attempts to parse and validate options from a string,
+    /// typically using ['parse_smethod_args'].
+    fn options(&mut self, opts: &str) -> Result<&mut Self, Self::Error>;
+
+    /// The maximum time we should wait for a pluggable transport binary to
+    /// report successful initialization. If `None`, a default value is used.
+    fn timeout(&mut self, timeout: Option<Duration>) -> Result<&mut Self, Self::Error>;
+
+    /// An IPv4 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v4_bind_addr(&mut self, addr: SocketAddrV4) -> Result<&mut Self, Self::Error>;
+
+    /// An IPv6 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v6_bind_addr(&mut self, addr: SocketAddrV6) -> Result<&mut Self, Self::Error>;
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ClientPT;
+}
+
+
+pub trait ServerBuilder: Default {
+    type ServerPT;
+    type Error: std::error::Error;
+
+    //associated fn for making the thing
+    fn build(args: String) -> Result<Self::ServerPT, Self::Error>;
+}
+
+
+// ================================================================ //
+//                            Client                                //
+// ================================================================ //
 
 pub mod client {
     use std::pin::Pin;
@@ -19,7 +83,7 @@ pub mod client {
 
     use futures::Future; // , Sink, TryStream};
 
-    use super::{Passthrough, F};
+    use super::F;
 
     /// Client Transport trait1
     pub trait T1<InRW, InErr> {
@@ -27,17 +91,6 @@ pub mod client {
         type OutErr: std::error::Error;
 
         fn wrap(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>>;
-    }
-
-    /// Example wrapping transport that just passes the incoming connection future through
-    /// unmodified as a proof of concept.
-    impl<InRW, InErr: std::error::Error> T1<InRW, InErr> for Passthrough {
-        type OutRW = InRW;
-        type OutErr = InErr;
-
-        fn wrap(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-            input
-        }
     }
 
     /// Creator1 defines a stream creator that could be applied to either the input
@@ -87,10 +140,14 @@ pub mod client {
     }
 }
 
+// ================================================================ //
+//                            Server                                //
+// ================================================================ //
+
 pub mod server {
     use std::pin::Pin;
 
-    use super::{Passthrough, F};
+    use super::F;
 
     /// Server Transport trait2 - try using futures instead of actual objects
     // This doesn't work because it requires the listener object that was used
@@ -103,14 +160,6 @@ pub mod server {
         fn wrap_acc(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>>;
     }
 
-    impl<I, E: std::error::Error> T2<I, E> for Passthrough {
-        type OutRW = I;
-        type OutErr = E;
-
-        fn wrap_acc(&self, input: Pin<F<I, E>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-            input
-        }
-    }
 
     /// Server Transport trait1 - try using objects so we can accept and then
     /// handshake (proxy equivalent of accept) as separate steps by the transport
@@ -120,6 +169,34 @@ pub mod server {
         type OutErr: std::error::Error;
 
         fn wrap_new(&self, io: RW) -> Pin<F<Self::OutRW, Self::OutErr>>;
+    }
+}
+
+pub mod passthrough {
+    use super::{client,server, F};
+
+    use std::pin::Pin;
+
+    pub struct Passthrough {}
+
+    impl<I, E: std::error::Error> server::T2<I, E> for Passthrough {
+        type OutRW = I;
+        type OutErr = E;
+
+        fn wrap_acc(&self, input: Pin<F<I, E>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
+            input
+        }
+    }
+
+    /// Example wrapping transport that just passes the incoming connection future through
+    /// unmodified as a proof of concept.
+    impl<InRW, InErr: std::error::Error> client::T1<InRW, InErr> for Passthrough {
+        type OutRW = InRW;
+        type OutErr = InErr;
+
+        fn wrap(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
+            input
+        }
     }
 
     // -_-    must be static, even though I wish it didn't
@@ -131,7 +208,7 @@ pub mod server {
     //     |            +++++++++
     //
     //
-    impl<RW: Send + 'static> T1<RW> for Passthrough {
+    impl<RW: Send + 'static> server::T1<RW> for Passthrough {
         type OutRW = RW;
         type OutErr = std::io::Error;
 
@@ -161,7 +238,7 @@ mod tests {
 
     use super::client::{C1 as _, T1 as _};
     use super::server::T1 as _;
-    use super::*;
+    use super::passthrough::Passthrough;
 
     #[allow(unused)]
     fn print_type_of<T>(_: &T) {

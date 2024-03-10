@@ -1,14 +1,82 @@
 use std::{
+    borrow::Cow,
+    collections::HashMap,
     env,
     io::{Error, ErrorKind},
     net::SocketAddr,
 };
 
-use tracing::debug;
+use tracing::{debug, warn};
 use url::Url;
 
 pub(crate) fn get_managed_transport_ver() -> Result<String, Error> {
     Ok("".into())
+}
+
+pub fn parse_smethod_args(args: impl AsRef<str>) -> Result<HashMap<String, String>, Cow<'static, str>> {
+    let words = args.as_ref().split_whitespace();
+
+    let mut parsed_args = HashMap::new();
+
+    // NOTE(eta): pt-spec.txt seems to imply these options can't contain spaces, so
+    //            we work under that assumption.
+    //            It also doesn't actually parse them out -- but seeing as the API to
+    //            feed these back in will want them as separated k/v pairs, I think
+    //            it makes sense to here.
+    for option in words {
+        if let Some(mut args) = option.strip_prefix("ARGS:") {
+            while !args.is_empty() {
+                let (k, v, rest) = parse_one_smethod_arg(args)
+                    .map_err(|e| Cow::from(format!("failed to parse SMETHOD ARGS: {}", e)))?;
+                if parsed_args.contains_key(&k) {
+                    // At least check our assumption that this is actually k/v
+                    // and not Vec<(String, String)>.
+                    warn!("PT SMETHOD arguments contain repeated key {}!", k);
+                }
+                parsed_args.insert(k, v);
+                args = rest;
+            }
+        }
+    }
+
+    Ok(parsed_args)
+}
+
+/// Chomp one key/value pair off a list of smethod args.
+/// Returns (k, v, unparsed rest of string).
+/// Will also chomp the comma at the end, if there is one.
+fn parse_one_smethod_arg(args: &str) -> Result<(String, String, &str), &'static str> {
+    // NOTE(eta): Apologies for this looking a bit gnarly. Ideally, this is what you'd use
+    //            something like `nom` for, but I didn't want to bring in a dep just for this.
+
+    let mut key = String::new();
+    let mut val = String::new();
+    // If true, we're reading the value, not the key.
+    let mut reading_val = false;
+    let mut chars = args.chars();
+    while let Some(c) = chars.next() {
+        let target = if reading_val { &mut val } else { &mut key };
+        match c {
+            '\\' => {
+                let c = chars
+                    .next()
+                    .ok_or("smethod arg terminates with backslash")?;
+                target.push(c);
+            }
+            '=' => {
+                if reading_val {
+                    return Err("encountered = while parsing value");
+                }
+                reading_val = true;
+            }
+            ',' => break,
+            c => target.push(c),
+        }
+    }
+    if !reading_val {
+        return Err("ran out of chars parsing smethod arg");
+    }
+    Ok((key, val, chars.as_str()))
 }
 
 // ================================================================ //
@@ -84,20 +152,29 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
             let passwd = spec.password();
 
             if username.is_empty() || username.len() > 255 {
-                return Err(Error::new(ErrorKind::Other, "proxy URI specified a invalid SOCKS5 username"));
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "proxy URI specified a invalid SOCKS5 username",
+                ));
             }
             if passwd.is_none() || passwd.is_some_and(|p| p.is_empty() || p.len() > 255) {
-                return Err(Error::new(ErrorKind::Other, "proxy URI specified a invalid SOCKS5 password"));
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "proxy URI specified a invalid SOCKS5 password",
+                ));
             }
         }
         "socks4a" => {
             if !spec.username().is_empty() {
                 if spec.password().is_some_and(|p| !p.is_empty()) {
-                    return Err(Error::new(ErrorKind::Other, "proxy URI specified SOCKS4a and a password"));
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "proxy URI specified SOCKS4a and a password",
+                    ));
                 }
             }
         }
-        "http" => {},
+        "http" => {}
         _ => {
             return Err(Error::new(
                 ErrorKind::Other,

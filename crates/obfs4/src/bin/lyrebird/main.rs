@@ -12,6 +12,7 @@ use fast_socks5::client::{Config, Socks5Stream};
 use fast_socks5::server::{AcceptAuthentication, Socks5Server};
 use futures::task::SpawnExt;
 use futures::{AsyncRead, AsyncWrite};
+use obfs4::obfs4;
 use tokio::{
     io::{copy_bidirectional, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -144,36 +145,45 @@ async fn client_setup(
     let client_pt_info = ptrs::ClientInfo::new()?;
     let (tx, rx) = oneshot::channel::<bool>();
 
-    for name in client_pt_info.methods {
-        info!(name);
+    // for name in client_pt_info.methods {
+    //     info!(name);
 
-        let listener = tokio::net::TcpListener::bind(":8080").await?;
+    //     let builder = match ptrs::try_get_transport(name) {
+    //         Ok(b) => b,
+    //         Err(e) => {
+    //             warn!("unrecognized transport {name}");
+    //             continue
+    //         }
+    //     };
 
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => info!("{name} received shutdown signal"),
-                    res = listener.accept() => {
-                        let (conn, client_addr) = match res {
-                            Err(e) => {
-                                error!("failed to accept tcp connection");
-                                break;
-                            }
-                            Ok(c) => c,
-                        };
-                        tokio::spawn(client_handle_connection(
-                            conn,
-                            builder,
-                            client_pt_info.uri,
-                            elide_addr(client_addr),
-                        ));
-                    }
+    let builder = obfs4::ClientBuilder::with_args(args);
+    let listener = tokio::net::TcpListener::bind(":8080").await?;
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => info!("{name} received shutdown signal"),
+                res = listener.accept() => {
+                    let (conn, client_addr) = match res {
+                        Err(e) => {
+                            error!("failed to accept tcp connection");
+                            break;
+                        }
+                        Ok(c) => c,
+                    };
+                    tokio::spawn(client_handle_connection(
+                        conn,
+                        builder,
+                        client_pt_info.uri,
+                        elide_addr(client_addr),
+                    ));
                 }
             }
+        }
 
-            tx.send(true).unwrap()
-        });
-    }
+        tx.send(true).unwrap()
+    });
+    // }
 
     Ok(rx)
 }
