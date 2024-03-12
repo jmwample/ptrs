@@ -165,13 +165,11 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
             }
         }
         "socks4a" => {
-            if !spec.username().is_empty() {
-                if spec.password().is_some_and(|p| !p.is_empty()) {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        "proxy URI specified SOCKS4a and a password",
-                    ));
-                }
+            if !spec.username().is_empty() && spec.password().is_some_and(|p| !p.is_empty()) {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "proxy URI specified SOCKS4a and a password",
+                ));
             }
         }
         "http" => {}
@@ -205,11 +203,11 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
 /// ```
 /// match std::env::var_os("TOR_PT_CLIENT_TRANSPORTS") {
 ///     Some(_) => {
-/// 	    // Client mode; call pt.ClientSetup.
-/// 	}
-/// 	None => {
-/// 	    // Server mode; call pt.ServerSetup.
-/// 	}
+///         // Client mode; call pt.ClientSetup.
+///     }
+///     None => {
+///         // Server mode; call pt.ServerSetup.
+///     }
 /// }
 ///```
 pub struct ServerInfo {

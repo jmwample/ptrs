@@ -145,6 +145,7 @@ async fn client_setup(
     let client_pt_info = ptrs::ClientInfo::new()?;
     let (tx, rx) = oneshot::channel::<bool>();
 
+    // // This only launches lyrebird / obfs4 for now and doesn't track other PT types
     // for name in client_pt_info.methods {
     //     info!(name);
 
@@ -155,14 +156,19 @@ async fn client_setup(
     //             continue
     //         }
     //     };
+    if !client_pt_info.methods.contains(obfs4::Transport::name()) {
+        error!("cannot launch unrecognized pluggable transports")
+    }
 
-    let builder = obfs4::ClientBuilder::with_args(args);
+    let pt = obfs4::Transport::new();
+    let builder = <pt as ptrs::PluggableTransport<TcpStream>>::ClientBuilder::default();
+    let pt_name = obfs4::Transport::name();
     let listener = tokio::net::TcpListener::bind(":8080").await?;
 
     tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => info!("{name} received shutdown signal"),
+                _ = cancel_token.cancelled() => info!("{pt_name} received shutdown signal"),
                 res = listener.accept() => {
                     let (conn, client_addr) = match res {
                         Err(e) => {

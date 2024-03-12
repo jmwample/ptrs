@@ -17,3 +17,21 @@ pub use error::{Error, Result};
 
 #[cfg(test)]
 pub(crate) mod test_utils;
+
+#[derive(Debug)]
+pub struct Transport {}
+
+impl Transport {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl<T> ptrs::PluggableTransport<T> for Transport {
+    type ClientBuilder = obfs4::ClientBuilder;
+    type ServerBuilder = obfs4::ServerBuilder;
+
+    fn name() -> String {
+        "obfs4".into()
+    }
+}

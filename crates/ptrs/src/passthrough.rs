@@ -4,6 +4,94 @@ use super::*;
 
 pub struct Passthrough {}
 
+impl<T> PluggableTransport<T> for Passthrough
+where
+    T: AsyncRead + AsyncWrite + Send + 'static,
+{
+    type ClientBuilder = BuilderC;
+    type ServerBuilder = BuilderS;
+    // type Client = Passthrough;
+    // type Server = Passthrough;
+
+    fn name() -> String {
+        "passthrough".into()
+    }
+
+    // fn client_builder() -> <<Self as PluggableTransport<T,std::io::Error>>::Client as ClientTransport<T, std::io::Error>>::Builder {
+    fn client_builder() -> <Self as PluggableTransport<T>>::ClientBuilder {
+        BuilderC::default()
+    }
+
+    // fn server_builder() -> <<Self as PluggableTransport<T, std::io::Error>>::Server as ServerTransport<T>>::Builder{
+    fn server_builder() -> <Self as PluggableTransport<T>>::ServerBuilder {
+        BuilderS::default()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct BuilderS {}
+
+impl ServerBuilder for BuilderS {
+    type Error = std::io::Error;
+    type ServerPT = Passthrough;
+    type Transport = Passthrough;
+
+    fn build(_args: String) -> Result<Self::ServerPT, Self::Error> {
+        Ok(Passthrough {})
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct BuilderC {}
+
+impl<T> ClientBuilderByTypeInst<T> for BuilderC
+where
+    T: AsyncRead + AsyncWrite + Send + 'static,
+{
+    type ClientPT = Passthrough;
+    type Error = std::io::Error;
+    type Transport = Passthrough;
+
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// Pluggable transport attempts to parse and validate options from a string,
+    /// typically using ['parse_smethod_args'].
+    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// The maximum time we should wait for a pluggable transport binary to
+    /// report successful initialization. If `None`, a default value is used.
+    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// An IPv4 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// An IPv6 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ClientPT {
+        Passthrough {}
+    }
+}
+
 impl<I, E: std::error::Error> ServerTransport2<I, E> for Passthrough {
     type OutRW = I;
     type OutErr = E;
@@ -21,6 +109,7 @@ where
 {
     type OutRW = InRW;
     type OutErr = std::io::Error;
+    type Builder = BuilderC;
 
     fn establish(&self, input: Pin<F<InRW, std::io::Error>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
         input
@@ -43,6 +132,7 @@ where
 impl<RW: Send + 'static> ServerTransport<RW> for Passthrough {
     type OutRW = RW;
     type OutErr = std::io::Error;
+    type Builder = BuilderS;
 
     fn reveal(&self, io: RW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(Self::hs(io))
@@ -56,7 +146,7 @@ impl Passthrough {
 }
 
 #[cfg(test)]
-mod tests {
+mod design_tests {
 
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -66,6 +156,7 @@ mod tests {
     use tracing_subscriber::filter::LevelFilter;
 
     use std::env;
+    use std::pin::Pin;
     use std::str::FromStr;
     use std::sync::Once;
     use std::time::Duration;
@@ -74,8 +165,8 @@ mod tests {
     use crate::{
         ClientBuilderByTypeInst,
         ClientTransport,
-        PluggableTransportFut,
-        // ServerTransport as _, ClientInfo, Conn,
+        PluggableTransport,
+        FutureResult, // ServerTransport as _, ClientInfo, Conn,
     };
 
     #[allow(unused)]
@@ -94,12 +185,160 @@ mod tests {
         });
     }
 
-    async fn establish<T, E, B>(
+    async fn establish_using_pt<T, E, P>(
+        t_fut: Pin<FutureResult<T, E>>,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        P: PluggableTransport<T>,
+        P::ClientBuilder: ClientBuilderByTypeInst<T>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::Error: std::error::Error + 'static,
+        E: std::error::Error + 'static,
+    {
+        Ok(P::client_builder()
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .establish(t_fut))
+    }
+
+    async fn establish_using_builder<T, E, B>(
+        t_fut: Pin<FutureResult<T, E>>,
+        mut pt: B,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
+                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        B: ClientBuilderByTypeInst<T>,
+        B::ClientPT: ClientTransport<T, E>,
+        B::Error: std::error::Error + 'static,
+    {
+        Ok(pt
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .establish(t_fut))
+    }
+
+    #[tokio::test]
+    async fn client_interface_establish_pt() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (mut sock, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let (mut r, mut w) = tokio::io::split(&mut sock);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        let tcp_fut = TcpStream::connect("127.0.0.1:8000");
+
+        // let builder = <Passthrough as PluggableTransport<TcpStream>>::ClientBuilder::default();
+        // let builder = <<Passthrough as PluggableTransport<TcpStream, std::io::Error>>::Client as ClientTransport<TcpStream,std::io::Error>>::Builder::default();
+
+        let conn_fut = establish_using_pt::<TcpStream, std::io::Error, Passthrough>(Box::pin(tcp_fut))
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+
+        info!("connecting to tcp and pt");
+        let mut conn = conn_fut.await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn client_interface_establish() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (mut sock, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let (mut r, mut w) = tokio::io::split(&mut sock);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        let tcp_fut = TcpStream::connect("127.0.0.1:8000");
+
+        // let builder = <Passthrough as PluggableTransport<TcpStream>>::ClientBuilder::default();
+        // let builder = <<Passthrough as PluggableTransport<TcpStream, std::io::Error>>::Client as ClientTransport<TcpStream,std::io::Error>>::Builder::default();
+        let builder = <Passthrough as PluggableTransport<TcpStream>>::client_builder();
+
+        let conn_fut = establish_using_builder(Box::pin(tcp_fut), builder)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+
+        info!("connecting to tcp and pt");
+        let mut conn = conn_fut.await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
+
+        Ok(())
+    }
+
+    async fn wrap_conn_in_builder<T, E, B>(
         t: T,
         mut pt: B,
     ) -> Result<
-        std::pin::Pin<
-            PluggableTransportFut<
+        Pin<
+            FutureResult<
                 <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
                 <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
             >,
@@ -119,19 +358,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_interface() -> Result<(), std::io::Error> {
+    async fn client_interface_wrap() -> Result<(), std::io::Error> {
         init_subscriber();
-        let t_fut = TcpStream::connect("127.0.0.1:8080");
 
-        let builder = Passthrough::ClientBuilder::default();
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
-        let conn = establish(t_fut, builder).await?;
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (mut sock, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let (mut r, mut w) = tokio::io::split(&mut sock);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        info!("connecting to tcp");
+        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+
+        let builder = <Passthrough as PluggableTransport<TcpStream>>::client_builder();
+
+        let mut conn = wrap_conn_in_builder(tcp_conn, builder)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?
+            .await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn passthrough_wrap_client() -> Result<(), std::io::Error> {
+    async fn basic_wrap_client() -> Result<(), std::io::Error> {
         init_subscriber();
 
         let p = Passthrough {};
@@ -176,12 +450,8 @@ mod tests {
         Ok(())
     }
 
-    // Other maybe good constructions?
-    // TcpStream::new().wrap(p).await?;
-    //
-
     #[tokio::test]
-    async fn passthrough_wrap_server() -> Result<(), std::io::Error> {
+    async fn basic_wrap_server() -> Result<(), std::io::Error> {
         init_subscriber();
 
         let p = Passthrough {};
@@ -230,7 +500,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn passthrough_composition_client() -> Result<(), std::io::Error> {
+    async fn client_composition() -> Result<(), std::io::Error> {
         init_subscriber();
 
         let p = Passthrough {};

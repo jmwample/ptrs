@@ -5,13 +5,11 @@ use crate::obfs4::Client;
 
 
 impl ptrs::client::T1 for Client {
-    fn wrap()
+    fn wrap() {}
 }
 
 #[cfg(test)]
 mod test {
-
-    
 
     async fn establish<T, E>(
         t: T,

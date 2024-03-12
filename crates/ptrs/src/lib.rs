@@ -17,19 +17,19 @@ use futures::Future; // , Sink, TryStream};
 mod helpers;
 pub use helpers::*;
 
-/// Future containing a generic result. We use this for functions that take
-/// and/or return futures that will produce Read/Write tunnels once awaited.
-pub type F<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
-
-/// Future containing a generic result. We use this for functions that take
-/// and/or return futures that will produce Read/Write tunnels once awaited.
-pub type PluggableTransportFut<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
-
 pub trait PluggableTransport<T> {
     type ClientBuilder: ClientBuilderByTypeInst<T>;
     type ServerBuilder: ServerBuilder;
+    // type Client: ClientTransport<T, E>;
+    // type Server: ServerTransport<T>;
 
     fn name() -> String;
+
+    // fn client_builder() -> <<Self as PluggableTransport<T,E>>::Client as ClientTransport<T, E>>::Builder;
+    fn client_builder() -> <Self as PluggableTransport<T>>::ClientBuilder;
+
+    // fn server_builder() -> <<Self as PluggableTransport<T,E>>::Server as ServerTransport<T>>::Builder;
+    fn server_builder() -> <Self as PluggableTransport<T>>::ServerBuilder;
 }
 
 // ================================================================ //
@@ -42,6 +42,7 @@ pub trait PluggableTransport<T> {
 pub trait ClientBuilderByTypeInst<T>: Default {
     type Error: std::error::Error;
     type ClientPT: ClientTransport<T, Self::Error>;
+    type Transport;
 
     /// A path where the launched PT can store state.
     fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
@@ -75,6 +76,7 @@ pub trait ClientBuilderByTypeInst<T>: Default {
 pub trait ClientTransport<InRW, InErr> {
     type OutRW;
     type OutErr: std::error::Error;
+    type Builder: ClientBuilderByTypeInst<InRW>;
 
     /// Create a pluggable transport connection given a future that will return
     /// a Read/Write object that can be used as the underlying socket for the
@@ -96,6 +98,7 @@ pub trait ClientTransport<InRW, InErr> {
 pub trait ServerTransport<InRW> {
     type OutRW;
     type OutErr: std::error::Error;
+    type Builder: ServerBuilder;
 
     /// Create/accept a connection for the pluggable transport client using the
     /// provided (pre-existing/pre-connected) Read/Write object as the
@@ -106,6 +109,7 @@ pub trait ServerTransport<InRW> {
 pub trait ServerBuilder: Default {
     type ServerPT;
     type Error: std::error::Error;
+    type Transport;
 
     //associated fn for making the thing
     fn build(args: String) -> Result<Self::ServerPT, Self::Error>;
@@ -174,6 +178,19 @@ impl Conn for tokio::net::UdpSocket {
         Box::pin(f)
     }
 }
+
+/// Future containing a generic result. We use this for functions that take
+/// and/or return futures that will produce Read/Write tunnels once awaited.
+pub type FutureResult<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
+
+/// Future containing a generic result, shorthand for ['FutureResult']. We use
+/// this for functions that take and/or return futures that will produce
+/// Read/Write tunnels once awaited.
+pub(crate) type F<T, E> = FutureResult<T,E>;
+
+pub type TcpStreamFut = Pin<FutureResult<tokio::net::TcpStream, std::io::Error>>;
+
+pub type UdpSocketFut = Pin<FutureResult<tokio::net::UdpSocket, std::io::Error>>;
 
 #[cfg(test)]
 mod passthrough;
