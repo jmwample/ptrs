@@ -19,7 +19,7 @@ pub use helpers::*;
 
 pub trait PluggableTransport<T> {
     type ClientBuilder: ClientBuilderByTypeInst<T>;
-    type ServerBuilder: ServerBuilder;
+    type ServerBuilder: ServerBuilder<T>;
     // type Client: ClientTransport<T, E>;
     // type Server: ServerTransport<T>;
 
@@ -97,7 +97,7 @@ pub trait ClientTransport<InRW, InErr> {
 pub trait ServerTransport<InRW> {
     type OutRW;
     type OutErr: std::error::Error;
-    type Builder: ServerBuilder;
+    type Builder: ServerBuilder<InRW>;
 
     /// Create/accept a connection for the pluggable transport client using the
     /// provided (pre-existing/pre-connected) Read/Write object as the
@@ -105,8 +105,8 @@ pub trait ServerTransport<InRW> {
     fn reveal(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
 }
 
-pub trait ServerBuilder: Default {
-    type ServerPT;
+pub trait ServerBuilder<T>: Default {
+    type ServerPT: ServerTransport<T>;
     type Error: std::error::Error;
     type Transport;
 
@@ -139,9 +139,10 @@ pub trait ServerBuilder: Default {
 }
 
 /// Server Transport trait2 - try using futures instead of actual objects
-// This doesn't work because it requires the listener object that was used
-// to create the `input` Future must live for `'static` for the future to
-// be valid, but that can't be guaranteed and is difficult to work with.
+///
+/// This doesn't work because it requires the listener object that was used
+/// to create the `input` Future must live for `'static` for the future to
+/// be valid, but that can't be guaranteed and is difficult to work with.
 pub trait ServerTransport2<InRW, InErr> {
     type OutRW;
     type OutErr: std::error::Error;

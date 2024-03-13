@@ -31,7 +31,7 @@ where
 #[derive(Debug, Default)]
 pub struct BuilderS {}
 
-impl ServerBuilder for BuilderS {
+impl<T: Send + 'static> ServerBuilder<T> for BuilderS {
     type Error = std::io::Error;
     type ServerPT = Passthrough;
     type Transport = Passthrough;
@@ -184,7 +184,7 @@ impl Passthrough {
 mod design_tests {
 
     use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
+        io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
         net::TcpStream,
     };
     use tracing::info;
@@ -456,6 +456,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
+        T: AsyncRead + AsyncWrite + Send,
         B: ClientBuilderByTypeInst<T>,
         B::ClientPT: ClientTransport<T, E>,
         B::Error: std::error::Error + 'static,
@@ -520,8 +521,8 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT as ServerTransport<T>>::OutRW,
-                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT as ServerTransport<T>>::OutErr,
+                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT as ServerTransport<T>>::OutRW,
+                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT as ServerTransport<T>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
@@ -529,8 +530,8 @@ mod design_tests {
     where
         P: PluggableTransport<T>,
         P::ClientBuilder: ClientBuilderByTypeInst<T>,
-        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT: ServerTransport<T>,
-        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::Error: std::error::Error + 'static,
+        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT: ServerTransport<T>,
+        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::Error: std::error::Error + 'static,
         E: std::error::Error + 'static,
     {
         Ok(P::server_builder()
@@ -599,14 +600,15 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<B as ServerBuilder>::ServerPT as ServerTransport<T>>::OutRW,
-                <<B as ServerBuilder>::ServerPT as ServerTransport<T>>::OutErr,
+                <<B as ServerBuilder<T>>::ServerPT as ServerTransport<T>>::OutRW,
+                <<B as ServerBuilder<T>>::ServerPT as ServerTransport<T>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
     >
     where
-        B: ServerBuilder,
+        T: AsyncRead + AsyncWrite + Send,
+        B: ServerBuilder<T>,
         B::ServerPT: ServerTransport<T>,
         B::Error: std::error::Error + 'static,
     {
