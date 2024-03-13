@@ -13,7 +13,9 @@ pub(crate) fn get_managed_transport_ver() -> Result<String, Error> {
     Ok("".into())
 }
 
-pub fn parse_smethod_args(args: impl AsRef<str>) -> Result<HashMap<String, String>, Cow<'static, str>> {
+pub fn parse_smethod_args(
+    args: impl AsRef<str>,
+) -> Result<HashMap<String, String>, Cow<'static, str>> {
     let words = args.as_ref().split_whitespace();
 
     let mut parsed_args = HashMap::new();

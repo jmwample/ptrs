@@ -8,8 +8,8 @@
 
 use std::{
     net::{SocketAddrV4, SocketAddrV6},
-    time::{Duration, Instant},
     pin::Pin,
+    time::{Duration, Instant},
 };
 
 use futures::Future; // , Sink, TryStream};
@@ -35,7 +35,6 @@ pub trait PluggableTransport<T> {
 // ================================================================ //
 //                            Client                                //
 // ================================================================ //
-
 
 // Struct builder, passed by type and then built from default for each client
 // with params baked in as builder pattern.
@@ -111,11 +110,33 @@ pub trait ServerBuilder: Default {
     type Error: std::error::Error;
     type Transport;
 
-    //associated fn for making the thing
-    fn build(args: String) -> Result<Self::ServerPT, Self::Error>;
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
+
+    /// Pluggable transport attempts to parse and validate options from a string,
+    /// typically using ['parse_smethod_args'].
+    fn options(&mut self, opts: &str) -> Result<&mut Self, Self::Error>;
+
+    /// The maximum time we should wait for a pluggable transport binary to
+    /// report successful initialization. If `None`, a default value is used.
+    fn timeout(&mut self, timeout: Option<Duration>) -> Result<&mut Self, Self::Error>;
+
+    /// An IPv4 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v4_bind_addr(&mut self, addr: SocketAddrV4) -> Result<&mut Self, Self::Error>;
+
+    /// An IPv6 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v6_bind_addr(&mut self, addr: SocketAddrV6) -> Result<&mut Self, Self::Error>;
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ServerPT;
 }
-
-
 
 /// Server Transport trait2 - try using futures instead of actual objects
 // This doesn't work because it requires the listener object that was used
@@ -131,7 +152,6 @@ pub trait ServerTransport2<InRW, InErr> {
 // ================================================================ //
 //                        Connections                               //
 // ================================================================ //
-
 
 /// Creator1 defines a stream creator that could be applied to either the input
 /// stream feature or the resulting stream future making them composable.
@@ -186,7 +206,7 @@ pub type FutureResult<T, E> = Box<dyn Future<Output = Result<T, E>> + Send>;
 /// Future containing a generic result, shorthand for ['FutureResult']. We use
 /// this for functions that take and/or return futures that will produce
 /// Read/Write tunnels once awaited.
-pub(crate) type F<T, E> = FutureResult<T,E>;
+pub(crate) type F<T, E> = FutureResult<T, E>;
 
 pub type TcpStreamFut = Pin<FutureResult<tokio::net::TcpStream, std::io::Error>>;
 

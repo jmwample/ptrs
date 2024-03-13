@@ -36,8 +36,43 @@ impl ServerBuilder for BuilderS {
     type ServerPT = Passthrough;
     type Transport = Passthrough;
 
-    fn build(_args: String) -> Result<Self::ServerPT, Self::Error> {
-        Ok(Passthrough {})
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// Pluggable transport attempts to parse and validate options from a string,
+    /// typically using ['parse_smethod_args'].
+    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// The maximum time we should wait for a pluggable transport binary to
+    /// report successful initialization. If `None`, a default value is used.
+    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// An IPv4 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// An IPv6 address to bind outgoing connections to (if specified).
+    ///
+    /// Leaving this out will mean the PT uses a sane default.
+    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ServerPT {
+        Passthrough {}
     }
 }
 
@@ -165,8 +200,10 @@ mod design_tests {
     use crate::{
         ClientBuilderByTypeInst,
         ClientTransport,
+        FutureResult,
         PluggableTransport,
-        FutureResult, ServerTransport, // ClientInfo, Conn,
+        ServerBuilder, // ClientInfo, Conn,
+        ServerTransport,
     };
 
     #[allow(unused)]
@@ -239,9 +276,10 @@ mod design_tests {
         // let builder = <Passthrough as PluggableTransport<TcpStream>>::ClientBuilder::default();
         // let builder = <<Passthrough as PluggableTransport<TcpStream, std::io::Error>>::Client as ClientTransport<TcpStream,std::io::Error>>::Builder::default();
 
-        let conn_fut = establish_using_pt::<TcpStream, std::io::Error, Passthrough>(Box::pin(tcp_fut))
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+        let conn_fut =
+            establish_using_pt::<TcpStream, std::io::Error, Passthrough>(Box::pin(tcp_fut))
+                .await
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
 
         info!("connecting to tcp and pt");
         let mut conn = conn_fut.await?;
@@ -476,6 +514,157 @@ mod design_tests {
         Ok(())
     }
 
+
+    async fn wrap_server_using_pt<T, E, P>(
+        t: T,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT as ServerTransport<T>>::OutRW,
+                <<<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT as ServerTransport<T>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        P: PluggableTransport<T>,
+        P::ClientBuilder: ClientBuilderByTypeInst<T>,
+        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::ServerPT: ServerTransport<T>,
+        <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder>::Error: std::error::Error + 'static,
+        E: std::error::Error + 'static,
+    {
+        Ok(P::server_builder()
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .reveal(t))
+    }
+
+    #[tokio::test]
+    async fn server_interface_wrap_pt() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (tcp_conn, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let conn_fut = wrap_server_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
+                .await
+                .unwrap();
+            let mut conn = conn_fut.await.unwrap();
+            info!("pt accepted connection");
+
+            let (mut r, mut w) = tokio::io::split(&mut conn);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        info!("connecting to tcp");
+        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+
+        info!("connecting to pt over tcp");
+        let conn_fut = wrap_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+
+        let mut conn = conn_fut.await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
+
+        Ok(())
+    }
+
+    async fn wrap_server_in_builder<T, B>(
+        t: T,
+        mut pt_builder: B,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<B as ServerBuilder>::ServerPT as ServerTransport<T>>::OutRW,
+                <<B as ServerBuilder>::ServerPT as ServerTransport<T>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        B: ServerBuilder,
+        B::ServerPT: ServerTransport<T>,
+        B::Error: std::error::Error + 'static,
+    {
+        Ok(pt_builder
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .reveal(t))
+    }
+
+    #[tokio::test]
+    async fn server_interface_wrap() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (tcp_conn, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let builder = <Passthrough as PluggableTransport<TcpStream>>::server_builder();
+
+            let mut conn = wrap_server_in_builder(tcp_conn, builder)
+                .await
+                .unwrap()
+                .await
+                .unwrap();
+
+            let (mut r, mut w) = tokio::io::split(&mut conn);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        info!("connecting to tcp");
+        let mut conn = TcpStream::connect("127.0.0.1:8000").await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn basic_wrap_client() -> Result<(), std::io::Error> {
         init_subscriber();
@@ -605,7 +794,6 @@ mod design_tests {
 
         Ok(())
     }
-
 
     #[tokio::test]
     async fn client_composition() -> Result<(), std::io::Error> {
