@@ -39,6 +39,18 @@ pub struct ServerBuilder {
     pub(crate) handshake_timeout: MaybeTimeout,
 }
 
+impl Default for ServerBuilder {
+    fn default() -> Self {
+        let identity_keys = Obfs4NtorSecretKey::getrandom();
+        Self {
+            iat_mode: IAT::Off,
+            statefile_location: None,
+            identity_keys,
+            handshake_timeout: MaybeTimeout::Default_,
+        }
+    }
+}
+
 impl ServerBuilder {
     /// TODO: Implement server from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
@@ -113,10 +125,10 @@ impl ServerBuilder {
         self.handshake_timeout = MaybeTimeout::Unset;
         self
     }
-    pub fn build(self) -> Server {
+    pub fn build(&self) -> Server {
         Server {
-            identity_keys: self.identity_keys,
-            iat_mode: self.iat_mode,
+            identity_keys: self.identity_keys.clone(),
+            iat_mode: self.iat_mode.clone(),
             biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
 
