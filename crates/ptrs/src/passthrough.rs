@@ -166,7 +166,7 @@ mod design_tests {
         ClientBuilderByTypeInst,
         ClientTransport,
         PluggableTransport,
-        FutureResult, // ServerTransport as _, ClientInfo, Conn,
+        FutureResult, ServerTransport, // ClientInfo, Conn,
     };
 
     #[allow(unused)]
@@ -204,30 +204,6 @@ mod design_tests {
         E: std::error::Error + 'static,
     {
         Ok(P::client_builder()
-            .statefile_location("./")?
-            .timeout(Some(Duration::from_secs(30)))?
-            .build()
-            .establish(t_fut))
-    }
-
-    async fn establish_using_builder<T, E, B>(
-        t_fut: Pin<FutureResult<T, E>>,
-        mut pt: B,
-    ) -> Result<
-        Pin<
-            FutureResult<
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
-            >,
-        >,
-        Box<dyn std::error::Error>,
-    >
-    where
-        B: ClientBuilderByTypeInst<T>,
-        B::ClientPT: ClientTransport<T, E>,
-        B::Error: std::error::Error + 'static,
-    {
-        Ok(pt
             .statefile_location("./")?
             .timeout(Some(Duration::from_secs(30)))?
             .build()
@@ -283,6 +259,30 @@ mod design_tests {
         Ok(())
     }
 
+    async fn establish_using_builder<T, E, B>(
+        t_fut: Pin<FutureResult<T, E>>,
+        mut pt: B,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
+                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        B: ClientBuilderByTypeInst<T>,
+        B::ClientPT: ClientTransport<T, E>,
+        B::Error: std::error::Error + 'static,
+    {
+        Ok(pt
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .establish(t_fut))
+    }
+
     #[tokio::test]
     async fn client_interface_establish() -> Result<(), std::io::Error> {
         init_subscriber();
@@ -318,6 +318,78 @@ mod design_tests {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
 
         info!("connecting to tcp and pt");
+        let mut conn = conn_fut.await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+        info!(
+            "server echoed: \"{}\"",
+            String::from_utf8(buf.to_vec()).unwrap()
+        );
+
+        Ok(())
+    }
+
+    async fn wrap_using_pt<T, E, P>(
+        t: T,
+    ) -> Result<
+        Pin<
+            FutureResult<
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
+            >,
+        >,
+        Box<dyn std::error::Error>,
+    >
+    where
+        P: PluggableTransport<T>,
+        P::ClientBuilder: ClientBuilderByTypeInst<T>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::Error: std::error::Error + 'static,
+        E: std::error::Error + 'static,
+    {
+        Ok(P::client_builder()
+            .statefile_location("./")?
+            .timeout(Some(Duration::from_secs(30)))?
+            .build()
+            .wrap(t))
+    }
+
+    #[tokio::test]
+    async fn client_interface_wrap_pt() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+                .await
+                .unwrap();
+            info!("tcp listening");
+            // ensure / force listener to be ready before connect.
+            tx.send(()).unwrap();
+
+            let (mut sock, _) = listener.accept().await.unwrap();
+            info!("tcp accepted");
+
+            let (mut r, mut w) = tokio::io::split(&mut sock);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // ensure / force listener to be ready before connect.
+        let _ = rx.await.unwrap();
+
+        info!("connecting to tcp");
+        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+
+        info!("connecting to pt over tcp");
+        let conn_fut = wrap_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+
         let mut conn = conn_fut.await?;
 
         let msg = b"a man a plan a canal panama";
@@ -500,22 +572,60 @@ mod design_tests {
     }
 
     #[tokio::test]
+    async fn server_composition() -> Result<(), std::io::Error> {
+        init_subscriber();
+
+        let p = Passthrough {};
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:9003")
+                .await
+                .unwrap();
+            tx.send(()).unwrap();
+
+            let (tcp_sock, _) = listener.accept().await.unwrap();
+
+            let conn1 = p.reveal(tcp_sock).await.unwrap();
+            let conn2 = p.reveal(conn1).await.unwrap();
+            let mut sock = p.reveal(conn2).await.unwrap();
+
+            let (mut r, mut w) = tokio::io::split(&mut sock);
+            _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        let _ = rx.await.unwrap();
+        let mut conn = Box::pin(TcpStream::connect("127.0.0.1:9003")).await?;
+
+        let msg = b"a man a plan a canal panama";
+        _ = conn.write(&msg[..]).await?;
+
+        let mut buf = [0u8; 27];
+        _ = conn.read(&mut buf).await?;
+
+        Ok(())
+    }
+
+
+    #[tokio::test]
     async fn client_composition() -> Result<(), std::io::Error> {
         init_subscriber();
 
         let p = Passthrough {};
         let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:9002"));
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:9002")
                 .await
                 .unwrap();
+            tx.send(()).unwrap();
             let (mut sock, _) = listener.accept().await.unwrap();
             let (mut r, mut w) = tokio::io::split(&mut sock);
             _ = tokio::io::copy(&mut r, &mut w).await;
         });
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = rx.await.unwrap();
         let conn_fut1 = p.establish(Box::pin(tcp_dial_fut));
         let conn_fut2 = p.establish(Box::pin(conn_fut1));
         let conn_fut3 = p.establish(Box::pin(conn_fut2));
