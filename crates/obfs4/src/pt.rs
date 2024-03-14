@@ -1,27 +1,19 @@
-
-
 use crate::{
-    Error,
     obfs4::{self, proto::Obfs4Stream},
+    Error,
 };
 use ptrs::FutureResult as F;
 
 use std::{
-    time::Duration,
-    net::{SocketAddrV4,SocketAddrV6},
+    net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
+    time::Duration,
 };
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Transport {}
-
-impl Transport {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
 
 impl<T> ptrs::PluggableTransport<T> for Transport
 where
@@ -139,7 +131,6 @@ where
     }
 }
 
-
 /// Example wrapping transport that just passes the incoming connection future through
 /// unmodified as a proof of concept.
 impl<InRW, InErr> ptrs::ClientTransport<InRW, InErr> for obfs4::Client
@@ -151,11 +142,11 @@ where
     type OutErr = Error;
     type Builder = obfs4::ClientBuilder;
 
-    fn establish(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(obfs4::Client::establish(self, input))
     }
 
-    fn wrap(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(obfs4::Client::wrap(self, io))
     }
 }
@@ -168,11 +159,10 @@ where
     type OutErr = Error;
     type Builder = obfs4::ServerBuilder;
 
-    fn reveal(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(obfs4::Server::wrap(self, io))
     }
 }
 
-
 #[cfg(test)]
-mod test { }
+mod test {}

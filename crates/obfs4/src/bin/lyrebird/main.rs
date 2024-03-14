@@ -6,15 +6,14 @@
 //!   - find a way to apply a rate limit to copy bidirectional
 //!   - use the better copy interactive for bidirectional copy
 
+use ptrs::{ClientTransport, PluggableTransport};
+
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use fast_socks5::client::{Config, Socks5Stream};
 use fast_socks5::server::{AcceptAuthentication, Socks5Server};
-use futures::task::SpawnExt;
-use futures::{AsyncRead, AsyncWrite};
-use obfs4::obfs4;
 use tokio::{
-    io::{copy_bidirectional, AsyncWriteExt},
+    io::{copy_bidirectional, AsyncRead, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     signal::unix::SignalKind,
     sync::oneshot,
@@ -30,13 +29,14 @@ use tor_ptmgr::ipc::{
     PtServerParameters,
     // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
 };
-use tor_rtcompat::PreferredRuntime;
+// use tor_rtcompat::PreferredRuntime;
 // use tor_socksproto::{SocksAuth, SocksVersion};
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use std::env;
 use std::fs::DirBuilder;
+use std::net::ToSocketAddrs;
 use std::os::unix::fs::DirBuilderExt;
 use std::str::FromStr;
 
@@ -143,6 +143,7 @@ async fn client_setup(
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let client_pt_info = ptrs::ClientInfo::new()?;
+    let proxy_uri = client_pt_info.uri.ok_or(BridgeLineParseError)?;
     let (tx, rx) = oneshot::channel::<bool>();
 
     // // This only launches lyrebird / obfs4 for now and doesn't track other PT types
@@ -156,12 +157,12 @@ async fn client_setup(
     //             continue
     //         }
     //     };
-    if !client_pt_info.methods.contains(obfs4::Transport::name()) {
+    if !client_pt_info.methods.contains(&obfs4::Transport::name()) {
         error!("cannot launch unrecognized pluggable transports")
     }
 
-    let pt = obfs4::Transport::new();
-    let builder = <pt as ptrs::PluggableTransport<TcpStream>>::ClientBuilder::default();
+    let builder =
+        <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ClientBuilder::default();
     let pt_name = obfs4::Transport::name();
     let listener = tokio::net::TcpListener::bind(":8080").await?;
 
@@ -180,8 +181,8 @@ async fn client_setup(
                     tokio::spawn(client_handle_connection(
                         conn,
                         builder,
-                        client_pt_info.uri,
-                        elide_addr(client_addr),
+                        &proxy_uri,
+                        &elide_addr(client_addr),
                     ));
                 }
             }
@@ -198,20 +199,40 @@ async fn client_setup(
 /// and reliability before passing to this layer.
 async fn client_handle_connection<T, B>(
     conn: T,
-    builder: std::sync::Arc<B>,
+    builder: B,
     proxy_uri: &url::Url,
     client_addr: &str,
 ) -> Result<()>
 where
-    T: AsyncRead + AsyncWrite + Send,
-    B: ptrs::Builder,
+    // the provided T must be usable as a connection in an async context
+    T: AsyncRead + AsyncWrite + Send + Unpin,
+    // the provided B must implement the Client Builder interface for T
+    B: ptrs::ClientBuilderByTypeInst<T>,
+    // When the client transport built by B is used to wrap T the resulting
+    // object must also function as a connection in an async context.
+    <<B as ptrs::ClientBuilderByTypeInst<T>>::ClientPT as ptrs::ClientTransport<
+        T,
+        <B as ptrs::ClientBuilderByTypeInst<T>>::Error,
+    >>::OutRW: AsyncRead + AsyncWrite + Send + Unpin,
+    // When the client transport built by B is used to wrap T but fails, the
+    // resulting error must be a valid standard error.
+    <<B as ptrs::ClientBuilderByTypeInst<T>>::ClientPT as ptrs::ClientTransport<
+        T,
+        <B as ptrs::ClientBuilderByTypeInst<T>>::Error,
+    >>::OutErr: std::error::Error + Send + Sync,
 {
-    let config = std::sync::Arc::new(fast_socks5::server::Config::default());
+    let config = std::sync::Arc::new(fast_socks5::server::Config::<
+        fast_socks5::Authentication::DenyAuthentication,
+    >::default());
     let socks5_conn = fast_socks5::server::Socks5Socket::new(conn, config);
 
     let socks5_conn = socks5_conn.upgrade_to_socks5().await?;
-    let remote_addr = socks5_conn.target_addr();
-    let args = socks5_conn.get_args();
+    let target_addr = socks5_conn
+        .target_addr()
+        .ok_or(BridgeLineParseError)
+        .context("missing remote address in request")?;
+    // TODO: get args from the socks request
+    // let args = socks5_conn.get_args();
 
     // // I am not sure we even enable socks auth for the local client proxy
     // if socks5_conn.auth() != AuthenticationMethod::Password { username: (), password: () } {
@@ -220,15 +241,24 @@ where
     // }
 
     // prepare to open a connection to the remote pluggable transport server
-    let remote = tokio::net::TcpStream::connect(remote_addr);
+    let remote_addr = if target_addr
+        .to_socket_addrs()
+        .is_ok_and(|v| v.into_iter().len() != 0)
+    {
+        target_addr.to_socket_addrs()?.take(1)
+    } else {
+        return Err(BridgeLineParseError).context("unable to resolve remote address");
+    };
+
+    // let remote = tokio::net::TcpStream::connect("127.0.0.1:8000"); // remote_addr);
 
     // build the pluggable transport client and then dial, completing the
     // connection and handshake when the `wrap(..)` is await-ed.
-    let pt_client = builder::with_args(args)?.build()?;
-    let pt_conn = match pt_client.wrap(remote).await {
+    let pt_client = builder.build();
+    let pt_conn = match pt_client.wrap(conn).await {
         Err(e) => {
             warn!(address = client_addr, "handshake failed: {e:#?}");
-            return;
+            return Err(obfs4::Error::Other(Box::new(e))).context("handshake failed");
         }
         Ok(c) => c,
     };
@@ -243,10 +273,14 @@ where
 //                            Server                                //
 // ================================================================ //
 
-fn server_setup(statedir: &str, _cancel_token: CancellationToken) -> Result<()> {
-    let server_info = ptrs::ServerInfo::new()?;
+async fn server_setup(
+    _statedir: &str,
+    _cancel_token: CancellationToken,
+) -> Result<oneshot::Receiver<bool>> {
+    let _server_info = ptrs::ServerInfo::new()?;
+    let (_tx, rx) = oneshot::channel::<bool>();
 
-    Ok(())
+    Ok(rx)
 }
 
 async fn server_handle_connection() -> Result<()> {
@@ -428,6 +462,11 @@ async fn run_forwarding_server(endpoint: &str, forward_creds: ForwardingCreds) -
         }
     }
     Ok(())
+}
+
+fn elide_addr(s: std::net::SocketAddr) -> String {
+    // TODO: actually elide addres based on settings
+    s.to_string()
 }
 
 /// Run the final hop of the connection, which finally makes the actual

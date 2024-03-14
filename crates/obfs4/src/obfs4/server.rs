@@ -128,7 +128,7 @@ impl ServerBuilder {
     pub fn build(&self) -> Server {
         Server {
             identity_keys: self.identity_keys.clone(),
-            iat_mode: self.iat_mode.clone(),
+            iat_mode: self.iat_mode,
             biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
 
@@ -189,14 +189,14 @@ impl Server {
         }
     }
 
-    pub async fn wrap<T>(&self, stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
         let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake(self, stream, deadline).await
+        session.handshake(&self, stream, deadline).await
     }
 
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {

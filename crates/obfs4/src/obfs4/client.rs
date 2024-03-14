@@ -24,8 +24,8 @@ use tracing::{debug, info, trace, warn};
 use std::{
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind},
-    sync::{Arc, Mutex},
     pin::Pin,
+    sync::{Arc, Mutex},
 };
 
 pub struct ClientBuilder {
@@ -108,7 +108,7 @@ impl ClientBuilder {
 
     pub fn build(&self) -> Client {
         Client {
-            iat_mode: self.iat_mode.clone(),
+            iat_mode: self.iat_mode,
             station_pubkey: Obfs4NtorPublicKey {
                 id: self.station_id.into(),
                 pk: self.station_pubkey.into(),
@@ -143,7 +143,7 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(&self, mut stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
@@ -154,10 +154,12 @@ impl Client {
         session.handshake(stream, deadline).await
     }
 
-
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn establish<'a, T, E>(&self, mut stream_fut: Pin<ptrs::FutureResult<T, E>>) -> Result<Obfs4Stream<T>>
+    pub async fn establish<'a, T, E>(
+        self,
+        mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
+    ) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,

@@ -127,14 +127,14 @@ where
     }
 }
 
-impl<I, E: std::error::Error> ServerTransport2<I, E> for Passthrough {
-    type OutRW = I;
-    type OutErr = E;
-
-    fn wrap_acc(&self, input: Pin<F<I, E>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        input
-    }
-}
+// impl<I, E: std::error::Error> ServerTransport2<I, E> for Passthrough {
+//     type OutRW = I;
+//     type OutErr = E;
+//
+//     fn wrap_acc(&self, input: Pin<F<I, E>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
+//         input
+//     }
+// }
 
 /// Example wrapping transport that just passes the incoming connection future through
 /// unmodified as a proof of concept.
@@ -146,11 +146,11 @@ where
     type OutErr = std::io::Error;
     type Builder = BuilderC;
 
-    fn establish(&self, input: Pin<F<InRW, std::io::Error>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn establish(self, input: Pin<F<InRW, std::io::Error>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
         input
     }
 
-    fn wrap(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(Self::hs(io))
     }
 }
@@ -169,7 +169,7 @@ impl<RW: Send + 'static> ServerTransport<RW> for Passthrough {
     type OutErr = std::io::Error;
     type Builder = BuilderS;
 
-    fn reveal(&self, io: RW) -> Pin<F<Self::OutRW, Self::OutErr>> {
+    fn reveal(self, io: RW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(Self::hs(io))
     }
 }
@@ -196,7 +196,7 @@ mod design_tests {
     use std::sync::Once;
     use std::time::Duration;
 
-    use super::Passthrough;
+    use super::{BuilderC, BuilderS, Passthrough};
     use crate::{
         ClientBuilderByTypeInst,
         ClientTransport,
@@ -766,7 +766,6 @@ mod design_tests {
     async fn server_composition() -> Result<(), std::io::Error> {
         init_subscriber();
 
-        let p = Passthrough {};
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
@@ -777,9 +776,16 @@ mod design_tests {
 
             let (tcp_sock, _) = listener.accept().await.unwrap();
 
-            let conn1 = p.reveal(tcp_sock).await.unwrap();
-            let conn2 = p.reveal(conn1).await.unwrap();
-            let mut sock = p.reveal(conn2).await.unwrap();
+            let pb: &BuilderS = &<Passthrough as PluggableTransport<TcpStream>>::server_builder();
+
+            let client1 = <BuilderS as ServerBuilder<TcpStream>>::build(pb);
+            let conn1 = client1.reveal(tcp_sock).await.unwrap();
+
+            let client2 = <BuilderS as ServerBuilder<TcpStream>>::build(pb);
+            let conn2 = client2.reveal(conn1).await.unwrap();
+
+            let client3 = <BuilderS as ServerBuilder<TcpStream>>::build(pb);
+            let mut sock = client3.reveal(conn2).await.unwrap();
 
             let (mut r, mut w) = tokio::io::split(&mut sock);
             _ = tokio::io::copy(&mut r, &mut w).await;
@@ -801,7 +807,6 @@ mod design_tests {
     async fn client_composition() -> Result<(), std::io::Error> {
         init_subscriber();
 
-        let p = Passthrough {};
         let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:9002"));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -815,10 +820,15 @@ mod design_tests {
             _ = tokio::io::copy(&mut r, &mut w).await;
         });
 
+        let pb: &BuilderC = &<Passthrough as PluggableTransport<TcpStream>>::client_builder();
+
         let _ = rx.await.unwrap();
-        let conn_fut1 = p.establish(Box::pin(tcp_dial_fut));
-        let conn_fut2 = p.establish(Box::pin(conn_fut1));
-        let conn_fut3 = p.establish(Box::pin(conn_fut2));
+        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let conn_fut1 = client.establish(Box::pin(tcp_dial_fut));
+        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let conn_fut2 = client.establish(Box::pin(conn_fut1));
+        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let conn_fut3 = client.establish(Box::pin(conn_fut2));
         let mut conn = conn_fut3.await?;
 
         let msg = b"a man a plan a canal panama";

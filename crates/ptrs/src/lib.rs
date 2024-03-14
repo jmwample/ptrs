@@ -80,11 +80,11 @@ pub trait ClientTransport<InRW, InErr> {
     /// Create a pluggable transport connection given a future that will return
     /// a Read/Write object that can be used as the underlying socket for the
     /// connection.
-    fn establish(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>>;
+    fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>>;
 
     /// Create a connection for the pluggable transport client using the provided
     /// (pre-existing/pre-connected) Read/Write object as the underlying socket.
-    fn wrap(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
+    fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
 }
 
 // ================================================================ //
@@ -102,7 +102,7 @@ pub trait ServerTransport<InRW> {
     /// Create/accept a connection for the pluggable transport client using the
     /// provided (pre-existing/pre-connected) Read/Write object as the
     /// underlying socket.
-    fn reveal(&self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
+    fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
 }
 
 pub trait ServerBuilder<T>: Default {
