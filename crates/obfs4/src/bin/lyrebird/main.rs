@@ -5,7 +5,7 @@
 //!     about tunnel failures and bytes transferred.
 //!   - find a way to apply a rate limit to copy bidirectional
 //!   - use the better copy interactive for bidirectional copy
-#![allow(unused,dead_code)]
+#![allow(unused, dead_code)]
 
 use ptrs::{ClientTransport, PluggableTransport};
 
