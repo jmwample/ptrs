@@ -37,6 +37,7 @@ pub enum IAT {
     Paranoid,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) enum MaybeTimeout {
     Default_,
     Fixed(Instant),

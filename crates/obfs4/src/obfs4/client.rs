@@ -28,6 +28,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[derive(Clone, Debug)]
 pub struct ClientBuilder {
     pub iat_mode: IAT,
     pub station_pubkey: [u8; KEY_LENGTH],

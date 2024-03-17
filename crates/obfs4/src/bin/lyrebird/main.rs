@@ -10,40 +10,36 @@ use ptrs::{ClientTransport, PluggableTransport};
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use fast_socks5::client::{Config, Socks5Stream};
-use fast_socks5::server::{AcceptAuthentication, Socks5Server};
+use fast_socks5::server::AcceptAuthentication;
+use fast_socks5::util::target_addr::TargetAddr;
 use tokio::{
     io::{copy_bidirectional, AsyncRead, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     signal::unix::SignalKind,
     sync::oneshot,
-    time::Duration,
 };
-use tokio_stream::StreamExt;
+// use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 // use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
 // use tor_linkspec::PtTransportName;
-use tor_ptmgr::ipc::{
-    PtClientParameters,
-    PtCommonParameters,
-    PtServerParameters,
-    // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
-};
+// use tor_ptmgr::ipc::{
+//     PtClientParameters,
+//     PtCommonParameters,
+//     PtServerParameters,
+//     // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
+// };
 // use tor_rtcompat::PreferredRuntime;
 // use tor_socksproto::{SocksAuth, SocksVersion};
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
-use std::env;
-use std::fs::DirBuilder;
-use std::net::ToSocketAddrs;
-use std::os::unix::fs::DirBuilderExt;
-use std::str::FromStr;
+use std::net::SocketAddr;
+use std::{env, fs::DirBuilder, os::unix::fs::DirBuilderExt, str::FromStr, sync::Arc};
 
-/// The location where the obfs4 server will store its state
-const SERVER_STATE_LOCATION: &str = "/tmp/arti-pt";
-/// The location where the obfs4 client will store its state
-const CLIENT_STATE_LOCATION: &str = "/tmp/arti-pt-client";
+// /// The location where the obfs4 server will store its state
+// const SERVER_STATE_LOCATION: &str = "/tmp/arti-pt";
+// /// The location where the obfs4 client will store its state
+// const CLIENT_STATE_LOCATION: &str = "/tmp/arti-pt-client";
 
 /// Error defined to denote a failure to get the bridge line
 #[derive(Debug, thiserror::Error)]
@@ -157,13 +153,16 @@ async fn client_setup(
     //             continue
     //         }
     //     };
-    if !client_pt_info.methods.contains(&obfs4::Transport::name()) {
+    if !client_pt_info
+        .methods
+        .contains(&obfs4::Transport::NAME.to_string())
+    {
         error!("cannot launch unrecognized pluggable transports")
     }
 
     let builder =
         <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ClientBuilder::default();
-    let pt_name = obfs4::Transport::name();
+    let pt_name = <obfs4::Transport as PluggableTransport<TcpStream>>::name();
     let listener = tokio::net::TcpListener::bind(":8080").await?;
 
     tokio::spawn(async move {
@@ -173,16 +172,16 @@ async fn client_setup(
                 res = listener.accept() => {
                     let (conn, client_addr) = match res {
                         Err(e) => {
-                            error!("failed to accept tcp connection");
+                            error!("failed to accept tcp connection {e}");
                             break;
                         }
                         Ok(c) => c,
                     };
-                    tokio::spawn(client_handle_connection(
+                    tokio::spawn(client_handle_connection_builder(
                         conn,
-                        builder,
-                        &proxy_uri,
-                        &elide_addr(client_addr),
+                        builder.clone(),
+                        proxy_uri.clone(),
+                        elide_addr(client_addr),
                     ));
                 }
             }
@@ -197,34 +196,49 @@ async fn client_setup(
 
 /// This function assumes that the provided connection / socket manages reconstruction
 /// and reliability before passing to this layer.
-async fn client_handle_connection<T, B>(
-    conn: T,
+async fn client_handle_connection_builder<In, B>(
+    conn: In,
     builder: B,
-    proxy_uri: &url::Url,
-    client_addr: &str,
+    _proxy_uri: url::Url,
+    client_addr: impl AsRef<str> + tracing::Value,
 ) -> Result<()>
 where
     // the provided T must be usable as a connection in an async context
-    T: AsyncRead + AsyncWrite + Send + Unpin,
+    In: AsyncRead + AsyncWrite + Send + Unpin,
     // the provided B must implement the Client Builder interface for T
-    B: ptrs::ClientBuilderByTypeInst<T>,
+    B: ptrs::ClientBuilderByTypeInst<TcpStream>, // , Error = std::io::Error>,
+
+    <B as ptrs::ClientBuilderByTypeInst<TcpStream>>::ClientPT:
+        ptrs::ClientTransport<TcpStream, std::io::Error>,
+
+    <<B as ptrs::ClientBuilderByTypeInst<TcpStream>>::ClientPT as ClientTransport<
+        TcpStream,
+        std::io::Error,
+    >>::OutRW: AsyncRead + AsyncWrite + Send + Unpin,
+
+    <<B as ptrs::ClientBuilderByTypeInst<TcpStream>>::ClientPT as ClientTransport<
+        TcpStream,
+        std::io::Error,
+    >>::OutErr: Send + Sync + Unpin + 'static,
+
     // When the client transport built by B is used to wrap T the resulting
     // object must also function as a connection in an async context.
-    <<B as ptrs::ClientBuilderByTypeInst<T>>::ClientPT as ptrs::ClientTransport<
-        T,
-        <B as ptrs::ClientBuilderByTypeInst<T>>::Error,
+    <<B as ptrs::ClientBuilderByTypeInst<TcpStream>>::ClientPT as ptrs::ClientTransport<
+        TcpStream,
+        <B as ptrs::ClientBuilderByTypeInst<TcpStream>>::Error,
     >>::OutRW: AsyncRead + AsyncWrite + Send + Unpin,
+
     // When the client transport built by B is used to wrap T but fails, the
     // resulting error must be a valid standard error.
-    <<B as ptrs::ClientBuilderByTypeInst<T>>::ClientPT as ptrs::ClientTransport<
-        T,
-        <B as ptrs::ClientBuilderByTypeInst<T>>::Error,
-    >>::OutErr: std::error::Error + Send + Sync,
+    <<B as ptrs::ClientBuilderByTypeInst<TcpStream>>::ClientPT as ptrs::ClientTransport<
+        TcpStream,
+        <B as ptrs::ClientBuilderByTypeInst<TcpStream>>::Error,
+    >>::OutErr: Send + Sync + 'static,
 {
-    let config = std::sync::Arc::new(fast_socks5::server::Config::<
-        fast_socks5::Authentication::DenyAuthentication,
-    >::default());
-    let socks5_conn = fast_socks5::server::Socks5Socket::new(conn, config);
+    let mut config: fast_socks5::server::Config<AcceptAuthentication> =
+        fast_socks5::server::Config::default();
+    config.set_skip_auth(true);
+    let socks5_conn = fast_socks5::server::Socks5Socket::new(conn, Arc::new(config));
 
     let socks5_conn = socks5_conn.upgrade_to_socks5().await?;
     let target_addr = socks5_conn
@@ -240,22 +254,21 @@ where
     //     return
     // }
 
-    // prepare to open a connection to the remote pluggable transport server
-    let remote_addr = if target_addr
-        .to_socket_addrs()
-        .is_ok_and(|v| v.into_iter().len() != 0)
-    {
-        target_addr.to_socket_addrs()?.take(1)
-    } else {
-        return Err(BridgeLineParseError).context("unable to resolve remote address");
-    };
+    let remote_addr = resolve_target_addr(target_addr)?
+        .ok_or(BridgeLineParseError)
+        .context("no remote address")?;
 
-    // let remote = tokio::net::TcpStream::connect("127.0.0.1:8000"); // remote_addr);
+    let remote = tokio::net::TcpStream::connect(remote_addr);
 
     // build the pluggable transport client and then dial, completing the
     // connection and handshake when the `wrap(..)` is await-ed.
     let pt_client = builder.build();
-    let pt_conn = match pt_client.wrap(conn).await {
+    let mut pt_conn = match ptrs::ClientTransport::<TcpStream, std::io::Error>::establish(
+        pt_client,
+        Box::pin(remote),
+    )
+    .await
+    {
         Err(e) => {
             warn!(address = client_addr, "handshake failed: {e:#?}");
             return Err(obfs4::Error::Other(Box::new(e))).context("handshake failed");
@@ -267,6 +280,15 @@ where
         warn!(addres = client_addr, "tunnel closed with error: {e:#?}");
     }
     Ok(())
+}
+
+fn resolve_target_addr(addr: &TargetAddr) -> Result<Option<SocketAddr>> {
+    match addr {
+        TargetAddr::Ip(sa) => Ok(Some(sa.clone())),
+        TargetAddr::Domain(_, _) => {
+            ptrs::resolve_addr(Some(format!("{addr}"))).context("domain resolution failed")
+        }
+    }
 }
 
 // ================================================================ //
@@ -308,7 +330,7 @@ async fn main() -> Result<()> {
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     // launch runners
-    let exit_rx = if is_client()? {
+    let mut exit_rx = if is_client()? {
         // running as CLIENT
         client_setup(&statedir, cancel_token.clone()).await?
     } else {
@@ -325,7 +347,7 @@ async fn main() -> Result<()> {
     let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
     let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
     tokio::select! {
-        _ = exit_rx => {
+        _ = &mut exit_rx => {
             info!("proxy closed");
             return Ok(())
         }
@@ -365,127 +387,127 @@ struct ForwardingCreds {
     obfs4_server_port: u16,
 }
 
-/// Create the config to launch an obfs4 server process
-fn build_server_config(
-    protocol: &str,
-    bind_addr: &str,
-    forwarding_server_addr: &str,
-) -> Result<(PtCommonParameters, PtServerParameters)> {
-    let bindaddr_formatted = format!("{}-{}", &protocol, bind_addr);
-    let orport = forwarding_server_addr.to_string();
-    Ok((
-        PtCommonParameters::builder()
-            .state_location(SERVER_STATE_LOCATION.into())
-            .timeout(Some(Duration::from_secs(1)))
-            .build()?,
-        PtServerParameters::builder()
-            .transports(vec![protocol.parse()?])
-            .server_bindaddr(bindaddr_formatted)
-            .server_orport(Some(orport))
-            .build()?,
-    ))
-}
-
-/// Read cert info and relay it to the user
-fn read_cert_info() -> Result<String> {
-    let file_path = format!("{}/obfs4_bridgeline.txt", SERVER_STATE_LOCATION);
-    match std::fs::read_to_string(file_path) {
-        Ok(contents) => {
-            let line = contents
-                .lines()
-                .find(|line| line.contains("Bridge obfs4"))
-                .ok_or(BridgeLineParseError)?;
-            let cert = line
-                .split_whitespace()
-                .find(|part| part.starts_with("cert="))
-                .ok_or(BridgeLineParseError)?;
-            let iat = line
-                .split_whitespace()
-                .find(|part| part.starts_with("iat-mode="))
-                .ok_or(BridgeLineParseError)?;
-            let complete_config = format!("{};{}", cert, iat);
-            Ok(complete_config)
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// Create the config to launch an obfs4 client process
-fn build_client_config(protocol: &str) -> Result<(PtCommonParameters, PtClientParameters)> {
-    Ok((
-        PtCommonParameters::builder()
-            .state_location(CLIENT_STATE_LOCATION.into())
-            .timeout(Some(Duration::from_secs(1)))
-            .build()?,
-        PtClientParameters::builder()
-            .transports(vec![protocol.parse()?])
-            .build()?,
-    ))
-}
-
-/// Create a SOCKS5 connection to the obfs4 client
-async fn connect_to_obfs4_client(
-    forward_creds: ForwardingCreds,
-) -> Result<Socks5Stream<TcpStream>> {
-    let config = Config::default();
-    Ok(Socks5Stream::connect_with_password(
-        forward_creds.forward_endpoint,
-        forward_creds.obfs4_server_ip,
-        forward_creds.obfs4_server_port,
-        forward_creds.username,
-        forward_creds.password,
-        config,
-    )
-    .await?)
-}
-
-/// Launch the dumb TCP pipe, whose only job is to abstract away the obfs4 client
-/// and its complicated setup, and just forward bytes between the obfs4 client
-/// and the client
-async fn run_forwarding_server(endpoint: &str, forward_creds: ForwardingCreds) -> Result<()> {
-    let listener = TcpListener::bind(endpoint).await?;
-    while let Ok((mut client, _)) = listener.accept().await {
-        let forward_creds_clone = forward_creds.clone();
-        match connect_to_obfs4_client(forward_creds_clone).await {
-            Ok(mut relay_stream) => {
-                if let Err(e) = tokio::io::copy_bidirectional(&mut client, &mut relay_stream).await
-                {
-                    eprintln!("{:#?}", e);
-                }
-            }
-            Err(e) => {
-                eprintln!("Couldn't connect to obfs4 client: \"{}\"", e);
-                // Report "No authentication method was acceptable" to user
-                // For more info refer to RFC 1928
-                client.write_all(&[5, 0xFF]).await.unwrap();
-            }
-        }
-    }
-    Ok(())
-}
-
 fn elide_addr(s: std::net::SocketAddr) -> String {
     // TODO: actually elide addres based on settings
     s.to_string()
 }
 
-/// Run the final hop of the connection, which finally makes the actual
-/// network request to the intended host and relays it back
-async fn run_socks5_server(endpoint: &str) -> Result<oneshot::Receiver<bool>> {
-    let listener = Socks5Server::<AcceptAuthentication>::bind(endpoint).await?;
-    let (tx, rx) = oneshot::channel::<bool>();
-    tokio::spawn(async move {
-        while let Some(Ok(socks_socket)) = listener.incoming().next().await {
-            tokio::spawn(async move {
-                if let Err(e) = socks_socket.upgrade_to_socks5().await {
-                    eprintln!("{:#?}", e);
-                }
-            });
-        }
-        tx.send(true).unwrap()
-    });
-    Ok(rx)
-}
+// /// Create the config to launch an obfs4 server process
+// fn build_server_config(
+//     protocol: &str,
+//     bind_addr: &str,
+//     forwarding_server_addr: &str,
+// ) -> Result<(PtCommonParameters, PtServerParameters)> {
+//     let bindaddr_formatted = format!("{}-{}", &protocol, bind_addr);
+//     let orport = forwarding_server_addr.to_string();
+//     Ok((
+//         PtCommonParameters::builder()
+//             .state_location(SERVER_STATE_LOCATION.into())
+//             .timeout(Some(Duration::from_secs(1)))
+//             .build()?,
+//         PtServerParameters::builder()
+//             .transports(vec![protocol.parse()?])
+//             .server_bindaddr(bindaddr_formatted)
+//             .server_orport(Some(orport))
+//             .build()?,
+//     ))
+// }
+
+// /// Read cert info and relay it to the user
+// fn read_cert_info() -> Result<String> {
+//     let file_path = format!("{}/obfs4_bridgeline.txt", SERVER_STATE_LOCATION);
+//     match std::fs::read_to_string(file_path) {
+//         Ok(contents) => {
+//             let line = contents
+//                 .lines()
+//                 .find(|line| line.contains("Bridge obfs4"))
+//                 .ok_or(BridgeLineParseError)?;
+//             let cert = line
+//                 .split_whitespace()
+//                 .find(|part| part.starts_with("cert="))
+//                 .ok_or(BridgeLineParseError)?;
+//             let iat = line
+//                 .split_whitespace()
+//                 .find(|part| part.starts_with("iat-mode="))
+//                 .ok_or(BridgeLineParseError)?;
+//             let complete_config = format!("{};{}", cert, iat);
+//             Ok(complete_config)
+//         }
+//         Err(e) => Err(e.into()),
+//     }
+// }
+
+// /// Create the config to launch an obfs4 client process
+// fn build_client_config(protocol: &str) -> Result<(PtCommonParameters, PtClientParameters)> {
+//     Ok((
+//         PtCommonParameters::builder()
+//             .state_location(CLIENT_STATE_LOCATION.into())
+//             .timeout(Some(Duration::from_secs(1)))
+//             .build()?,
+//         PtClientParameters::builder()
+//             .transports(vec![protocol.parse()?])
+//             .build()?,
+//     ))
+// }
+//
+// /// Create a SOCKS5 connection to the obfs4 client
+// async fn connect_to_obfs4_client(
+//     forward_creds: ForwardingCreds,
+// ) -> Result<Socks5Stream<TcpStream>> {
+//     let config = Config::default();
+//     Ok(Socks5Stream::connect_with_password(
+//         forward_creds.forward_endpoint,
+//         forward_creds.obfs4_server_ip,
+//         forward_creds.obfs4_server_port,
+//         forward_creds.username,
+//         forward_creds.password,
+//         config,
+//     )
+//     .await?)
+// }
+//
+// /// Launch the dumb TCP pipe, whose only job is to abstract away the obfs4 client
+// /// and its complicated setup, and just forward bytes between the obfs4 client
+// /// and the client
+// async fn run_forwarding_server(endpoint: &str, forward_creds: ForwardingCreds) -> Result<()> {
+//     let listener = TcpListener::bind(endpoint).await?;
+//     while let Ok((mut client, _)) = listener.accept().await {
+//         let forward_creds_clone = forward_creds.clone();
+//         match connect_to_obfs4_client(forward_creds_clone).await {
+//             Ok(mut relay_stream) => {
+//                 if let Err(e) = tokio::io::copy_bidirectional(&mut client, &mut relay_stream).await
+//                 {
+//                     eprintln!("{:#?}", e);
+//                 }
+//             }
+//             Err(e) => {
+//                 eprintln!("Couldn't connect to obfs4 client: \"{}\"", e);
+//                 // Report "No authentication method was acceptable" to user
+//                 // For more info refer to RFC 1928
+//                 client.write_all(&[5, 0xFF]).await.unwrap();
+//             }
+//         }
+//     }
+//     Ok(())
+// }
+//
+// /// Run the final hop of the connection, which finally makes the actual
+// /// network request to the intended host and relays it back
+// async fn run_socks5_server(endpoint: &str) -> Result<oneshot::Receiver<bool>> {
+//     let listener = Socks5Server::<AcceptAuthentication>::bind(endpoint).await?;
+//     let (tx, rx) = oneshot::channel::<bool>();
+//     tokio::spawn(async move {
+//         while let Some(Ok(socks_socket)) = listener.incoming().next().await {
+//             tokio::spawn(async move {
+//                 if let Err(e) = socks_socket.upgrade_to_socks5().await {
+//                     eprintln!("{:#?}", e);
+//                 }
+//             });
+//         }
+//         tx.send(true).unwrap()
+//     });
+//     Ok(rx)
+// }
 
 // for _, ln := range ptListeners {
 // >   ln.Close()

@@ -271,6 +271,6 @@ pub(crate) fn get_server_bind_addrs() -> Result<Vec<()>, Error> {
     Ok(vec![])
 }
 
-pub(crate) fn resolve_addr(_addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>, Error> {
+pub fn resolve_addr(_addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>, Error> {
     Ok(None)
 }

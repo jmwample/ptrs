@@ -14,6 +14,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Debug, Default)]
 pub struct Transport {}
+impl Transport {
+    pub const NAME: &'static str = "obfs4";
+}
 
 impl<T> ptrs::PluggableTransport<T> for Transport
 where
