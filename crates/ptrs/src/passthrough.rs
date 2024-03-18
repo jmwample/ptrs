@@ -328,7 +328,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8001")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -345,7 +345,7 @@ mod design_tests {
         // ensure / force listener to be ready before connect.
         let _ = rx.await.unwrap();
 
-        let tcp_fut = TcpStream::connect("127.0.0.1:8000");
+        let tcp_fut = TcpStream::connect("127.0.0.1:8001");
 
         // let builder = <Passthrough as PluggableTransport<TcpStream>>::ClientBuilder::default();
         // let builder = <<Passthrough as PluggableTransport<TcpStream, std::io::Error>>::Client as ClientTransport<TcpStream,std::io::Error>>::Builder::default();
@@ -403,7 +403,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8002")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -421,7 +421,7 @@ mod design_tests {
         let _ = rx.await.unwrap();
 
         info!("connecting to tcp");
-        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+        let tcp_conn = TcpStream::connect("127.0.0.1:8002").await?;
 
         info!("connecting to pt over tcp");
         let conn_fut = wrap_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
@@ -475,7 +475,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8004")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -493,7 +493,7 @@ mod design_tests {
         let _ = rx.await.unwrap();
 
         info!("connecting to tcp");
-        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+        let tcp_conn = TcpStream::connect("127.0.0.1:8004").await?;
 
         let builder = <Passthrough as PluggableTransport<TcpStream>>::client_builder();
 
@@ -548,7 +548,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8005")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -572,7 +572,7 @@ mod design_tests {
         let _ = rx.await.unwrap();
 
         info!("connecting to tcp");
-        let tcp_conn = TcpStream::connect("127.0.0.1:8000").await?;
+        let tcp_conn = TcpStream::connect("127.0.0.1:8005").await?;
 
         info!("connecting to pt over tcp");
         let conn_fut = wrap_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
@@ -626,7 +626,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8006")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -652,7 +652,7 @@ mod design_tests {
         let _ = rx.await.unwrap();
 
         info!("connecting to tcp");
-        let mut conn = TcpStream::connect("127.0.0.1:8000").await?;
+        let mut conn = TcpStream::connect("127.0.0.1:8006").await?;
 
         let msg = b"a man a plan a canal panama";
         _ = conn.write(&msg[..]).await?;
@@ -674,10 +674,10 @@ mod design_tests {
         let p = Passthrough {};
 
         // note that this is not await-ed here so it is not executed until later
-        let tcp_dial_fut = TcpStream::connect("127.0.0.1:9000");
+        let tcp_dial_fut = TcpStream::connect("127.0.0.1:8007");
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9000")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8007")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -720,11 +720,11 @@ mod design_tests {
         let p = Passthrough {};
 
         // note that this is not await-ed here so it is not executed until later
-        let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:9001"));
+        let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:8008"));
 
         tokio::spawn(async move {
             let sp = Passthrough {};
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9001")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8008")
                 .await
                 .unwrap();
             info!("tcp listening");
@@ -769,7 +769,7 @@ mod design_tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9003")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8009")
                 .await
                 .unwrap();
             tx.send(()).unwrap();
@@ -792,7 +792,7 @@ mod design_tests {
         });
 
         let _ = rx.await.unwrap();
-        let mut conn = Box::pin(TcpStream::connect("127.0.0.1:9003")).await?;
+        let mut conn = Box::pin(TcpStream::connect("127.0.0.1:8009")).await?;
 
         let msg = b"a man a plan a canal panama";
         _ = conn.write(&msg[..]).await?;
@@ -807,11 +807,11 @@ mod design_tests {
     async fn client_composition() -> Result<(), std::io::Error> {
         init_subscriber();
 
-        let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:9002"));
+        let tcp_dial_fut = Box::pin(TcpStream::connect("127.0.0.1:8010"));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9002")
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8010")
                 .await
                 .unwrap();
             tx.send(()).unwrap();
