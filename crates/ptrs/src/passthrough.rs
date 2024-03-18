@@ -269,7 +269,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         let tcp_fut = TcpStream::connect("127.0.0.1:8000");
 
@@ -343,7 +343,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         let tcp_fut = TcpStream::connect("127.0.0.1:8001");
 
@@ -418,7 +418,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         info!("connecting to tcp");
         let tcp_conn = TcpStream::connect("127.0.0.1:8002").await?;
@@ -490,7 +490,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         info!("connecting to tcp");
         let tcp_conn = TcpStream::connect("127.0.0.1:8004").await?;
@@ -516,7 +516,7 @@ mod design_tests {
     }
 
 
-    async fn wrap_server_using_pt<T, E, P>(
+    async fn wrap_server_using_pt<T, P>(
         t: T,
     ) -> Result<
         Pin<
@@ -532,7 +532,6 @@ mod design_tests {
         P::ClientBuilder: ClientBuilderByTypeInst<T>,
         <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT: ServerTransport<T>,
         <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::Error: std::error::Error + 'static,
-        E: std::error::Error + 'static,
     {
         Ok(P::server_builder()
             .statefile_location("./")?
@@ -558,7 +557,7 @@ mod design_tests {
             let (tcp_conn, _) = listener.accept().await.unwrap();
             info!("tcp accepted");
 
-            let conn_fut = wrap_server_using_pt::<TcpStream, std::io::Error, Passthrough>(tcp_conn)
+            let conn_fut = wrap_server_using_pt::<TcpStream, Passthrough>(tcp_conn)
                 .await
                 .unwrap();
             let mut conn = conn_fut.await.unwrap();
@@ -569,7 +568,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         info!("connecting to tcp");
         let tcp_conn = TcpStream::connect("127.0.0.1:8005").await?;
@@ -649,7 +648,7 @@ mod design_tests {
         });
 
         // ensure / force listener to be ready before connect.
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
 
         info!("connecting to tcp");
         let mut conn = TcpStream::connect("127.0.0.1:8006").await?;
@@ -791,7 +790,7 @@ mod design_tests {
             _ = tokio::io::copy(&mut r, &mut w).await;
         });
 
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
         let mut conn = Box::pin(TcpStream::connect("127.0.0.1:8009")).await?;
 
         let msg = b"a man a plan a canal panama";
@@ -822,7 +821,7 @@ mod design_tests {
 
         let pb: &BuilderC = &<Passthrough as PluggableTransport<TcpStream>>::client_builder();
 
-        let _ = rx.await.unwrap();
+        rx.await.unwrap();
         let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
         let conn_fut1 = client.establish(Box::pin(tcp_dial_fut));
         let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
