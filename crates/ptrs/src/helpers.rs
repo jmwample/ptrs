@@ -274,3 +274,15 @@ pub(crate) fn get_server_bind_addrs() -> Result<Vec<()>, Error> {
 pub fn resolve_addr(_addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>, Error> {
     Ok(None)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn resolve() -> Result<(), Error> {
+        resolve_addr(None::<String>).unwrap();
+
+        Ok(())
+    }
+}

@@ -1,10 +1,10 @@
 [package]
-name = "lyrebird"
+name = "o5"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "obfs"
+name = "o5"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
