@@ -1,11 +1,16 @@
 [package]
-name = "obfs"
+name = "obfs4"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "obfs"
+name = "obfs4"
 crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "lyrebird"
+test = false
+bench = false
 
 [[bin]]
 name = "fwd_proxy"
@@ -70,6 +75,8 @@ tokio-stream = "0.1.14"
 tor-linkspec = { version="0.11.1" }
 tor-chanmgr = { version="0.14.1", features = ["pt-client"] }
 tor-ptmgr = "0.11.0"
+url = "2.5.0"
+ptrs = { path="../ptrs" }
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"

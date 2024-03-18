@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::socks5;
 use futures::Future;
-use obfs::Result;
+use obfs4::Result;
 
 use tokio::io::{copy, split, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;

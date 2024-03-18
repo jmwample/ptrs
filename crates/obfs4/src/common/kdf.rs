@@ -79,19 +79,19 @@ impl Kdf for ShakeKdf {
 }
 
 #[cfg(test)]
+// @@ begin test lint list maintained by maint/add_warning @@
+#[allow(clippy::bool_assert_comparison)]
+#[allow(clippy::clone_on_copy)]
+#[allow(clippy::dbg_macro)]
+#[allow(clippy::print_stderr)]
+#[allow(clippy::print_stdout)]
+#[allow(clippy::single_char_pattern)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::unchecked_duration_subtraction)]
+#[allow(clippy::useless_vec)]
+#[allow(clippy::needless_pass_by_value)]
+// <!-- @@ end test lint list maintained by maint/add_warning @@ -->
 mod test {
-    // @@ begin test lint list maintained by maint/add_warning @@
-    #![allow(clippy::bool_assert_comparison)]
-    #![allow(clippy::clone_on_copy)]
-    #![allow(clippy::dbg_macro)]
-    #![allow(clippy::print_stderr)]
-    #![allow(clippy::print_stdout)]
-    #![allow(clippy::single_char_pattern)]
-    #![allow(clippy::unwrap_used)]
-    #![allow(clippy::unchecked_duration_subtraction)]
-    #![allow(clippy::useless_vec)]
-    #![allow(clippy::needless_pass_by_value)]
-    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use super::*;
     use hex_literal::hex;
 

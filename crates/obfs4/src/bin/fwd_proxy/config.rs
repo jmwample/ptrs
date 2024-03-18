@@ -1,10 +1,11 @@
 use crate::handler::{EchoHandler, Handler, Socks5Handler};
+use ptrs::PluggableTransport;
 
 use std::{net, sync::Arc};
 
 use anyhow::anyhow;
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use obfs::obfs4::{ClientBuilder, Server};
+use obfs4::obfs4::{ClientBuilder, ServerBuilder};
 use tokio::{
     io::copy_bidirectional,
     net::{TcpListener, TcpStream},
@@ -122,14 +123,14 @@ impl ExitConfig {
         let listener = TcpListener::bind(self.listen_address).await.unwrap();
         info!("started server listening on {}", self.listen_address);
 
-        let server = Arc::new(Server::getrandom());
-        println!(
-            "{}\n{}",
-            server.client_params(),
-            server.client_params().as_opts()
-        );
+        let server_builder = &ServerBuilder::default();
+        // println!(
+        //     "{}\n{}",
+        //     server.client_params(),
+        //     server.client_params().as_opts()
+        // );
 
-        let t_name = "obfs4";
+        let t_name = <obfs4::Transport as PluggableTransport<TcpStream>>::name();
 
         let sessions = &mut JoinSet::new();
 
@@ -146,6 +147,7 @@ impl ExitConfig {
                     }
                 }
                 r = listener.accept() => {
+                    let server = server_builder.build();
                     let (stream, socket_addr) = match r {
                         Err(e) => {
                             warn!("connection listener returned error {e}");

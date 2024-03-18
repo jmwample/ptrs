@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Context as _, Result};
-use obfs::stream::Stream;
+use obfs4::stream::Stream;
 use safelog::sensitive;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, warn};
 
-use tor_socksproto::{SocksAuth, SocksCmd};
+use tor_socksproto::SocksCmd; //SocksAuth
 
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -164,34 +164,34 @@ where
         .context("Error while closing SOCKS stream")
 }
 
-/// Type alias for the isolation information associated with a given SOCKS
-/// connection _before_ SOCKS is negotiated.
-///
-/// Currently this is an index for which listener accepted the connection, plus
-/// the address of the client that connected to the Socks port.
-type ConnIsolation = (usize, IpAddr);
-
-/// A Key used to isolate connections.
-///
-/// Composed of an usize (representing which listener socket accepted
-/// the connection, the source IpAddr of the client, and the
-/// authentication string provided by the client).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SocksIsolationKey(ConnIsolation, SocksAuth);
-
-impl arti_client::isolation::IsolationHelper for SocksIsolationKey {
-    fn compatible_same_type(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn join_same_type(&self, other: &Self) -> Option<Self> {
-        if self == other {
-            Some(self.clone())
-        } else {
-            None
-        }
-    }
-}
+// /// Type alias for the isolation information associated with a given SOCKS
+// /// connection _before_ SOCKS is negotiated.
+// ///
+// /// Currently this is an index for which listener accepted the connection, plus
+// /// the address of the client that connected to the Socks port.
+// type ConnIsolation = (usize, IpAddr);
+//
+// /// A Key used to isolate connections.
+// ///
+// /// Composed of an usize (representing which listener socket accepted
+// /// the connection, the source IpAddr of the client, and the
+// /// authentication string provided by the client).
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// struct SocksIsolationKey(ConnIsolation, SocksAuth);
+//
+// impl arti_client::isolation::IsolationHelper for SocksIsolationKey {
+//     fn compatible_same_type(&self, other: &Self) -> bool {
+//         self == other
+//     }
+//
+//     fn join_same_type(&self, other: &Self) -> Option<Self> {
+//         if self == other {
+//             Some(self.clone())
+//         } else {
+//             None
+//         }
+//     }
+// }
 
 /// Payload to return when an HTTP connection arrive on a Socks port
 const WRONG_PROTOCOL_PAYLOAD: &[u8] = br#"HTTP/1.0 501 Tor is not an HTTP Proxy

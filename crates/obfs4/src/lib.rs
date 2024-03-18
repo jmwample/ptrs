@@ -12,6 +12,9 @@ pub mod stream;
 pub mod traits;
 pub mod tunnel_mgr;
 
+mod pt;
+pub use pt::Transport;
+
 mod error;
 pub use error::{Error, Result};
 

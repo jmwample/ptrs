@@ -24,15 +24,29 @@ use tracing::{debug, info, trace, warn};
 use std::{
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind},
+    pin::Pin,
     sync::{Arc, Mutex},
 };
 
+#[derive(Clone, Debug)]
 pub struct ClientBuilder {
     pub iat_mode: IAT,
     pub station_pubkey: [u8; KEY_LENGTH],
     pub station_id: [u8; NODE_ID_LENGTH],
     pub statefile_location: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self {
+            iat_mode: IAT::Off,
+            station_pubkey: [0u8; KEY_LENGTH],
+            station_id: [0_u8; NODE_ID_LENGTH],
+            statefile_location: None,
+            handshake_timeout: MaybeTimeout::Default_,
+        }
+    }
 }
 
 impl ClientBuilder {
@@ -93,7 +107,7 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build(self) -> Client {
+    pub fn build(&self) -> Client {
         Client {
             iat_mode: self.iat_mode,
             station_pubkey: Obfs4NtorPublicKey {
@@ -130,10 +144,29 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(&self, mut stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
+        let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
+
+        let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
+
+        session.handshake(stream, deadline).await
+    }
+
+    /// On a failed handshake the client will read for the remainder of the
+    /// handshake timeout and then close the connection.
+    pub async fn establish<'a, T, E>(
+        self,
+        mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
+    ) -> Result<Obfs4Stream<T>>
+    where
+        T: AsyncRead + AsyncWrite + Unpin + 'a,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let stream = stream_fut.await.map_err(|e| Error::Other(Box::new(e)))?;
+
         let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
