@@ -285,7 +285,7 @@ where
 
 fn resolve_target_addr(addr: &TargetAddr) -> Result<Option<SocketAddr>> {
     match addr {
-        TargetAddr::Ip(sa) => Ok(Some(sa.clone())),
+        TargetAddr::Ip(sa) => Ok(Some(*sa)),
         TargetAddr::Domain(_, _) => {
             ptrs::resolve_addr(Some(format!("{addr}"))).context("domain resolution failed")
         }
