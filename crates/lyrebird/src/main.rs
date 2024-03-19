@@ -131,6 +131,16 @@ fn init_logging_recvr(
     Ok(())
 }
 
+fn resolve_target_addr(addr: &TargetAddr) -> Result<Option<SocketAddr>> {
+    match addr {
+        TargetAddr::Ip(sa) => Ok(Some(*sa)),
+        TargetAddr::Domain(_, _) => {
+            ptrs::resolve_addr(Some(format!("{addr}"))).context("domain resolution failed")
+        }
+    }
+}
+
+
 // ================================================================ //
 //                            Client                                //
 // ================================================================ //
@@ -281,15 +291,6 @@ where
         warn!(addres = client_addr, "tunnel closed with error: {e:#?}");
     }
     Ok(())
-}
-
-fn resolve_target_addr(addr: &TargetAddr) -> Result<Option<SocketAddr>> {
-    match addr {
-        TargetAddr::Ip(sa) => Ok(Some(*sa)),
-        TargetAddr::Domain(_, _) => {
-            ptrs::resolve_addr(Some(format!("{addr}"))).context("domain resolution failed")
-        }
-    }
 }
 
 // ================================================================ //

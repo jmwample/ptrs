@@ -179,7 +179,7 @@ fn to_io_other(e: impl std::fmt::Display) -> Error {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::args::parse_server_transport_options;
+    use crate::args::Opts;
 
     #[test]
     fn get_server_info() -> Result<(), Error> {
@@ -211,7 +211,7 @@ mod test {
 
     #[test]
     fn smethod_args() -> Result<(), Error> {
-        let args = parse_server_transport_options("").map_err(to_io_other)?;
+        let args = Opts::parse_server_transport_options("").map_err(to_io_other)?;
         assert!(!args.is_empty());
 
         Ok(())

@@ -94,6 +94,85 @@ impl Args {
         // therefor value should never be None and it is safe to unwrap.
         self.get_mut(key).unwrap().push(value.to_string());
     }
+
+    /// Parse a name–value mapping as from an encoded SOCKS username/password.
+    ///
+    /// "First the '<Key>=<Value>' formatted arguments MUST be escaped, such that all
+    /// backslash, equal sign, and semicolon characters are escaped with a
+    /// backslash."
+    pub fn parse_client_parameters(params: &str) -> Result<Self, Error> {
+        let mut args = Args::new();
+        if params.is_empty() {
+            return Ok(args);
+        }
+
+        let mut i: usize = 0;
+        loop {
+            let begin = i;
+
+            // Read the key.
+            let (offset, key) = index_unescaped(&params[i..], vec!['=', ';'])?;
+
+            i += offset;
+            // End of string or no equals sign?
+            if i >= params.len() || params.chars().nth(i).unwrap() != '=' {
+                return Err(Error::ParseError(format!(
+                    "parsing client params found no equals sign in {}",
+                    &params[begin..i]
+                )));
+            }
+
+            // Skip the equals sign.
+            i += 1;
+
+            // Read the value.
+            let (offset, value) = index_unescaped(&params[i..], vec![';'])?;
+
+            i += offset;
+            if key.is_empty() {
+                return Err(Error::ParseError(format!(
+                    "parsing client params encountered empty key in {}",
+                    &params[begin..i]
+                )));
+            }
+            args.add(&key, &value);
+
+            if i >= params.len() {
+                break;
+            }
+
+            // Skip the semicolon.
+            i += 1;
+        }
+
+        Ok(args)
+    }
+
+    /// Encode a name–value mapping so that it is suitable to go in the ARGS option
+    /// of an SMETHOD line. The output is sorted by key. The "ARGS:" prefix is not
+    /// added.
+    ///
+    /// "Equal signs and commas [and backslashes] MUST be escaped with a backslash."
+    pub fn encode_smethod_args(&self) -> String {
+        if self.is_empty() {
+            return String::from("");
+        }
+
+        let escape = |s: &str| -> String { backslash_escape(s, vec!['=', ',']) };
+
+        self
+            .iter()
+            .sorted()
+            .map(|(key, values)| {
+                values
+                    .iter()
+                    .map(|value| format!("{}={}", escape(key), escape(value)))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            })
+            .collect::<Vec<String>>()
+            .join(",")
+    }
 }
 
 impl Deref for Args {
@@ -109,32 +188,6 @@ impl DerefMut for Args {
     }
 }
 
-/// Encode a name–value mapping so that it is suitable to go in the ARGS option
-/// of an SMETHOD line. The output is sorted by key. The "ARGS:" prefix is not
-/// added.
-///
-/// "Equal signs and commas [and backslashes] MUST be escaped with a backslash."
-pub fn encode_smethod_args(maybe_args: Option<&Args>) -> String {
-    if maybe_args.is_none() {
-        return String::from("");
-    }
-
-    let escape = |s: &str| -> String { backslash_escape(s, vec!['=', ',']) };
-
-    maybe_args
-        .unwrap()
-        .iter()
-        .sorted()
-        .map(|(key, values)| {
-            values
-                .iter()
-                .map(|value| format!("{}={}", escape(key), escape(value)))
-                .collect::<Vec<String>>()
-                .join(",")
-        })
-        .collect::<Vec<String>>()
-        .join(",")
-}
 
 fn backslash_escape(s: &str, set: Vec<char>) -> String {
     let mut result = String::new();
@@ -176,58 +229,7 @@ fn index_unescaped(s: &str, term: Vec<char>) -> Result<(usize, String), Error> {
     Ok((i, unesc))
 }
 
-/// Parse a name–value mapping as from an encoded SOCKS username/password.
-///
-/// "First the '<Key>=<Value>' formatted arguments MUST be escaped, such that all
-/// backslash, equal sign, and semicolon characters are escaped with a
-/// backslash."
-pub fn parse_client_parameters(params: &str) -> Result<Args, Error> {
-    let mut args = Args::new();
-    if params.is_empty() {
-        return Ok(args);
-    }
 
-    let mut i: usize = 0;
-    loop {
-        let begin = i;
-
-        // Read the key.
-        let (offset, key) = index_unescaped(&params[i..], vec!['=', ';'])?;
-
-        i += offset;
-        // End of string or no equals sign?
-        if i >= params.len() || params.chars().nth(i).unwrap() != '=' {
-            return Err(Error::ParseError(format!(
-                "parsing client params found no equals sign in {}",
-                &params[begin..i]
-            )));
-        }
-
-        // Skip the equals sign.
-        i += 1;
-
-        // Read the value.
-        let (offset, value) = index_unescaped(&params[i..], vec![';'])?;
-
-        i += offset;
-        if key.is_empty() {
-            return Err(Error::ParseError(format!(
-                "parsing client params encountered empty key in {}",
-                &params[begin..i]
-            )));
-        }
-        args.add(&key, &value);
-
-        if i >= params.len() {
-            break;
-        }
-
-        // Skip the semicolon.
-        i += 1;
-    }
-
-    Ok(args)
-}
 
 /// transport name to value mapping as from TOR_PT_SERVER_TRANSPORT_OPTIONS
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -236,6 +238,74 @@ pub struct Opts(HashMap<String, Args>);
 impl Opts {
     pub fn new() -> Self {
         Self(HashMap::new())
+    }
+
+    /// Parse a transport–name–value mapping as from TOR_PT_SERVER_TRANSPORT_OPTIONS.
+    ///
+    /// "...a semicolon-separated list of <key>:<value> pairs, where <key> is a PT
+    /// name and <value> is a k=v string value with options that are to be passed to
+    /// the transport. Colons, semicolons, equal signs and backslashes must be
+    /// escaped with a backslash."
+    ///
+    /// Example: `scramblesuit:key=banana;automata:rule=110;automata:depth=3`
+    pub fn parse_server_transport_options(s: &str) -> Result<Self, Error> {
+        let mut opts = Opts::new();
+        if s.is_empty() {
+            return Ok(opts);
+        }
+        let mut i: usize = 0;
+        loop {
+            let begin = i;
+            // Read the method name.
+            let (offset, method_name) = index_unescaped(&s[i..], vec![':', '=', ';'])?;
+
+            i += offset;
+            // End of string or no colon?
+            if i >= s.len() || s.chars().nth(i).unwrap() != ':' {
+                return Err(Error::ParseError(format!("no colon in {}", &s[begin..i])));
+            }
+            // Skip the colon.
+            i += 1;
+
+            // Read the key.
+            let (offset, key) = index_unescaped(&s[i..], vec!['=', ';'])?;
+
+            i += offset;
+            // End of string or no equals sign?
+            if i >= s.len() || s.chars().nth(i).unwrap() != '=' {
+                return Err(Error::ParseError(format!(
+                    "no equals sign in {}",
+                    &s[begin..i]
+                )));
+            }
+            // Skip the equals sign.
+            i += 1;
+
+            // Read the value.
+            let (offset, value) = index_unescaped(&s[i..], vec![';'])?;
+
+            i += offset;
+            if method_name.is_empty() {
+                return Err(Error::ParseError(format!(
+                    "empty method name in {}",
+                    &s[begin..i]
+                )));
+            }
+            if key.is_empty() {
+                return Err(Error::ParseError(format!("empty key in {}", &s[begin..i])));
+            }
+
+            opts.entry(method_name)
+                .and_modify(|e| e.add(&key, &value))
+                .or_insert(Args(hashmap! {key => vec![value]}));
+
+            if i >= s.len() {
+                break;
+            }
+            // Skip the semicolon.
+            i += 1;
+        }
+        Ok(opts)
     }
 }
 
@@ -253,73 +323,6 @@ impl DerefMut for Opts {
     }
 }
 
-/// Parse a transport–name–value mapping as from TOR_PT_SERVER_TRANSPORT_OPTIONS.
-///
-/// "...a semicolon-separated list of <key>:<value> pairs, where <key> is a PT
-/// name and <value> is a k=v string value with options that are to be passed to
-/// the transport. Colons, semicolons, equal signs and backslashes must be
-/// escaped with a backslash."
-///
-/// Example: `scramblesuit:key=banana;automata:rule=110;automata:depth=3`
-pub fn parse_server_transport_options(s: &str) -> Result<Opts, Error> {
-    let mut opts = Opts::new();
-    if s.is_empty() {
-        return Ok(opts);
-    }
-    let mut i: usize = 0;
-    loop {
-        let begin = i;
-        // Read the method name.
-        let (offset, method_name) = index_unescaped(&s[i..], vec![':', '=', ';'])?;
-
-        i += offset;
-        // End of string or no colon?
-        if i >= s.len() || s.chars().nth(i).unwrap() != ':' {
-            return Err(Error::ParseError(format!("no colon in {}", &s[begin..i])));
-        }
-        // Skip the colon.
-        i += 1;
-
-        // Read the key.
-        let (offset, key) = index_unescaped(&s[i..], vec!['=', ';'])?;
-
-        i += offset;
-        // End of string or no equals sign?
-        if i >= s.len() || s.chars().nth(i).unwrap() != '=' {
-            return Err(Error::ParseError(format!(
-                "no equals sign in {}",
-                &s[begin..i]
-            )));
-        }
-        // Skip the equals sign.
-        i += 1;
-
-        // Read the value.
-        let (offset, value) = index_unescaped(&s[i..], vec![';'])?;
-
-        i += offset;
-        if method_name.is_empty() {
-            return Err(Error::ParseError(format!(
-                "empty method name in {}",
-                &s[begin..i]
-            )));
-        }
-        if key.is_empty() {
-            return Err(Error::ParseError(format!("empty key in {}", &s[begin..i])));
-        }
-
-        opts.entry(method_name)
-            .and_modify(|e| e.add(&key, &value))
-            .or_insert(Args(hashmap! {key => vec![value]}));
-
-        if i >= s.len() {
-            break;
-        }
-        // Skip the semicolon.
-        i += 1;
-    }
-    Ok(opts)
-}
 
 impl std::str::FromStr for Args {
     type Err = Error;
@@ -476,7 +479,7 @@ mod tests {
         ];
 
         for input in bad_cases {
-            match parse_client_parameters(input) {
+            match Args::parse_client_parameters(input) {
                 Ok(_) => panic!("{} unexpectedly succeeded", input),
                 Err(_) => {} // TODO: Validate error types
                              // Err(_) => { todo!("Validate error types")}
@@ -493,7 +496,7 @@ mod tests {
                     .collect(),
             );
 
-            match parse_client_parameters(input) {
+            match Args::parse_client_parameters(input) {
                 Ok(args) => assert_eq!(
                     args, expected,
                     "{} → {:?} (expected {:?})",
@@ -571,7 +574,7 @@ mod tests {
             ),
         ];
         for (input, expected) in good_cases {
-            match parse_server_transport_options(input) {
+            match Opts::parse_server_transport_options(input) {
                 Ok(opts) => {
                     // Convert all &str to String to keep tests readable
                     let expected_opts = Opts(
@@ -630,7 +633,7 @@ mod tests {
         ];
 
         for input in bad_cases {
-            match parse_server_transport_options(input) {
+            match Opts::parse_server_transport_options(input) {
                 Ok(_) => panic!("{} unexpectedly succeeded", input),
                 Err(_) => {} // TODO: Validate error types
                              // Err(_) => {todo!("Validate error types")}
@@ -659,7 +662,7 @@ mod tests {
             ),
         ];
 
-        assert_eq!("", encode_smethod_args(None));
+        assert_eq!("", Args::new().encode_smethod_args());
 
         for (input_map, expected) in tests.iter() {
             let input = Args(
@@ -669,7 +672,7 @@ mod tests {
                     .collect(),
             );
 
-            let encoded = encode_smethod_args(Some(&input));
+            let encoded = input.encode_smethod_args();
             assert_eq!(
                 &encoded, expected,
                 "{:?} → {} (expected {})",
