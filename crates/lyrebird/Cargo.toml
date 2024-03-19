@@ -26,6 +26,7 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 url = "2.5.0"
 
+safelog = "0.3.5"
 # tor-linkspec = { version="0.11.1" }
 # tor-chanmgr = { version="0.14.1", features = ["pt-client"] }
 # tor-ptmgr = "0.11.0"

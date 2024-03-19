@@ -160,8 +160,7 @@ impl Args {
 
         let escape = |s: &str| -> String { backslash_escape(s, vec!['=', ',']) };
 
-        self
-            .iter()
+        self.iter()
             .sorted()
             .map(|(key, values)| {
                 values
@@ -187,7 +186,6 @@ impl DerefMut for Args {
         &mut self.0
     }
 }
-
 
 fn backslash_escape(s: &str, set: Vec<char>) -> String {
     let mut result = String::new();
@@ -228,8 +226,6 @@ fn index_unescaped(s: &str, term: Vec<char>) -> Result<(usize, String), Error> {
     }
     Ok((i, unesc))
 }
-
-
 
 /// transport name to value mapping as from TOR_PT_SERVER_TRANSPORT_OPTIONS
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -322,7 +318,6 @@ impl DerefMut for Opts {
         &mut self.0
     }
 }
-
 
 impl std::str::FromStr for Args {
     type Err = Error;

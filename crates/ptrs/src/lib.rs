@@ -13,6 +13,7 @@ use std::{
 };
 
 use futures::Future; // , Sink, TryStream};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 mod error;
 pub use error::Error;
@@ -42,7 +43,7 @@ pub trait PluggableTransport<T> {
 // Struct builder, passed by type and then built from default for each client
 // with params baked in as builder pattern.
 pub trait ClientBuilderByTypeInst<T>: Default {
-    type Error: std::error::Error;
+    type Error: std::error::Error + Send + Sync;
     type ClientPT: ClientTransport<T, Self::Error>;
     type Transport;
 
@@ -76,8 +77,8 @@ pub trait ClientBuilderByTypeInst<T>: Default {
 
 /// Client Transport trait1
 pub trait ClientTransport<InRW, InErr> {
-    type OutRW;
-    type OutErr: std::error::Error;
+    type OutRW: AsyncRead + AsyncWrite + Send + Unpin;
+    type OutErr: std::error::Error + Send + Sync;
     type Builder: ClientBuilderByTypeInst<InRW>;
 
     /// Create a pluggable transport connection given a future that will return
@@ -98,14 +99,20 @@ pub trait ClientTransport<InRW, InErr> {
 /// handshake (proxy equivalent of accept) as separate steps by the transport
 /// user.
 pub trait ServerTransport<InRW> {
-    type OutRW;
-    type OutErr: std::error::Error;
+    type OutRW: AsyncRead + AsyncWrite + Send + Unpin;
+    type OutErr: std::error::Error + Send + Sync;
     type Builder: ServerBuilder<InRW>;
 
     /// Create/accept a connection for the pluggable transport client using the
     /// provided (pre-existing/pre-connected) Read/Write object as the
     /// underlying socket.
+    ///
+    /// Uses `self` instead of `&self` to encourage/force use of reference
+    /// counted objects (Arc, Rc) for server implementations where the server
+    /// needs internal mutability across multiple threads concurrently.
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
+
+    fn method_name() -> String;
 }
 
 pub trait ServerBuilder<T>: Default {
@@ -139,18 +146,6 @@ pub trait ServerBuilder<T>: Default {
     /// **Errors**
     /// If a required field has not been initialized.
     fn build(&self) -> Self::ServerPT;
-}
-
-/// Server Transport trait2 - try using futures instead of actual objects
-///
-/// This doesn't work because it requires the listener object that was used
-/// to create the `input` Future must live for `'static` for the future to
-/// be valid, but that can't be guaranteed and is difficult to work with.
-pub trait ServerTransport2<InRW, InErr> {
-    type OutRW;
-    type OutErr: std::error::Error;
-
-    fn wrap_acc(&self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>>;
 }
 
 // ================================================================ //

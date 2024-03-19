@@ -1,9 +1,12 @@
+use crate::args::Args;
+
 use std::{
     env,
     io::{Error, ErrorKind},
     net::SocketAddr,
 };
 
+use tokio::net::TcpStream;
 use tracing::debug;
 use url::Url;
 
@@ -118,11 +121,29 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
 ///     }
 /// }
 ///```
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ServerInfo {
-    pub bind_addrs: Vec<()>,
+    pub bind_addrs: Vec<Bindaddr>,
     pub or_addr: Option<SocketAddr>,
     pub extended_or_addr: Option<SocketAddr>,
     pub auth_cookie_path: Option<String>,
+}
+
+impl ServerInfo {
+    pub async fn connect_to_or(&self) -> Result<TcpStream, Error> {
+        let conn = match self.or_addr {
+            Some(addr) => TcpStream::connect(addr).await?,
+            None => {
+                if self.extended_or_addr.is_none() {
+                    return Err(to_io_other("no OR addr provided"));
+                }
+
+                TcpStream::connect(self.extended_or_addr.unwrap()).await?
+            }
+        };
+
+        Ok(conn)
+    }
 }
 
 impl ServerInfo {
@@ -130,7 +151,7 @@ impl ServerInfo {
         let ver = get_managed_transport_ver()?;
         debug!("VERSION {ver}");
 
-        let bind_addrs = get_server_bind_addrs()?;
+        let bind_addrs = Bindaddr::get_server_bind_addrs()?;
 
         let or_add_env = env::var_os("TOR_PT_ORPORT").map(|s| s.into_string().unwrap());
         let or_addr = resolve_addr(or_add_env)
@@ -164,8 +185,20 @@ impl ServerInfo {
     }
 }
 
-pub(crate) fn get_server_bind_addrs() -> Result<Vec<()>, Error> {
-    Ok(vec![])
+/// A combination of a method name and an address, as extracted from `TOR_PT_SERVER_BINDADDR`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bindaddr {
+    pub method_name: String,
+    pub addr: SocketAddr,
+    // Options from TOR_PT_SERVER_TRANSPORT_OPTIONS that pertain to this
+    // transport.
+    pub options: Args,
+}
+
+impl Bindaddr {
+    pub(crate) fn get_server_bind_addrs() -> Result<Vec<Self>, Error> {
+        Ok(vec![])
+    }
 }
 
 pub fn resolve_addr(_addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>, Error> {

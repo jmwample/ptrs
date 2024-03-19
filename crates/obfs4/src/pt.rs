@@ -162,8 +162,13 @@ where
     type OutErr = Error;
     type Builder = obfs4::ServerBuilder;
 
+    /// Use something that can be accessed reference (Arc, Rc, etc.)
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(obfs4::Server::wrap(self, io))
+    }
+
+    fn method_name() -> String {
+        "obfs4".into()
     }
 }
 
