@@ -14,6 +14,9 @@ use std::{
 
 use futures::Future; // , Sink, TryStream};
 
+mod error;
+pub use error::Error;
+pub mod args;
 mod helpers;
 pub use helpers::*;
 

@@ -1,8 +1,32 @@
 # o7 Proxy
 
-things I would like to do:
+<p>
+  <a href="https://github.com/jmwample/o7/actions/workflows/rust.yml">
+    <img src="https://github.com/jmwample/o7/actions/workflows/rust.yml/badge.svg?branch=main" alt="Build Status">
+  <a href="https://codecov.io/gh/jmwample/o7" > 
+    <img src="https://codecov.io/gh/jmwample/o7/graph/badge.svg?token=0lMlrA32xd"/> 
+  </a>
+  <a href="https://deps.rs/repo/github/jmwample/o7">
+    <img src="https://deps.rs/repo/github/jmwample/o7/status.svg">
+  </a>
+  <a href="https://crates.io/crates/o7">
+    <img src="https://img.shields.io/crates/v/o7.svg">
+  </a>
+  <a href="https://docs.rs/o7">
+    <img src="https://docs.rs/o7/badge.svg">
+  </a>
+  <a href="https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license">
+    <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License: MIT/Apache 2.0">
+  </a>
+</p>
 
-- [ ] elligator2 implementation using `dalek` ed25519 library.
+
+This repository contains multiple related crates implementing the lyrebird (obfs4) library,
+lyrebird binary, and Pluggable Transports in Rust (PTRS) library. 
+
+Things to keep an eye on:
+
+- [ ] PR implementating elligator2 for the `dalek` ed25519 library. [PR Here](https://github.com/dalek-cryptography/curve25519-dalek/pull/612)
 
 
 ## Examples

@@ -1,0 +1,38 @@
+[package]
+name = "lyrebird"
+version = "0.1.0"
+edition = "2021"
+authers = ["Jack Wampler"]
+
+
+[[bin]]
+name = "lyrebird"
+test = false
+bench = false
+
+
+[dependencies]
+obfs4 = { path="../obfs4"}
+ptrs = { path="../ptrs" }
+
+anyhow = "1.0"
+clap = { version = "4.4.7", features = ["derive"]}
+fast-socks5 = "0.9.1"
+thiserror = "1.0.56"
+tokio = { version = "1.33", features = ["io-util", "rt-multi-thread", "net", "rt", "macros", "sync", "signal", "time", "fs"] }
+tokio-stream = "0.1.14"
+tokio-util = { version = "0.7.10", features = ["codec", "io"]}
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+url = "2.5.0"
+
+# tor-linkspec = { version="0.11.1" }
+# tor-chanmgr = { version="0.14.1", features = ["pt-client"] }
+# tor-ptmgr = "0.11.0"
+
+[dev-dependencies]
+tracing-subscriber = "0.3.18"
+hex-literal = "0.4.1"
+tor-basic-utils = "0.8.0"
+
+

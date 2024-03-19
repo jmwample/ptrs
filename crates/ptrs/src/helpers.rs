@@ -1,84 +1,14 @@
 use std::{
-    borrow::Cow,
-    collections::HashMap,
     env,
     io::{Error, ErrorKind},
     net::SocketAddr,
 };
 
-use tracing::{debug, warn};
+use tracing::debug;
 use url::Url;
 
 pub(crate) fn get_managed_transport_ver() -> Result<String, Error> {
     Ok("".into())
-}
-
-pub fn parse_smethod_args(
-    args: impl AsRef<str>,
-) -> Result<HashMap<String, String>, Cow<'static, str>> {
-    let words = args.as_ref().split_whitespace();
-
-    let mut parsed_args = HashMap::new();
-
-    // NOTE(eta): pt-spec.txt seems to imply these options can't contain spaces, so
-    //            we work under that assumption.
-    //            It also doesn't actually parse them out -- but seeing as the API to
-    //            feed these back in will want them as separated k/v pairs, I think
-    //            it makes sense to here.
-    for option in words {
-        if let Some(mut args) = option.strip_prefix("ARGS:") {
-            while !args.is_empty() {
-                let (k, v, rest) = parse_one_smethod_arg(args)
-                    .map_err(|e| Cow::from(format!("failed to parse SMETHOD ARGS: {}", e)))?;
-                if parsed_args.contains_key(&k) {
-                    // At least check our assumption that this is actually k/v
-                    // and not Vec<(String, String)>.
-                    warn!("PT SMETHOD arguments contain repeated key {}!", k);
-                }
-                parsed_args.insert(k, v);
-                args = rest;
-            }
-        }
-    }
-
-    Ok(parsed_args)
-}
-
-/// Chomp one key/value pair off a list of smethod args.
-/// Returns (k, v, unparsed rest of string).
-/// Will also chomp the comma at the end, if there is one.
-fn parse_one_smethod_arg(args: &str) -> Result<(String, String, &str), &'static str> {
-    // NOTE(eta): Apologies for this looking a bit gnarly. Ideally, this is what you'd use
-    //            something like `nom` for, but I didn't want to bring in a dep just for this.
-
-    let mut key = String::new();
-    let mut val = String::new();
-    // If true, we're reading the value, not the key.
-    let mut reading_val = false;
-    let mut chars = args.chars();
-    while let Some(c) = chars.next() {
-        let target = if reading_val { &mut val } else { &mut key };
-        match c {
-            '\\' => {
-                let c = chars
-                    .next()
-                    .ok_or("smethod arg terminates with backslash")?;
-                target.push(c);
-            }
-            '=' => {
-                if reading_val {
-                    return Err("encountered = while parsing value");
-                }
-                reading_val = true;
-            }
-            ',' => break,
-            c => target.push(c),
-        }
-    }
-    if !reading_val {
-        return Err("ran out of chars parsing smethod arg");
-    }
-    Ok((key, val, chars.as_str()))
 }
 
 // ================================================================ //
@@ -110,21 +40,12 @@ pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
     let url_str = match env::var("TOR_PT_PROXY") {
         Ok(s) => s,
         Err(env::VarError::NotPresent) => return Ok(None),
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("failed to parse proxy config: {e}"),
-            ))
-        }
+        Err(e) => return Err(to_io_other(format!("failed to parse proxy config: {e}"))),
     };
 
     // Url::parse() only works for absolute urls so we do not need to check for relative
-    let uri = Url::parse(&url_str).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("failed to parse proxy config \"{url_str}\": {e}"),
-        )
-    })?;
+    let uri = Url::parse(&url_str)
+        .map_err(|e| to_io_other(format!("failed to parse proxy config \"{url_str}\": {e}")))?;
 
     validate_proxy_url(&uri)?;
 
@@ -133,19 +54,13 @@ pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
 
 pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
     if !spec.path().is_empty() {
-        return Err(Error::new(ErrorKind::Other, "proxy URI has a path defined"));
+        return Err(to_io_other("proxy URI has a path defined"));
     }
     if spec.query().is_some_and(|s| !s.is_empty()) {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "proxy URI has a query defined",
-        ));
+        return Err(to_io_other("proxy URI has a query defined"));
     }
     if spec.fragment().is_some_and(|s| !s.is_empty()) {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "proxy URI has a fragment defined",
-        ));
+        return Err(to_io_other("proxy URI has a fragment defined"));
     }
 
     match spec.scheme() {
@@ -154,37 +69,28 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
             let passwd = spec.password();
 
             if username.is_empty() || username.len() > 255 {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "proxy URI specified a invalid SOCKS5 username",
-                ));
+                return Err(to_io_other("proxy URI specified a invalid SOCKS5 username"));
             }
             if passwd.is_none() || passwd.is_some_and(|p| p.is_empty() || p.len() > 255) {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "proxy URI specified a invalid SOCKS5 password",
-                ));
+                return Err(to_io_other("proxy URI specified a invalid SOCKS5 password"));
             }
         }
         "socks4a" => {
             if !spec.username().is_empty() && spec.password().is_some_and(|p| !p.is_empty()) {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "proxy URI specified SOCKS4a and a password",
-                ));
+                return Err(to_io_other("proxy URI specified SOCKS4a and a password"));
             }
         }
         "http" => {}
         _ => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("proxy URI has invalid scheme: {}", spec.scheme()),
-            ))
+            return Err(to_io_other(format!(
+                "proxy URI has invalid scheme: {}",
+                spec.scheme()
+            )));
         }
     }
 
     _ = resolve_addr(spec.host_str())
-        .map_err(|e| Error::new(ErrorKind::Other, format!("proxy URI has invalid host: {e}")))?;
+        .map_err(|e| to_io_other(format!("proxy URI has invalid host: {e}")))?;
 
     Ok(())
 }
@@ -227,12 +133,8 @@ impl ServerInfo {
         let bind_addrs = get_server_bind_addrs()?;
 
         let or_add_env = env::var_os("TOR_PT_ORPORT").map(|s| s.into_string().unwrap());
-        let or_addr = resolve_addr(or_add_env).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("cannot resolve TOR_PT_ORPORT: {e}"),
-            )
-        })?;
+        let or_addr = resolve_addr(or_add_env)
+            .map_err(|e| to_io_other(format!("cannot resolve TOR_PT_ORPORT: {e}")))?;
 
         let auth_cookie_path = env::var("TOR_PT_AUTH_COOKIE_FILE").ok();
 
@@ -240,20 +142,15 @@ impl ServerInfo {
             env::var_os("TOR_PT_EXTENDED_SERVER_PORT").map(|s| s.into_string().unwrap());
 
         if ext_or_addr_env.clone().is_some_and(|s| !s.is_empty()) && auth_cookie_path.is_none() {
-            return Err(Error::new(ErrorKind::Other, "need TOR_PT_AUTH_COOKIE_FILE environment variable with TOR_PT_EXTENDED_SERVER_PORT"));
+            return Err(to_io_other("need TOR_PT_AUTH_COOKIE_FILE environment variable with TOR_PT_EXTENDED_SERVER_PORT"));
         }
 
-        let extended_or_addr = resolve_addr(ext_or_addr_env).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("cannot resolve TOR_PT_EXTENDED_SERVER_PORT: {e}"),
-            )
-        })?;
+        let extended_or_addr = resolve_addr(ext_or_addr_env)
+            .map_err(|e| to_io_other(format!("cannot resolve TOR_PT_EXTENDED_SERVER_PORT: {e}")))?;
 
         // Need either OrAddr or ExtendedOrAddr.
         if or_addr.is_none() && extended_or_addr.is_none() {
-            return Err(Error::new(
-                ErrorKind::Other,
+            return Err(to_io_other(
                 "need TOR_PT_ORPORT or TOR_PT_EXTENDED_SERVER_PORT environment variable",
             ));
         }
@@ -275,13 +172,55 @@ pub fn resolve_addr(_addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>
     Ok(None)
 }
 
+fn to_io_other(e: impl std::fmt::Display) -> Error {
+    Error::new(ErrorKind::Other, format!("{e}"))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::args::parse_server_transport_options;
+
+    #[test]
+    fn get_server_info() -> Result<(), Error> {
+        let si = ServerInfo::new()?;
+        assert!(si.auth_cookie_path.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_client_info() -> Result<(), Error> {
+        let ci = ClientInfo::new()?;
+        assert!(ci.uri.is_none());
+        assert!(!ci.methods.is_empty());
+
+        Ok(())
+    }
 
     #[test]
     fn resolve() -> Result<(), Error> {
-        resolve_addr(None::<String>).unwrap();
+        let res = resolve_addr(None::<String>).unwrap();
+        assert!(res.is_none());
+
+        let res = resolve_addr(Some("127.0.0.1:8000")).unwrap();
+        assert!(res.is_some_and(|a| a == "127.0.0.1:8000".parse().unwrap()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn smethod_args() -> Result<(), Error> {
+        let args = parse_server_transport_options("").map_err(to_io_other)?;
+        assert!(!args.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn validate_url() -> Result<(), Error> {
+        let url = validate_proxy_url(&Url::parse("socks5://example.com/").unwrap());
+        assert!(url.is_ok());
 
         Ok(())
     }
