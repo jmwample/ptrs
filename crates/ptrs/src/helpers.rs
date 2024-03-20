@@ -243,7 +243,7 @@ mod test {
     }
 
     #[test]
-    fn smethod_args() -> Result<(), Error> {
+    fn smethod_opts() -> Result<(), Error> {
         let args = Opts::parse_server_transport_options("").map_err(to_io_other)?;
         assert!(!args.is_empty());
 

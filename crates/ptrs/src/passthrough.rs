@@ -75,9 +75,13 @@ where
     fn build(&self) -> Self::ServerPT {
         Passthrough {}
     }
+
+    fn method_name() -> String {
+        String::from("passthrough")
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BuilderC {}
 
 impl<T> ClientBuilderByTypeInst<T> for BuilderC
@@ -126,6 +130,10 @@ where
     fn build(&self) -> Self::ClientPT {
         Passthrough {}
     }
+
+    fn method_name() -> String {
+        String::from("passthrough")
+    }
 }
 
 /// Example wrapping transport that just passes the incoming connection future through
@@ -144,6 +152,10 @@ where
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(Self::hs(io))
+    }
+
+    fn method_name() -> String {
+        String::from("passthrough")
     }
 }
 

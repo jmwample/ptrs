@@ -92,6 +92,10 @@ where
     fn build(&self) -> Self::ServerPT {
         obfs4::ServerBuilder::build(self)
     }
+
+    fn method_name() -> String {
+        "obfs4".into()
+    }
 }
 
 impl<T> ptrs::ClientBuilderByTypeInst<T> for obfs4::ClientBuilder
@@ -140,6 +144,10 @@ where
     fn build(&self) -> Self::ClientPT {
         obfs4::ClientBuilder::build(self)
     }
+
+    fn method_name() -> String {
+        "obfs4".into()
+    }
 }
 
 /// Example wrapping transport that just passes the incoming connection future through
@@ -159,6 +167,10 @@ where
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(obfs4::Client::wrap(self, io))
+    }
+
+    fn method_name() -> String {
+        "obfs4".into()
     }
 }
 

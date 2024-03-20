@@ -7,7 +7,7 @@
 //!   - use the better copy interactive for bidirectional copy
 #![allow(unused, dead_code)]
 
-use obfs4::Obfs4PT;
+use obfs4::{obfs4::ClientBuilder, Obfs4PT};
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
 use anyhow::{anyhow, Context, Result};
@@ -49,7 +49,7 @@ use std::{env, fs::DirBuilder, os::unix::fs::DirBuilderExt, str::FromStr, sync::
 // const CLIENT_STATE_LOCATION: &str = "/tmp/arti-pt-client";
 
 /// Client Socks address to listen on.
-const CLIENT_SOCKS_ADDR: &'static str = "127.0.0.1:0";
+const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
 
 /// Error defined to denote a failure to get the bridge line
 #[derive(Debug, thiserror::Error)]
@@ -220,141 +220,85 @@ async fn client_setup(
     statedir: &str,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
-    let pt_name = Obfs4PT::name();
+    let obfs4_name = Obfs4PT::name();
     let client_pt_info = ptrs::ClientInfo::new()?;
     let proxy_uri = client_pt_info.uri.ok_or(BridgeLineParseError)?;
     let (tx, rx) = oneshot::channel::<bool>();
 
-    // // This only launches lyrebird / obfs4 for now and doesn't track other PT types
-    // for name in client_pt_info.methods {
-    //     info!(name);
+    let mut listeners = Vec::new();
 
-    //     let builder = match ptrs::try_get_transport(name) {
-    //         Ok(b) => b,
-    //         Err(e) => {
-    //             warn!("unrecognized transport {name}");
-    //             continue
-    //         }
-    //     };
-    if !client_pt_info.methods.contains(&pt_name) {
-        error!("cannot launch unrecognized pluggable transports")
-    }
-
-    let builder = Obfs4PT::client_builder();
-    let listener = tokio::net::TcpListener::bind(CLIENT_SOCKS_ADDR).await?;
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => info!("{pt_name} received shutdown signal"),
-                res = listener.accept() => {
-                    let (conn, client_addr) = match res {
-                        Err(e) => {
-                            error!("failed to accept tcp connection {e}");
-                            break;
-                        }
-                        Ok(c) => c,
-                    };
-                    // tokio::spawn(client_handle_connection_builder( conn, builder.clone(), proxy_uri.clone(), client_addr));
-                    tokio::spawn(client_handle_connection( conn, builder.build(), proxy_uri.clone(), client_addr));
-                }
-            }
+    // This only launches lyrebird / obfs4 for now and doesn't track other PT types
+    for name in client_pt_info.methods {
+        info!(name);
+        if name != obfs4_name {
+            warn!("no such transport is supported");
+            continue;
         }
 
+        let builder = Obfs4PT::client_builder();
+        let listener = tokio::net::TcpListener::bind(CLIENT_SOCKS_ADDR).await?;
+
+        listeners.push(client_accept_loop(
+            listener,
+            builder,
+            proxy_uri.clone(),
+            cancel_token.clone(),
+        ));
+    }
+
+    // spawn a task that runs and monitors the progress of the listeners.
+    tokio::spawn(async move {
+        let total_len = listeners.len();
+        let mut running = total_len;
+
+        // launch all listener futures
+        let mut pt_set = JoinSet::new();
+        for fut in listeners {
+            pt_set.spawn(fut);
+        }
+
+        // if any of the listeners exit, handle it
+        while let Some(res) = pt_set.join_next().await {
+            running -= 1;
+            if let Err(e) = res {
+                warn!("listener failed: {e}");
+            }
+            info!("{running}/{total_len} listeners running");
+        }
+
+        // if all listeners exit then we can send the tx signal.
         tx.send(true).unwrap()
     });
-    // }
 
     Ok(rx)
 }
 
-/// This function assumes that the provided connection / socket manages reconstruction
-/// and reliability before passing to this layer.
-///
-/// proxy_uri (currently unused) is meant to indicate that the outgoing connection
-/// should be made through _another_ proxy based on the proxy uri. This is relatively
-/// easy in golang, but I am not sure how easy it will be here. I believe this is
-/// a rather uncommon option so it is left unimplemented for now.
-async fn client_handle_connection<In, C>(
-    conn: In,
-    pt_client: C,
-    _proxy_uri: url::Url,
-    client_addr: SocketAddr,
+async fn client_accept_loop<C>(
+    listener: TcpListener,
+    builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + Send + 'static,
+    proxy_uri: url::Url,
+    cancel_token: CancellationToken,
 ) -> Result<()>
 where
-    // the provided T must be usable as a connection in an async context
-    In: AsyncRead + AsyncWrite + Send + Unpin,
-    // the provided B must implement the Client Builder interface for T
-    C: ptrs::ClientTransport<TcpStream, std::io::Error>,
+    // the provided client builder should build the C ClientTransport.
+    C: ptrs::ClientTransport<TcpStream, std::io::Error> + 'static,
 {
-    let mut config: fast_socks5::server::Config<SimpleUserPassword> =
-        fast_socks5::server::Config::default();
-    // config.set_skip_auth(true);
-    let mut socks5_conn = fast_socks5::server::Socks5Socket::new(conn, Arc::new(config));
-
-    // let mut socks5_conn = socks5_conn.upgrade_to_socks5().await?;
-    let target_addr = socks5_conn
-        .target_addr()
-        .ok_or(BridgeLineParseError)
-        .context("missing remote address in request")?;
-
-    // TODO: get args from the socks request username:Password if it exists.
-    // This seems non-trivial to match against the golang obfs4 implementation.
-    // Maybe implement my own thing that implements the `Authenticate` trait?
-    // Maybe work with the tor_socksproto package?
-    //
-    // Pluggable transports use the username/password field to pass
-    // per-connection arguments.  The fields contain ASCII strings that
-    // are combined and then parsed into key/value pairs.
-    // argStr := string(uname)
-    // if !(plen == 1 && passwd[0] == 0x00) {
-    let args: Option<ptrs::args::Args> = match socks5_conn.auth() {
-        AuthenticationMethod::Password { username, password } => {
-            if username.is_empty() {
-                socks5_conn.flush().await?;
-                socks5_conn.shutdown().await?;
-                return Err(anyhow!("username with 0 length"));
+    let pt_name = C::method_name();
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => info!("{pt_name} received shutdown signal"),
+            res = listener.accept() => {
+                let (conn, client_addr) = match res {
+                    Err(e) => {
+                        error!("failed to accept tcp connection {e}");
+                        break;
+                    }
+                    Ok(c) => c,
+                };
+                tokio::spawn(client_handle_connection(conn, builder.clone(), proxy_uri.clone(), client_addr));
+                // tokio::spawn(client_handle_connection( conn, builder.build(), proxy_uri.clone(), client_addr));
             }
-            if password.is_empty() {
-                socks5_conn.flush().await?;
-                socks5_conn.shutdown().await?;
-                return Err(anyhow!("password with 0 length"));
-            }
-
-            // tor will set the password to 'NUL', if the field doesn't contain any
-            // actual argument data.
-            if !(password.len() == 1 && password.bytes().nth(0) == Some(0x00)) {}
-
-            None
         }
-        AuthenticationMethod::None => None,
-        _ => return Err(anyhow!("negotiated unsupported authentication method")),
-    };
-
-    let remote_addr = resolve_target_addr(target_addr)?
-        .ok_or(BridgeLineParseError)
-        .context("no remote address")?;
-
-    let remote = tokio::net::TcpStream::connect(remote_addr);
-
-    // build the pluggable transport client and then dial, completing the
-    // connection and handshake when the `wrap(..)` is await-ed.
-    let mut pt_conn = match pt_client.establish(Box::pin(remote)).await {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(
-                address = sensitive(client_addr).to_string(),
-                "handshake failed: {e:#?}"
-            );
-            return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
-        }
-    };
-
-    if let Err(e) = copy_bidirectional(&mut socks5_conn.into_inner(), &mut pt_conn).await {
-        warn!(
-            addres = sensitive(client_addr).to_string(),
-            "tunnel closed with error: {e:#?}"
-        );
     }
 
     Ok(())
@@ -362,7 +306,7 @@ where
 
 /// This function assumes that the provided connection / socket manages reconstruction
 /// and reliability before passing to this layer.
-async fn client_handle_connection_builder<In, C>(
+async fn client_handle_connection<In, C>(
     conn: In,
     builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C>,
     _proxy_uri: url::Url,
@@ -427,6 +371,108 @@ where
     Ok(())
 }
 
+/// This function assumes that the provided connection / socket manages reconstruction
+/// and reliability before passing to this layer.
+///
+/// proxy_uri (currently unused) is meant to indicate that the outgoing connection
+/// should be made through _another_ proxy based on the proxy uri. This is relatively
+/// easy in golang, but I am not sure how easy it will be here. I believe this is
+/// a rather uncommon option so it is left unimplemented for now.
+async fn client_handle_connection_clientpt<In, C>(
+    conn: In,
+    pt_client: C,
+    _proxy_uri: url::Url,
+    client_addr: SocketAddr,
+) -> Result<()>
+where
+    // the provided T must be usable as a connection in an async context
+    In: AsyncRead + AsyncWrite + Send + Unpin,
+    // the provided B must implement the Client Builder interface for T
+    C: ptrs::ClientTransport<TcpStream, std::io::Error>,
+{
+    let mut config: fast_socks5::server::Config<SimpleUserPassword> =
+        fast_socks5::server::Config::default();
+    // config.set_skip_auth(true);
+    let mut socks5_conn = fast_socks5::server::Socks5Socket::new(conn, Arc::new(config));
+
+    // let mut socks5_conn = socks5_conn.upgrade_to_socks5().await?;
+    let target_addr = socks5_conn
+        .target_addr()
+        .ok_or(BridgeLineParseError)
+        .context("missing remote address in request")?;
+
+    // TODO: get args from the socks request username:Password if it exists.
+    // This seems non-trivial to match against the golang obfs4 implementation.
+    // Maybe implement my own thing that implements the `Authenticate` trait?
+    // Maybe work with the tor_socksproto package?
+    //
+    // Pluggable transports use the username/password field to pass
+    // per-connection arguments.  The fields contain ASCII strings that
+    // are combined and then parsed into key/value pairs.
+    // argStr := string(uname)
+    // if !(plen == 1 && passwd[0] == 0x00) {
+    let args: Option<ptrs::args::Args> = match socks5_conn.auth() {
+        AuthenticationMethod::Password { username, password } => {
+            if username.is_empty() {
+                socks5_conn.flush().await?;
+                socks5_conn.shutdown().await?;
+                return Err(anyhow!("username with 0 length"));
+            }
+            if password.is_empty() {
+                socks5_conn.flush().await?;
+                socks5_conn.shutdown().await?;
+                return Err(anyhow!("password with 0 length"));
+            }
+
+            let mut arg_string = username.clone();
+            // tor will set the password to 'NUL', if the field doesn't contain any
+            // actual argument data.
+            if !(password.len() == 1 && password.as_bytes().first().copied() == Some(0x00)) {
+                arg_string.push_str(password);
+            }
+
+            match ptrs::args::Args::from_str(&arg_string) {
+                Ok(a) => Some(a),
+                Err(e) => {
+                    return Err(anyhow!(
+                        "failed to parse provided args \"{arg_string}\": {e}"
+                    ))
+                }
+            }
+        }
+        AuthenticationMethod::None => None,
+        _ => return Err(anyhow!("negotiated unsupported authentication method")),
+    };
+
+    let remote_addr = resolve_target_addr(target_addr)?
+        .ok_or(BridgeLineParseError)
+        .context("no remote address")?;
+
+    let remote = tokio::net::TcpStream::connect(remote_addr);
+
+    // build the pluggable transport client and then dial, completing the
+    // connection and handshake when the `wrap(..)` is await-ed.
+    let mut pt_conn = match pt_client.establish(Box::pin(remote)).await {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(
+                address = sensitive(client_addr).to_string(),
+                "handshake failed: {e:#?}"
+            );
+            return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
+        }
+    };
+
+    if let Err(e) = copy_bidirectional(&mut socks5_conn.into_inner(), &mut pt_conn).await {
+        warn!(
+            addres = sensitive(client_addr).to_string(),
+            "tunnel closed with error: {e:#?}"
+        );
+    }
+
+    Ok(())
+}
+
 // ================================================================ //
 //                            Server                                //
 // ================================================================ //
@@ -449,11 +495,7 @@ async fn server_setup(
             continue;
         }
 
-        // let mut builder = <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ServerBuilder::default();
         let mut builder = Obfs4PT::server_builder();
-        // let server = builder.statefile_location(statedir)?
-        //     .options(bind_addr.options)?
-        //     .build();
         <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::statefile_location(
             &mut builder,
             statedir,
@@ -463,6 +505,10 @@ async fn server_setup(
             &bind_addr.options,
         )?;
         let server = builder.build();
+        // // I hate having to use the specific < > notation ^^ but I am not sure how to avoid it.
+        // let server = builder.statefile_location(statedir)?
+        //     .options(bind_addr.options)?
+        //     .build();
 
         let listener = tokio::net::TcpListener::bind(bind_addr.addr).await?;
         listeners.push(server_listen_loop::<TcpStream, _>(

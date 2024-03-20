@@ -45,7 +45,7 @@ where
 
 // Struct builder, passed by type and then built from default for each client
 // with params baked in as builder pattern.
-pub trait ClientBuilderByTypeInst<T>: Default
+pub trait ClientBuilderByTypeInst<T>: Default + Clone
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
@@ -79,6 +79,8 @@ where
     /// **Errors**
     /// If a required field has not been initialized.
     fn build(&self) -> Self::ClientPT;
+
+    fn method_name() -> String;
 }
 
 /// Client Transport trait1
@@ -98,6 +100,8 @@ where
     /// Create a connection for the pluggable transport client using the provided
     /// (pre-existing/pre-connected) Read/Write object as the underlying socket.
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
+
+    fn method_name() -> String;
 }
 
 // ================================================================ //
@@ -161,6 +165,8 @@ where
     /// **Errors**
     /// If a required field has not been initialized.
     fn build(&self) -> Self::ServerPT;
+
+    fn method_name() -> String;
 }
 
 // ================================================================ //

@@ -101,6 +101,10 @@ impl Args {
     /// backslash, equal sign, and semicolon characters are escaped with a
     /// backslash."
     pub fn parse_client_parameters(params: &str) -> Result<Self, Error> {
+        Self::parse(params)
+    }
+
+    fn parse(params: &str) -> Result<Self, Error> {
         let mut args = Args::new();
         if params.is_empty() {
             return Ok(args);
@@ -322,28 +326,7 @@ impl DerefMut for Opts {
 impl std::str::FromStr for Args {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-#[allow(clippy::to_string_trait_impl)]
-impl std::string::ToString for Args {
-    fn to_string(&self) -> String {
-        String::from("")
-    }
-}
-
-impl std::str::FromStr for Opts {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
-    }
-}
-
-#[allow(clippy::to_string_trait_impl)]
-impl std::string::ToString for Opts {
-    fn to_string(&self) -> String {
-        String::from("")
+        Self::parse(s)
     }
 }
 
@@ -365,8 +348,9 @@ mod tests {
             panic!("unexpected result from `get` on empty Args: {:?}", v);
         }
 
-        if let Some(v) = args.get("a") {
-            panic!("unexpected get success for \"{}\" → {:?}", "a", v);
+        match args.get("a") {
+            Some(v) => assert!(v.is_empty()),
+            None => panic!("expected empty set"),
         }
 
         match args.get("b") {
@@ -418,18 +402,42 @@ mod tests {
     #[test]
     fn test_parse_client_parameters() {
         let bad_cases = vec![
-            "key",
-            "key\\",
-            "=value",
-            "==value",
-            "==key=value",
-            "key=value\\",
-            "a=b;key=value\\",
-            "a;b=c",
-            ";",
-            "key=value;",
-            ";key=value",
-            "key\\=value",
+            ("key", "parsing client params found no equals sign in key"),
+            ("key\\", "nothing following final escape in \"key\\\""),
+            (
+                "=value",
+                "parsing client params encountered empty key in =value",
+            ),
+            (
+                "==value",
+                "parsing client params encountered empty key in ==value",
+            ),
+            (
+                "==key=value",
+                "parsing client params encountered empty key in ==key=value",
+            ),
+            (
+                "key=value\\",
+                "nothing following final escape in \"value\\\"",
+            ),
+            (
+                "a=b;key=value\\",
+                "nothing following final escape in \"value\\\"",
+            ),
+            ("a;b=c", "parsing client params found no equals sign in a"),
+            (";", "parsing client params found no equals sign in "),
+            (
+                "key=value;",
+                "parsing client params found no equals sign in ",
+            ),
+            (
+                ";key=value",
+                "parsing client params found no equals sign in ",
+            ),
+            (
+                "key\\=value",
+                "parsing client params found no equals sign in key\\=value",
+            ),
         ];
         let good_cases = vec![
             ("", HashMap::new()),
@@ -474,11 +482,12 @@ mod tests {
         ];
 
         for input in bad_cases {
-            match Args::parse_client_parameters(input) {
-                Ok(_) => panic!("{} unexpectedly succeeded", input),
-                Err(_) => {} // TODO: Validate error types
-                             // Err(_) => { todo!("Validate error types")}
-                             // Err(err) => assert_eq!(err, Box::new(Error::Unknown)),
+            match Args::parse_client_parameters(input.0) {
+                Ok(_) => panic!("{} unexpectedly succeeded: expected {}", input.0, input.1),
+                Err(Error::ParseError(e)) => {
+                    assert_eq!(e, input.1)
+                }
+                Err(e) => panic!("received unknown error: {e}"),
             }
         }
 
@@ -628,11 +637,8 @@ mod tests {
         ];
 
         for input in bad_cases {
-            match Opts::parse_server_transport_options(input) {
-                Ok(_) => panic!("{} unexpectedly succeeded", input),
-                Err(_) => {} // TODO: Validate error types
-                             // Err(_) => {todo!("Validate error types")}
-                             // Err(err) => assert_eq!(err, Box::new(Error::Unknown)),
+            if Opts::parse_server_transport_options(input).is_ok() {
+                panic!("{} unexpectedly succeeded", input)
             }
         }
     }
