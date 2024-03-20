@@ -2,25 +2,33 @@ use crate::{
     obfs4::{self, proto::Obfs4Stream},
     Error,
 };
-use ptrs::FutureResult as F;
+use ptrs::{args::Args, FutureResult as F};
 
 use std::{
+    marker::PhantomData,
     net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
     time::Duration,
 };
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
+
+pub type Obfs4PT = Transport<TcpStream>;
 
 #[derive(Debug, Default)]
-pub struct Transport {}
-impl Transport {
+pub struct Transport<T> {
+    _p: PhantomData<T>,
+}
+impl<T> Transport<T> {
     pub const NAME: &'static str = "obfs4";
 }
 
-impl<T> ptrs::PluggableTransport<T> for Transport
+impl<T> ptrs::PluggableTransport<T> for Transport<T>
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ClientBuilder = obfs4::ClientBuilder;
     type ServerBuilder = obfs4::ServerBuilder;
@@ -40,11 +48,11 @@ where
 
 impl<T> ptrs::ServerBuilder<T> for obfs4::ServerBuilder
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ServerPT = obfs4::Server;
     type Error = Error;
-    type Transport = Transport;
+    type Transport = Transport<T>;
 
     /// A path where the launched PT can store state.
     fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
@@ -53,7 +61,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, _opts: &Args) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
@@ -88,11 +96,11 @@ where
 
 impl<T> ptrs::ClientBuilderByTypeInst<T> for obfs4::ClientBuilder
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ClientPT = obfs4::Client;
     type Error = Error;
-    type Transport = Transport;
+    type Transport = Transport<T>;
 
     /// A path where the launched PT can store state.
     fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
@@ -101,7 +109,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, _opts: &Args) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
@@ -138,7 +146,7 @@ where
 /// unmodified as a proof of concept.
 impl<InRW, InErr> ptrs::ClientTransport<InRW, InErr> for obfs4::Client
 where
-    InRW: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
 {
     type OutRW = Obfs4Stream<InRW>;
@@ -156,7 +164,7 @@ where
 
 impl<InRW> ptrs::ServerTransport<InRW> for obfs4::Server
 where
-    InRW: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type OutRW = Obfs4Stream<InRW>;
     type OutErr = Error;

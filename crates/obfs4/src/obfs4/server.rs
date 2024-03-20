@@ -34,7 +34,7 @@ use tracing::{debug, info};
 
 pub struct ServerBuilder {
     pub iat_mode: IAT,
-    pub statefile_location: Option<String>,
+    pub statefile_path: Option<String>,
     pub(crate) identity_keys: Obfs4NtorSecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -44,7 +44,7 @@ impl Default for ServerBuilder {
         let identity_keys = Obfs4NtorSecretKey::getrandom();
         Self {
             iat_mode: IAT::Off,
-            statefile_location: None,
+            statefile_path: None,
             identity_keys,
             handshake_timeout: MaybeTimeout::Default_,
         }
@@ -64,7 +64,7 @@ impl ServerBuilder {
         Ok(Self {
             iat_mode: IAT::Off,
             identity_keys,
-            statefile_location: Some(location.into()),
+            statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
@@ -81,7 +81,7 @@ impl ServerBuilder {
         Ok(Self {
             iat_mode: IAT::Off,
             identity_keys,
-            statefile_location: None,
+            statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
@@ -96,8 +96,8 @@ impl ServerBuilder {
         self
     }
 
-    pub fn statefile_location(mut self, path: &str) -> Self {
-        self.statefile_location = Some(path.into());
+    pub fn statefile_path(mut self, path: &str) -> Self {
+        self.statefile_path = Some(path.into());
         self
     }
 
@@ -216,7 +216,7 @@ impl Server {
             station_pubkey: *self.identity_keys.pk.pk.as_bytes(),
             station_id: self.identity_keys.pk.id.as_bytes().try_into().unwrap(),
             iat_mode: self.iat_mode,
-            statefile_location: None,
+            statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
     }

@@ -13,7 +13,7 @@ pub mod traits;
 pub mod tunnel_mgr;
 
 mod pt;
-pub use pt::Transport;
+pub use pt::{Obfs4PT, Transport};
 
 mod error;
 pub use error::{Error, Result};

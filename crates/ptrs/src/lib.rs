@@ -21,7 +21,10 @@ pub mod args;
 mod helpers;
 pub use helpers::*;
 
-pub trait PluggableTransport<T> {
+pub trait PluggableTransport<T>
+where
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     type ClientBuilder: ClientBuilderByTypeInst<T>;
     type ServerBuilder: ServerBuilder<T>;
     // type Client: ClientTransport<T, E>;
@@ -42,7 +45,10 @@ pub trait PluggableTransport<T> {
 
 // Struct builder, passed by type and then built from default for each client
 // with params baked in as builder pattern.
-pub trait ClientBuilderByTypeInst<T>: Default {
+pub trait ClientBuilderByTypeInst<T>: Default
+where
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     type Error: std::error::Error + Send + Sync;
     type ClientPT: ClientTransport<T, Self::Error>;
     type Transport;
@@ -52,7 +58,7 @@ pub trait ClientBuilderByTypeInst<T>: Default {
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, opts: &str) -> Result<&mut Self, Self::Error>;
+    fn options(&mut self, opts: &args::Args) -> Result<&mut Self, Self::Error>;
 
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.
@@ -76,7 +82,10 @@ pub trait ClientBuilderByTypeInst<T>: Default {
 }
 
 /// Client Transport trait1
-pub trait ClientTransport<InRW, InErr> {
+pub trait ClientTransport<InRW, InErr>
+where
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     type OutRW: AsyncRead + AsyncWrite + Send + Unpin;
     type OutErr: std::error::Error + Send + Sync;
     type Builder: ClientBuilderByTypeInst<InRW>;
@@ -98,7 +107,10 @@ pub trait ClientTransport<InRW, InErr> {
 /// Server Transport trait1 - try using objects so we can accept and then
 /// handshake (proxy equivalent of accept) as separate steps by the transport
 /// user.
-pub trait ServerTransport<InRW> {
+pub trait ServerTransport<InRW>
+where
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     type OutRW: AsyncRead + AsyncWrite + Send + Unpin;
     type OutErr: std::error::Error + Send + Sync;
     type Builder: ServerBuilder<InRW>;
@@ -115,7 +127,10 @@ pub trait ServerTransport<InRW> {
     fn method_name() -> String;
 }
 
-pub trait ServerBuilder<T>: Default {
+pub trait ServerBuilder<T>: Default
+where
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     type ServerPT: ServerTransport<T>;
     type Error: std::error::Error;
     type Transport;
@@ -125,7 +140,7 @@ pub trait ServerBuilder<T>: Default {
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, opts: &str) -> Result<&mut Self, Self::Error>;
+    fn options(&mut self, opts: &args::Args) -> Result<&mut Self, Self::Error>;
 
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.

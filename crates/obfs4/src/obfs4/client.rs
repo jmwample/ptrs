@@ -33,7 +33,7 @@ pub struct ClientBuilder {
     pub iat_mode: IAT,
     pub station_pubkey: [u8; KEY_LENGTH],
     pub station_id: [u8; NODE_ID_LENGTH],
-    pub statefile_location: Option<String>,
+    pub statefile_path: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
 
@@ -43,7 +43,7 @@ impl Default for ClientBuilder {
             iat_mode: IAT::Off,
             station_pubkey: [0u8; KEY_LENGTH],
             station_id: [0_u8; NODE_ID_LENGTH],
-            statefile_location: None,
+            statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
     }
@@ -56,7 +56,7 @@ impl ClientBuilder {
             iat_mode: IAT::Off,
             station_pubkey: [0_u8; KEY_LENGTH],
             station_id: [0_u8; NODE_ID_LENGTH],
-            statefile_location: Some(location.into()),
+            statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
@@ -67,7 +67,7 @@ impl ClientBuilder {
             iat_mode: IAT::Off,
             station_pubkey: [0_u8; KEY_LENGTH],
             station_id: [0_u8; NODE_ID_LENGTH],
-            statefile_location: None,
+            statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
@@ -77,8 +77,8 @@ impl ClientBuilder {
         self
     }
 
-    pub fn with_statefile_location(mut self, path: &str) -> Self {
-        self.statefile_location = Some(path.into());
+    pub fn with_statefile_path(mut self, path: &str) -> Self {
+        self.statefile_path = Some(path.into());
         self
     }
 

@@ -4,7 +4,7 @@ pub struct Passthrough {}
 
 impl<T> PluggableTransport<T> for Passthrough
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ClientBuilder = BuilderC;
     type ServerBuilder = BuilderS;
@@ -31,7 +31,7 @@ pub struct BuilderS {}
 
 impl<T> ServerBuilder<T> for BuilderS
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type Error = std::io::Error;
     type ServerPT = Passthrough;
@@ -44,7 +44,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
@@ -82,7 +82,7 @@ pub struct BuilderC {}
 
 impl<T> ClientBuilderByTypeInst<T> for BuilderC
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ClientPT = Passthrough;
     type Error = std::io::Error;
@@ -95,7 +95,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &str) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
@@ -132,7 +132,7 @@ where
 /// unmodified as a proof of concept.
 impl<InRW> ClientTransport<InRW, std::io::Error> for Passthrough
 where
-    InRW: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type OutRW = InRW;
     type OutErr = std::io::Error;
@@ -158,7 +158,7 @@ where
 //
 impl<RW> ServerTransport<RW> for Passthrough
 where
-    RW: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    RW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type OutRW = RW;
     type OutErr = std::io::Error;
@@ -233,6 +233,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
         P::ClientBuilder: ClientBuilderByTypeInst<T>,
         <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
@@ -309,6 +310,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         B: ClientBuilderByTypeInst<T>,
         B::ClientPT: ClientTransport<T, E>,
         B::Error: std::error::Error + 'static,
@@ -382,6 +384,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
         P::ClientBuilder: ClientBuilderByTypeInst<T>,
         <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
@@ -455,7 +458,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
-        T: AsyncRead + AsyncWrite + Send,
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         B: ClientBuilderByTypeInst<T>,
         B::ClientPT: ClientTransport<T, E>,
         B::Error: std::error::Error + 'static,
@@ -527,6 +530,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
         P::ClientBuilder: ClientBuilderByTypeInst<T>,
         <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT: ServerTransport<T>,
@@ -605,7 +609,7 @@ mod design_tests {
         Box<dyn std::error::Error>,
     >
     where
-        T: AsyncRead + AsyncWrite + Send,
+        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         B: ServerBuilder<T>,
         B::ServerPT: ServerTransport<T>,
         B::Error: std::error::Error + 'static,

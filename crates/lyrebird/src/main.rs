@@ -7,6 +7,7 @@
 //!   - use the better copy interactive for bidirectional copy
 #![allow(unused, dead_code)]
 
+use obfs4::Obfs4PT;
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
 use anyhow::{anyhow, Context, Result};
@@ -219,6 +220,7 @@ async fn client_setup(
     statedir: &str,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
+    let pt_name = Obfs4PT::name();
     let client_pt_info = ptrs::ClientInfo::new()?;
     let proxy_uri = client_pt_info.uri.ok_or(BridgeLineParseError)?;
     let (tx, rx) = oneshot::channel::<bool>();
@@ -234,16 +236,11 @@ async fn client_setup(
     //             continue
     //         }
     //     };
-    if !client_pt_info
-        .methods
-        .contains(&obfs4::Transport::NAME.to_string())
-    {
+    if !client_pt_info.methods.contains(&pt_name) {
         error!("cannot launch unrecognized pluggable transports")
     }
 
-    let builder =
-        <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ClientBuilder::default();
-    let pt_name = <obfs4::Transport as PluggableTransport<TcpStream>>::name();
+    let builder = Obfs4PT::client_builder();
     let listener = tokio::net::TcpListener::bind(CLIENT_SOCKS_ADDR).await?;
 
     tokio::spawn(async move {
@@ -438,7 +435,7 @@ async fn server_setup(
     statedir: &str,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
-    let obfs4_name = <obfs4::Transport as PluggableTransport<TcpStream>>::name();
+    let obfs4_name = Obfs4PT::name();
 
     let server_info = ptrs::ServerInfo::new()?;
     let (tx, rx) = oneshot::channel::<bool>();
@@ -452,18 +449,34 @@ async fn server_setup(
             continue;
         }
 
-        let server =
-            <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ServerBuilder::default()
-                .statefile_location(statedir)
-                .options(bind_addr.options)?
-                .build();
+        // let mut builder = <obfs4::Transport as ptrs::PluggableTransport<TcpStream>>::ServerBuilder::default();
+        let mut builder = Obfs4PT::server_builder();
+        // let server = builder.statefile_location(statedir)?
+        //     .options(bind_addr.options)?
+        //     .build();
+        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::statefile_location(
+            &mut builder,
+            statedir,
+        )?;
+        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
+            &mut builder,
+            &bind_addr.options,
+        )?;
+        let server = builder.build();
 
         let listener = tokio::net::TcpListener::bind(bind_addr.addr).await?;
-        listeners.push(server_listen_loop(listener, server, cancel_token.clone()));
+        listeners.push(server_listen_loop::<TcpStream, _>(
+            listener,
+            server,
+            cancel_token.clone(),
+        ));
     }
 
     // spawn a task that runs and monitors the progress of the listeners.
     tokio::spawn(async move {
+        let total_len = listeners.len();
+        let mut running = total_len;
+
         // launch all listener futures
         let mut pt_set = JoinSet::new();
         for fut in listeners {
@@ -471,13 +484,12 @@ async fn server_setup(
         }
 
         // if any of the listeners exit, handle it
-        let mut running = listeners.len();
         while let Some(res) = pt_set.join_next().await {
             running -= 1;
             if let Err(e) = res {
                 warn!("listener failed: {e}");
             }
-            info!("{running}/{} listeners running", listeners.len());
+            info!("{running}/{total_len} listeners running");
         }
 
         // if all listeners exit then we can send the tx signal.
@@ -494,9 +506,9 @@ async fn server_listen_loop<In, S>(
 ) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
-    In: AsyncRead + AsyncWrite + Send + Unpin,
+    In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     // The provided S must be usable as a Pluggable Transport Server.
-    S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream>,
+    S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream> + 'static,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
     let method_name = <S as ServerTransport<In>>::method_name();
@@ -508,7 +520,7 @@ where
                 break
             }
             res = listener.accept() => {
-                let (conn, client_addr) = match res {
+                let (mut conn, client_addr) = match res {
                     Err(e) => {
                        error!("{method_name} closing listener - failed to accept tcp connection {e}");
                        break;
@@ -528,20 +540,21 @@ where
 }
 
 async fn server_handle_connection<In, S>(
-    conn: In,
+    mut conn: In,
     server: Arc<S>,
     client_addr: SocketAddr,
 ) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
-    In: AsyncRead + AsyncWrite + Send + Unpin,
+    In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     // The provided S must be usable as a Pluggable Transport Server.
     S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream>,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
     // let mut conn_pt = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
 
-    let mut conn_or = server.connect_to_or().await?;
+    // let mut conn_or = server.connect_to_or().await?;
+    let mut conn_or = TcpStream::connect("127.0.0.1:8000").await?;
 
     if let Err(e) = copy_bidirectional(&mut conn, &mut conn_or).await {
         warn!(

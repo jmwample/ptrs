@@ -130,7 +130,7 @@ impl ExitConfig {
         //     server.client_params().as_opts()
         // );
 
-        let t_name = <obfs4::Transport as PluggableTransport<TcpStream>>::name();
+        let t_name = obfs4::Obfs4PT::name();
 
         let sessions = &mut JoinSet::new();
 
