@@ -40,8 +40,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
-use std::net::SocketAddr;
-use std::{env, fs::DirBuilder, os::unix::fs::DirBuilderExt, str::FromStr, sync::Arc};
+use std::{env, net::SocketAddr, str::FromStr, sync::Arc};
 
 // /// The location where the obfs4 server will store its state
 // const SERVER_STATE_LOCATION: &str = "/tmp/arti-pt";
@@ -71,31 +70,6 @@ struct Args {
     /// Disable the address scrubber on logging
     #[arg(long, default_value_t = false)]
     unsafe_logging: bool,
-}
-
-fn is_client() -> Result<bool> {
-    let is_client = env::var_os("TOR_PT_CLIENT_TRANSPORTS");
-    let is_server = env::var_os("TOR_PT_SERVER_TRANSPORTS");
-
-    match (is_client, is_server) {
-        (Some(_), Some(_)) => Err(anyhow!(
-            "ENV-ERROR TOR_PT_[CLIENT,SERVER]_TRANSPORTS both set"
-        )),
-        (Some(_), None) => Ok(true),
-        (None, Some(_)) => Ok(false),
-        (None, None) => Err(anyhow!("not launched as a managed transport")),
-    }
-}
-
-fn make_state_dir() -> Result<String> {
-    let path = env::var("TOR_PT_STATE_LOCATION")
-        .context("missing required TOR_PT_STATE_LOCATION env var")?;
-
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&path)?;
-    Ok(path)
 }
 
 /// initialize the logging receiver(s) for things to be logged into using the
