@@ -1,4 +1,4 @@
-use crate::args::Args;
+use crate::args::{self, Args};
 
 use std::{
     env,
@@ -13,6 +13,8 @@ use itertools::Itertools;
 use tokio::net::TcpStream;
 use tracing::debug;
 use url::Url;
+
+use self::constants::SERVER_TRANSPORT_OPTIONS;
 
 pub mod constants {
     pub const CURRENT_TRANSPORT_VER: &str = "1";
@@ -161,7 +163,10 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
         }
     }
 
-    _ = resolve_addr(spec.host_str())
+    if spec.host_str().is_none() {
+        return Err(to_io_other(format!("proxy URI has missing host")));
+    }
+    let _ = resolve_addr(spec.host_str().unwrap())
         .map_err(|e| to_io_other(format!("proxy URI has invalid host: {e}")))?;
 
     Ok(())
@@ -222,26 +227,26 @@ impl ServerInfo {
 
         let bind_addrs = Bindaddr::get_server_bindaddrs()?;
 
-        let or_add_env = env::var_os(constants::ORPORT).map(|s| s.into_string().unwrap());
-        let or_addr = resolve_addr(or_add_env)
-            .map_err(|e| to_io_other(format!("cannot resolve TOR_PT_ORPORT: {e}")))?;
+        let or_addr = match env::var(constants::ORPORT) {
+            Ok(or_add_env) => Some(
+                resolve_addr(or_add_env)
+                    .map_err(|e| to_io_other(format!("cannot resolve TOR_PT_ORPORT: {e}")))?,
+            ),
+            Err(_) => None, // TOR_PT_ORPORT was not defined
+        };
 
         let auth_cookie_path = env::var(constants::AUTH_COOKIE_FILE).ok();
 
-        let ext_or_addr_env =
-            env::var_os(constants::EXTENDED_SERVER_PORT).map(|s| s.into_string().unwrap());
+        let extended_or_addr = match env::var(constants::EXTENDED_SERVER_PORT) {
+            Ok(ext_or_addr_env) => Some(resolve_addr(ext_or_addr_env).map_err(|e| {
+                to_io_other(format!("cannot resolve TOR_PT_EXTENDED_SERVER_PORT: {e}"))
+            })?),
+            Err(_) => None, // TOR_PT_EXTENDED_SERVER_PORT was not defined
+        };
 
-        if ext_or_addr_env.clone().is_some_and(|s| !s.is_empty()) && auth_cookie_path.is_none() {
+        if !extended_or_addr.is_none() && auth_cookie_path.is_none() {
             return Err(to_io_other("need TOR_PT_AUTH_COOKIE_FILE environment variable with TOR_PT_EXTENDED_SERVER_PORT"));
         }
-
-        // let _cookie = match auth_cookie_path {
-        //     Some(path) => Some(read_auth_cookie_file(path)?),
-        //     None => None,
-        // };
-
-        let extended_or_addr = resolve_addr(ext_or_addr_env)
-            .map_err(|e| to_io_other(format!("cannot resolve TOR_PT_EXTENDED_SERVER_PORT: {e}")))?;
 
         // Need either OrAddr or ExtendedOrAddr.
         if or_addr.is_none() && extended_or_addr.is_none() {
@@ -270,29 +275,75 @@ pub struct Bindaddr {
 }
 
 impl Bindaddr {
+    pub fn new(method: &str, addr: SocketAddr, options: Args) -> Self {
+        Self {
+            method_name: method.into(),
+            addr,
+            options,
+        }
+    }
+
+    /// Return an array of Bindaddrs, being the contents of TOR_PT_SERVER_BINDADDR
+    /// with keys filtered by TOR_PT_SERVER_TRANSPORTS. Transport-specific options
+    /// from TOR_PT_SERVER_TRANSPORT_OPTIONS are assigned to the Options member.
     pub(crate) fn get_server_bindaddrs() -> Result<Vec<Self>, Error> {
-        todo!()
-        // Ok(vec![])
+        // parse the list of server transport options
+        let server_transport_opts = env::var(SERVER_TRANSPORT_OPTIONS).unwrap_or(String::new());
+
+        let mut options_map = args::Opts::parse_server_transport_options(&server_transport_opts)
+            .map_err(|e| {
+                to_io_other(format!(
+                    "TOR_PT_SERVER_TRANSPORT_OPTIONS: {server_transport_opts}: \"{e}\""
+                ))
+            })?;
+
+        // get the list of all requested bindaddrs
+        let server_bindaddr = env::var(constants::SERVER_BINDADDR).map_err(to_io_other)?;
+
+        let mut results = Vec::new();
+        let mut seen_methods = Vec::new();
+        for spec in server_bindaddr.split(',') {
+            let parts = server_bindaddr.split_once('-');
+            if parts.is_none() {
+                return Err(to_io_other(format!(
+                    "TPR_PT_SERVER_BINDADDR: {spec} doesn't contain \"-\""
+                )));
+            }
+            let (method_name, addr) = parts.unwrap();
+
+            // Check for duplicate method names: "Application MUST NOT set more
+            // than one <address>:<port> pair per PT name."
+            if seen_methods.contains(&method_name) {
+                return Err(to_io_other(format!(
+                    "TPR_PT_SERVER_BINDADDR: {spec} duplicate method name {method_name}"
+                )));
+            }
+            seen_methods.push(method_name);
+            let address = resolve_addr(addr)
+                .map_err(|e| to_io_other(format!("TOR_PT_SERVER_BINDADDR: {spec}: {e}")))?;
+
+            results.push(Bindaddr::new(
+                method_name,
+                address,
+                options_map.remove(method_name).unwrap_or_default(),
+            ));
+        }
+        let server_transports = env::var(constants::SERVER_TRANSPORTS).map_err(to_io_other)?;
+
+        let result = filter_bindaddrs(results, &server_transports.split(',').collect_vec());
+        Ok(result)
     }
 }
 
-fn read_auth_cookie(_reader: impl std::io::Read) -> Result<[u8; 32], Error> {
-    todo!()
+fn filter_bindaddrs(addrs: Vec<Bindaddr>, methods: &[&str]) -> Vec<Bindaddr> {
+    addrs
+        .into_iter()
+        .filter(|b| methods.contains(&b.method_name.as_str()))
+        .collect()
 }
 
-/// Read and validate the contents of an auth cookie file. Returns the 32-byte
-/// cookie. See section 2.1.2 of ext-orport-spec.txt.
-fn read_auth_cookie_file(filename: impl AsRef<str>) -> Result<[u8; 32], Error> {
-    let f = std::fs::File::open(filename.as_ref())?;
-    read_auth_cookie(&f)
-}
-
-pub fn resolve_addr(addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>, Error> {
-    if addr.is_none() {
-        return Ok(None);
-    }
-    let a_ref = addr.unwrap();
-    let a = a_ref.as_ref();
+pub fn resolve_addr(addr: impl AsRef<str>) -> Result<SocketAddr, Error> {
+    let a = addr.as_ref();
 
     match SocketAddr::from_str(a) {
         Ok(sock_addr) => {
@@ -303,7 +354,7 @@ pub fn resolve_addr(addr: Option<impl AsRef<str>>) -> Result<Option<SocketAddr>,
             if sock_addr.port() == 0 {
                 return Err(to_io_other(format!("address string {a} lacks a port")));
             }
-            Ok(Some(sock_addr))
+            Ok(sock_addr)
         }
         Err(e) => Err(to_io_other(e)),
     }
@@ -353,16 +404,9 @@ mod test {
 
     #[test]
     fn resolve() -> Result<(), Error> {
-        let good: Vec<(Option<&str>, Option<SocketAddr>)> = vec![
-            (None, None),
-            (
-                Some("127.0.0.1:8080"),
-                Some("127.0.0.1:8080".parse().unwrap()),
-            ),
-            (
-                Some("[1234::cdef]:9000"),
-                Some("[1234::cdef]:9000".parse().unwrap()),
-            ),
+        let good: Vec<(&str, SocketAddr)> = vec![
+            ("127.0.0.1:8080", "127.0.0.1:8080".parse().unwrap()),
+            ("[1234::cdef]:9000", "[1234::cdef]:9000".parse().unwrap()),
         ];
 
         for trial in good {
@@ -380,11 +424,15 @@ mod test {
             "[1234::cdef]",   // no port specified
             "[1234::cdef]:",  // no port specified
             "[1234::cdef]:0", // no port specified
+            "0.0.0.0:9000",   // no address specified
+            "[0::0000]:9000", // no address specified
             ":9000",          // no address specified
+            ":",              // no address specified
+            "",               // no address specified
         ];
 
         for trial in bad {
-            assert!(resolve_addr(Some(trial)).is_err());
+            assert!(resolve_addr(trial).is_err());
         }
         Ok(())
     }

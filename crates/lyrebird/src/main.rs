@@ -111,11 +111,12 @@ fn init_logging_recvr(
     Ok(())
 }
 
-fn resolve_target_addr(addr: &TargetAddr) -> Result<Option<SocketAddr>> {
+fn resolve_target_addr(addr: &TargetAddr) -> Result<SocketAddr> {
     match addr {
-        TargetAddr::Ip(sa) => Ok(Some(*sa)),
+        TargetAddr::Ip(sa) => Ok(*sa),
         TargetAddr::Domain(_, _) => {
-            ptrs::resolve_addr(Some(format!("{addr}"))).context("domain resolution failed")
+            // this will always fail because ptrs does not do dns lookups.
+            ptrs::resolve_addr(format!("{addr}")).context("domain resolution failed")
         }
     }
 }
@@ -128,7 +129,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Make state directory
-    let statedir = make_state_dir()?;
+    let statedir = ptrs::make_state_dir()?;
 
     // launch tracing subscriber with filter level
     init_logging_recvr(
@@ -141,7 +142,7 @@ async fn main() -> Result<()> {
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     // launch runners
-    let mut exit_rx = if is_client()? {
+    let mut exit_rx = if ptrs::is_client()? {
         // running as CLIENT
         client_setup(&statedir, cancel_token.clone()).await?
     } else {
@@ -311,9 +312,7 @@ where
     //     return
     // }
 
-    let remote_addr = resolve_target_addr(target_addr)?
-        .ok_or(BridgeLineParseError)
-        .context("no remote address")?;
+    let remote_addr = resolve_target_addr(target_addr).context("no remote address")?;
 
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
@@ -418,9 +417,7 @@ where
         _ => return Err(anyhow!("negotiated unsupported authentication method")),
     };
 
-    let remote_addr = resolve_target_addr(target_addr)?
-        .ok_or(BridgeLineParseError)
-        .context("no remote address")?;
+    let remote_addr = resolve_target_addr(target_addr).context("no remote address")?;
 
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
