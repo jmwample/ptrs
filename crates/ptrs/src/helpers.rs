@@ -124,9 +124,32 @@ pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
     Ok(Some(uri))
 }
 
+/// When a client connects to the client side of the pluggable transport proxy
+/// they can optionally provide a proxy url in the `TOR_PT_PROXY` environment
+/// variable that will be used as a proxy dialer underneath the pluggable
+/// transport connection.
+///
+/// This function validates that a provided url:
+/// - uses one of `socks4a`, `socks5`, `http` protocols.
+/// - has a defined host field that DOES NOT require dns resolution. (i.e. an IP address)
+/// - DOES NOT have defined `path`, `query`, or `fragment` fields.
+/// - socks5 urls must have non-empty username and password fields.
+/// - if socks4 urls have a password they must have a username.
+#[allow(clippy::collapsible_if)]
 pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
+    const SCHEMES: [&str; 3] = ["socks5", "socks4a", "http"];
+    if !SCHEMES.contains(&spec.scheme()) {
+        return Err(to_io_other(format!(
+            "proxy URI has invalid scheme: {}",
+            spec.scheme()
+        )));
+    }
+
+    // when spec = http the path defaults to "/" instead of empty -_-
     if !spec.path().is_empty() {
-        return Err(to_io_other("proxy URI has a path defined"));
+        if !(spec.scheme() == "http" && spec.path() == "/") {
+            return Err(to_io_other("proxy URI has a path defined "));
+        }
     }
     if spec.query().is_some_and(|s| !s.is_empty()) {
         return Err(to_io_other("proxy URI has a query defined"));
@@ -134,21 +157,27 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
     if spec.fragment().is_some_and(|s| !s.is_empty()) {
         return Err(to_io_other("proxy URI has a fragment defined"));
     }
+    if spec.port().is_none() {
+        return Err(to_io_other("proxy URI lacks a port"));
+    }
 
     match spec.scheme() {
         "socks5" => {
             let username = spec.username();
             let passwd = spec.password();
 
-            if username.is_empty() || username.len() > 255 {
-                return Err(to_io_other("proxy URI specified a invalid SOCKS5 username"));
-            }
-            if passwd.is_none() || passwd.is_some_and(|p| p.is_empty() || p.len() > 255) {
-                return Err(to_io_other("proxy URI specified a invalid SOCKS5 password"));
+            // if either password or username is specified, then both must be non-empty
+            if !username.is_empty() || passwd.is_some() {
+                if username.is_empty() || username.len() > 255 {
+                    return Err(to_io_other("proxy URI specified a invalid SOCKS5 username"));
+                }
+                if passwd.is_none() || passwd.is_some_and(|p| p.is_empty() || p.len() > 255) {
+                    return Err(to_io_other("proxy URI specified a invalid SOCKS5 password"));
+                }
             }
         }
         "socks4a" => {
-            if !spec.username().is_empty() && spec.password().is_some_and(|p| !p.is_empty()) {
+            if spec.password().is_some() {
                 return Err(to_io_other("proxy URI specified SOCKS4a and a password"));
             }
         }
@@ -164,7 +193,12 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
     if spec.host_str().is_none() {
         return Err(to_io_other("proxy URI has missing host"));
     }
-    let _ = resolve_addr(spec.host_str().unwrap())
+
+    // not sure how better to combine host port.
+    let mut sockaddr_string = String::from(spec.host_str().unwrap());
+    sockaddr_string.push(':');
+    sockaddr_string.push_str(&format!("{}", spec.port().unwrap()));
+    let _ = resolve_addr(&sockaddr_string)
         .map_err(|e| to_io_other(format!("proxy URI has invalid host: {e}")))?;
 
     Ok(())
@@ -358,7 +392,6 @@ fn filter_bindaddrs(addrs: Vec<Bindaddr>, methods: &[&str]) -> Vec<Bindaddr> {
 
 pub fn resolve_addr(addr: impl AsRef<str>) -> Result<SocketAddr, Error> {
     let a = addr.as_ref();
-
     match SocketAddr::from_str(a) {
         Ok(sock_addr) => {
             if sock_addr.ip().is_unspecified() {
@@ -370,7 +403,7 @@ pub fn resolve_addr(addr: impl AsRef<str>) -> Result<SocketAddr, Error> {
             }
             Ok(sock_addr)
         }
-        Err(e) => Err(to_io_other(e)),
+        Err(e) => Err(to_io_other(format!("\"{a}\" - {e}"))),
     }
 }
 
@@ -538,8 +571,79 @@ mod test {
 
     #[test]
     fn validate_url() -> Result<(), Error> {
-        let url = validate_proxy_url(&Url::parse("socks5://example.com/").unwrap());
-        assert!(url.is_ok());
+        // This function validates that a provided url:
+        // - uses one of `socks4a`, `socks5`, `http` protocols.
+        // - has a defined host field that DOES NOT require dns resolution. (i.e. an IP address)
+        // - DOES NOT have defined `path`, `query`, or `fragment` fields.
+        // - socks5 urls must have non-empty username and password fields.
+        // - if socks4 urls have a password they must have a username.
+
+        let bad_url = vec!["asdals;kdmma", "http/example.com", "127.0.0.1:8080"];
+
+        let bad = vec![
+            "socks5://admin:admin@1.2.3.4:",
+            "ftp://127.0.0.1:8000",              // invalid protocol
+            "socks5://aaa:bbb@1.2.3.4:80/a/b/c", // includes path
+            "socks5://aaa:bbb@1.2.3.4:80/?labels=E-easy&state=open", // includes query
+            "socks5://aaa:bbb@1.2.3.4:80#row=4", // includes fragment
+            "socks5://myhost",                   // no username / password
+            "socks5://myproxy:8080",             // uses non-IP host alias
+            "socks5://aaa:bbb@myhost.com:8888",  // uses domain name
+            "socks5://aaa:bbb@myhost",           // uses non-IP host alias
+            "socks4a://:admin@1.2.3.4:8080",     // no username, but password defined
+            "http://admin:admin@example.com",
+            "socks5://1.2.3.4", // no port
+            "socks5://[1:2::3:4]",
+            "socks5://admin:admin@1.2.3.4",
+            "socks4a://1.2.3.4",
+            "socks4a://[1:2::3:4]",
+            "socks5://admin:admin@[1:2::3:4]",
+            "socks4a://admin:admin@1.2.3.4:8080", // socks4 with password
+            "socks4a://:admin@1.2.3.4:8080",      // socks4a with password
+            "socks5://admin@[1:2::3:4]:9000",     // socks5 with username, but no password
+            "socks5://:admin@[1:2::3:4]:9000",    // socks5 wuth password, but no username
+        ];
+
+        let good = vec![
+            "socks5://127.0.0.1:8080",
+            "socks5://1.2.3.4:8080",
+            "socks5://[1:2::3:4]:8080",
+            "socks5://admin:admin@1.2.3.4:8080",
+            "socks5://admin:admin@1.2.3.4:8080",
+            "socks5://admin:admin@[1:2::3:4]:9000",
+            "socks4a://1.2.3.4:8080",
+            "socks4a://[1:2::3:4]:8080",
+            "socks4a://admin@1.2.3.4:8080",
+            "http://1.2.3.4:8080",
+            "http://[1:2::3:4]:8080",
+            "http://admin@1.2.3.4:8080",
+            "http://admin:admin@1.2.3.4:8080",
+        ];
+
+        for trial in bad_url {
+            let url = Url::parse(trial);
+            assert!(
+                url.is_err(),
+                "\"{trial}\" unexpectedly succeeded in parsing: {url:?}"
+            );
+        }
+
+        for trial in bad {
+            let url = Url::parse(trial).unwrap();
+            assert!(
+                validate_proxy_url(&url).is_err(),
+                "\"{trial}\" unexpectedly succeeded validation: {url:?}"
+            );
+        }
+
+        for trial in good {
+            let url = Url::parse(trial).unwrap();
+            let res = validate_proxy_url(&url);
+            assert!(
+                res.is_ok(),
+                "\"{trial}\" unexpectedly failed to validate: {res:?}"
+            );
+        }
 
         Ok(())
     }
