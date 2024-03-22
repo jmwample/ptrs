@@ -54,7 +54,7 @@ macro_rules! args {
             let _cap = count!(@count $($key),*);
             let mut _map = ::std::collections::HashMap::with_capacity(_cap);
             $(
-                let _ = _map.insert($key, $value);
+                let _ = _map.insert($key.to_string(), $value.iter().map(|s| s.to_string()).collect());
             )*
             Args(_map)
         }
@@ -80,7 +80,7 @@ macro_rules! hashmap {
 /// Arguments maintained as a map of string keys to a list of values.
 /// It is similar to url.Values.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Args(HashMap<String, Vec<String>>);
+pub struct Args(pub(crate) HashMap<String, Vec<String>>);
 
 impl Args {
     pub fn new() -> Self {

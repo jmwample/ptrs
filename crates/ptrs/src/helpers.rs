@@ -1,4 +1,4 @@
-use crate::args::{self, Args};
+use crate::args::{Args, Opts};
 
 use std::{
     env,
@@ -13,8 +13,6 @@ use itertools::Itertools;
 use tokio::net::TcpStream;
 use tracing::debug;
 use url::Url;
-
-use self::constants::SERVER_TRANSPORT_OPTIONS;
 
 pub mod constants {
     pub const CURRENT_TRANSPORT_VER: &str = "1";
@@ -46,6 +44,9 @@ pub(crate) fn get_managed_transport_ver() -> Result<String, Error> {
     Err(to_io_other("no-version"))
 }
 
+/// Determines if the current program should be running as a client or server
+/// by checking the `TOR_PT_CLIENT_TRANSPORTS` and `TOR_PT_SERVER_TRANSPORTS`
+/// environment variables.
 pub fn is_client() -> Result<bool, Error> {
     let is_client = env::var_os(constants::CLIENT_TRANSPORTS);
     let is_server = env::var_os(constants::SERVER_TRANSPORTS);
@@ -104,10 +105,7 @@ impl ClientInfo {
 
 pub(crate) fn get_client_transports() -> Result<Vec<String>, Error> {
     let client_transports = env::var(constants::CLIENT_TRANSPORTS).map_err(to_io_other)?;
-    Ok(client_transports
-        .split(',')
-        .map(|s| String::from(s))
-        .collect_vec())
+    Ok(client_transports.split(',').map(String::from).collect_vec())
 }
 
 pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
@@ -164,7 +162,7 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
     }
 
     if spec.host_str().is_none() {
-        return Err(to_io_other(format!("proxy URI has missing host")));
+        return Err(to_io_other("proxy URI has missing host"));
     }
     let _ = resolve_addr(spec.host_str().unwrap())
         .map_err(|e| to_io_other(format!("proxy URI has invalid host: {e}")))?;
@@ -244,7 +242,7 @@ impl ServerInfo {
             Err(_) => None, // TOR_PT_EXTENDED_SERVER_PORT was not defined
         };
 
-        if !extended_or_addr.is_none() && auth_cookie_path.is_none() {
+        if extended_or_addr.is_some() && auth_cookie_path.is_none() {
             return Err(to_io_other("need TOR_PT_AUTH_COOKIE_FILE environment variable with TOR_PT_EXTENDED_SERVER_PORT"));
         }
 
@@ -288,9 +286,10 @@ impl Bindaddr {
     /// from TOR_PT_SERVER_TRANSPORT_OPTIONS are assigned to the Options member.
     pub(crate) fn get_server_bindaddrs() -> Result<Vec<Self>, Error> {
         // parse the list of server transport options
-        let server_transport_opts = env::var(SERVER_TRANSPORT_OPTIONS).unwrap_or(String::new());
+        let server_transport_opts =
+            env::var(constants::SERVER_TRANSPORT_OPTIONS).unwrap_or_default();
 
-        let mut options_map = args::Opts::parse_server_transport_options(&server_transport_opts)
+        let mut options_map = Opts::parse_server_transport_options(&server_transport_opts)
             .map_err(|e| {
                 to_io_other(format!(
                     "TOR_PT_SERVER_TRANSPORT_OPTIONS: {server_transport_opts}: \"{e}\""
@@ -299,11 +298,17 @@ impl Bindaddr {
 
         // get the list of all requested bindaddrs
         let server_bindaddr = env::var(constants::SERVER_BINDADDR).map_err(to_io_other)?;
+        if server_bindaddr.is_empty() {
+            return Err(to_io_other(format!(
+                "no \"{}\" environment variable value",
+                constants::SERVER_BINDADDR
+            )));
+        }
 
         let mut results = Vec::new();
         let mut seen_methods = Vec::new();
         for spec in server_bindaddr.split(',') {
-            let parts = server_bindaddr.split_once('-');
+            let parts = spec.split_once('-');
             if parts.is_none() {
                 return Err(to_io_other(format!(
                     "TPR_PT_SERVER_BINDADDR: {spec} doesn't contain \"-\""
@@ -329,6 +334,12 @@ impl Bindaddr {
             ));
         }
         let server_transports = env::var(constants::SERVER_TRANSPORTS).map_err(to_io_other)?;
+        if server_transports.is_empty() {
+            return Err(to_io_other(format!(
+                "no \"{}\" environment variable value",
+                constants::SERVER_TRANSPORTS
+            )));
+        }
 
         let result = filter_bindaddrs(results, &server_transports.split(',').collect_vec());
         Ok(result)
@@ -336,6 +347,9 @@ impl Bindaddr {
 }
 
 fn filter_bindaddrs(addrs: Vec<Bindaddr>, methods: &[&str]) -> Vec<Bindaddr> {
+    if methods.is_empty() {
+        return Vec::new();
+    }
     addrs
         .into_iter()
         .filter(|b| methods.contains(&b.method_name.as_str()))
@@ -365,15 +379,114 @@ fn to_io_other(e: impl std::fmt::Display) -> Error {
 }
 
 #[cfg(test)]
+#[serial_test::serial]
 mod test {
     use super::*;
-    use crate::args::Opts;
+
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn statedir() -> Result<(), Error> {
+        todo!();
+        // Ok(())
+    }
 
     #[test]
     fn server_bindaddrs() -> Result<(), Error> {
-        let args = Opts::parse_server_transport_options("").map_err(to_io_other)?;
-        assert!(!args.is_empty());
+        // // test with env vars unset
+        // assert_eq!(Bindaddr::get_server_bindaddrs().unwrap_err(), env::VarError);
+        assert!(Bindaddr::get_server_bindaddrs().is_err());
 
+        let bad = vec![
+            // bad TOR_PT_SERVER_BINDADDR
+            ("alpha", "alpha", ""),
+            ("alpha-1.2.3.4", "alpha", ""),
+            // missing TOR_PT_SERVER_TRANSPORTS
+            ("alpha-1.2.3.4:1111", "", "alpha:key=value"),
+            // bad TOR_PT_SERVER_TRANSPORT_OPTIONS
+            ("alpha-1.2.3.4:1111", "alpha", "key=value"),
+            // no escaping is defined for TOR_PT_SERVER_TRANSPORTS or
+            // TOR_PT_SERVER_BINDADDR.
+            (r"alpha\,beta-1.2.3.4:1111", r"alpha\,beta", ""),
+            // duplicates in TOR_PT_SERVER_BINDADDR
+            // https://bugs.torproject.org/21261
+            (r"alpha-0.0.0.0:1234,alpha-[::]:1234", r"alpha", ""),
+            (r"alpha-0.0.0.0:1234,alpha-0.0.0.0:1234", r"alpha", ""),
+        ];
+
+        for trial in bad {
+            env::set_var(constants::SERVER_BINDADDR, trial.0);
+            env::set_var(constants::SERVER_TRANSPORTS, trial.1);
+            env::set_var(constants::SERVER_TRANSPORT_OPTIONS, trial.2);
+            assert!(
+                Bindaddr::get_server_bindaddrs().is_err(),
+                "{:?} unexpectedly succeeded",
+                trial
+            );
+        }
+
+        let good = vec![
+            (
+                "alpha-1.2.3.4:1111,beta-[1:2::3:4]:2222",
+                "alpha,beta,gamma",
+                "alpha:k1=v1;beta:k2=v2;gamma:k3=v3",
+                vec![
+                    Bindaddr::new(
+                        "alpha",
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 1111),
+                        args! {"k1"=>["v1"]},
+                    ),
+                    Bindaddr::new(
+                        "beta",
+                        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(1, 2, 0, 0, 0, 0, 3, 4)), 2222),
+                        args! {"k2"=>["v2"]},
+                    ),
+                ],
+            ),
+            ("alpha-1.2.3.4:1111", "xxx", "", vec![]),
+            (
+                "alpha-1.2.3.4:1111",
+                "alpha,beta,gamma",
+                "",
+                vec![Bindaddr::new(
+                    "alpha",
+                    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 1111),
+                    Args::default(),
+                )],
+            ),
+            (
+                "trebuchet-127.0.0.1:1984,ballista-127.0.0.1:4891",
+                "trebuchet,ballista",
+                "trebuchet:secret=nou;trebuchet:cache=/tmp/cache;ballista:secret=yes",
+                vec![
+                    Bindaddr::new(
+                        "trebuchet",
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1984),
+                        args! {"secret"=>["nou"], "cache"=>["/tmp/cache"]},
+                    ),
+                    Bindaddr::new(
+                        "ballista",
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4891),
+                        args!("secret"=>["yes"]),
+                    ),
+                ],
+            ),
+            // In the past, "*" meant to return all known transport names.
+            // But now it has no special meaning.
+            // https://bugs.torproject.org/15612
+            ("alpha-1.2.3.4:1111,beta-[1:2::3:4]:2222", "*", "", vec![]),
+        ];
+
+        for trial in good {
+            env::set_var(constants::SERVER_BINDADDR, trial.0);
+            env::set_var(constants::SERVER_TRANSPORTS, trial.1);
+            env::set_var(constants::SERVER_TRANSPORT_OPTIONS, trial.2);
+
+            let out = Bindaddr::get_server_bindaddrs();
+            assert!(out.is_ok(), "{:?} unexpectedly failed: {out:?}", trial);
+
+            assert_eq!(out.unwrap(), trial.3);
+        }
         Ok(())
     }
 
@@ -386,50 +499,78 @@ mod test {
     }
 
     #[test]
-    fn get_server_info() -> Result<(), Error> {
-        let si = ServerInfo::new()?;
-        assert!(si.auth_cookie_path.is_none());
+    fn client_transports() -> Result<(), Error> {
+        let tests: Vec<(&str, Vec<&str>)> = vec![
+            ("alpha", vec!["alpha"]),
+            ("alpha,beta", vec!["alpha", "beta"]),
+            ("alpha,beta,gamma", vec!["alpha", "beta", "gamma"]),
+            // In the past, "*" meant to return all known transport names.
+            // But now it has no special meaning.
+            // https://bugs.torproject.org/15612
+            ("*", vec!["*"]),
+            ("alpha,*,gamma", vec!["alpha", "*", "gamma"]),
+            // No escaping is defined for TOR_PT_CLIENT_TRANSPORTS.
+            ("alpha\\,beta", vec!["alpha\\", "beta"]),
+        ];
 
-        Ok(())
-    }
-
-    #[test]
-    fn get_client_info() -> Result<(), Error> {
-        let ci = ClientInfo::new()?;
-        assert!(ci.uri.is_none());
-        assert!(!ci.methods.is_empty());
+        for trial in tests {
+            env::set_var(constants::CLIENT_TRANSPORTS, trial.0);
+            let result = get_client_transports()?;
+            assert_eq!(result, trial.1);
+        }
 
         Ok(())
     }
 
     #[test]
     fn resolve() -> Result<(), Error> {
+        let bad = vec![
+            "",
+            "1.2.3.4",
+            "1.2.3.4:",
+            "9999",
+            ":9999",
+            "[1:2::3:4]",
+            "[1:2::3:4]:",
+            "[1::2::3:4]",
+            "1:2::3:4::9999",
+            "1:2::3:4:9999", // moved from good cases since this is not proper format
+            "1:2:3:4::9999",
+            "localhost:9999",
+            "[localhost]:9999",
+            "1.2.3.4:http",
+            "1.2.3.4:0x50",
+            "1.2.3.4:-65456",
+            "1.2.3.4:65536",
+            "1.2.3.4:80\x00",
+            "1.2.3.4:80 ",
+            " 1.2.3.4:80",
+            "1.2.3.4 : 80",
+            "www.google.com", // not a socket address (domain)
+            "google.com:443", // not a socket address (domain)
+            "0.0.0.0:9000",   // no address specified
+            "[0::0000]:9000", // no address specified
+            "127.0.0.1:0",    // no port specified
+            "[1234::cdef]:0", // no port specified
+            "127.0.0",        // not an address
+        ];
         let good: Vec<(&str, SocketAddr)> = vec![
-            ("127.0.0.1:8080", "127.0.0.1:8080".parse().unwrap()),
-            ("[1234::cdef]:9000", "[1234::cdef]:9000".parse().unwrap()),
+            (
+                "1.2.3.4:9999",
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 9999),
+            ),
+            (
+                "[1:2::3:4]:9999",
+                SocketAddr::new(IpAddr::V6(Ipv6Addr::new(1, 2, 0, 0, 0, 0, 3, 4)), 9999),
+            ),
+            // // this is not a properly formatted ipv6 address
+            // ("1:2::3:4:9999",SocketAddr::new(IpAddr::V6(Ipv6Addr::new(1, 2, 0, 0, 0, 0, 3, 4)), 9999)),
         ];
 
         for trial in good {
             let res = resolve_addr(trial.0).unwrap();
             assert_eq!(res, trial.1);
         }
-
-        let bad = vec![
-            "www.google.com", // not a socket address (domain)
-            "google.com:443", // not a socket address (domain)
-            "127.0.0",        // not an address
-            "127.0.0.1",      // no port specified
-            "127.0.0.1:",     // no port specified
-            "127.0.0.1:0",    // no port specified
-            "[1234::cdef]",   // no port specified
-            "[1234::cdef]:",  // no port specified
-            "[1234::cdef]:0", // no port specified
-            "0.0.0.0:9000",   // no address specified
-            "[0::0000]:9000", // no address specified
-            ":9000",          // no address specified
-            ":",              // no address specified
-            "",               // no address specified
-        ];
 
         for trial in bad {
             assert!(resolve_addr(trial).is_err());
@@ -439,15 +580,19 @@ mod test {
 
     #[test]
     fn managed_ver() -> Result<(), Error> {
-        // contains ver
-        env::set_var(constants::MANAGED_VER, "3,2,1");
-        assert_eq!(get_managed_transport_ver()?, "1");
+        let good = vec!["1", "1,1", "1,2", "2,1", "3,2,1", "3,1,2"];
 
-        // contains ver
-        env::set_var(constants::MANAGED_VER, "3,1,2");
-        assert_eq!(get_managed_transport_ver()?, "1");
+        for trial in good {
+            env::set_var(constants::MANAGED_VER, trial);
+            assert_eq!(
+                get_managed_transport_ver()?,
+                constants::CURRENT_TRANSPORT_VER
+            );
+        }
 
-        // doesn't contains ver
+        env::set_var(constants::MANAGED_VER, "");
+        assert!(get_managed_transport_ver().is_err());
+
         env::set_var(constants::MANAGED_VER, "3,2");
         assert!(get_managed_transport_ver().is_err());
 
