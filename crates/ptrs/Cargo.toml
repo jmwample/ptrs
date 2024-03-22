@@ -15,3 +15,4 @@ url = "2.5.0"
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
 serial_test = "3.0.0"
+tempfile = "3"

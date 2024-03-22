@@ -387,8 +387,54 @@ mod test {
 
     #[test]
     fn statedir() -> Result<(), Error> {
-        todo!();
-        // Ok(())
+        // TOR_PT_STATE_LOCATION not set.
+        env::remove_var(constants::STATE_LOCATION);
+        if make_state_dir().is_ok() {
+            panic!("empty environment unexpectedly succeeded");
+        }
+
+        // Setup the scratch directory.
+        let temp_dir = tempfile::tempdir()?;
+        // temp_dir, err := ioutil.TempDir("", "testmake_state_dir")
+        // if err != nil {
+        //     t.Fatalf("ioutil.TempDir failed: %s", err)
+        // }
+        // defer os.RemoveAll(temp_dir)
+
+        let good = vec![
+            // Already existing directory.
+            temp_dir.path().to_path_buf(),
+            // Nonexistent directory, parent exists.
+            temp_dir.path().join("parentExists"),
+            // Nonexistent directory, parent doesn't exist.
+            temp_dir.path().join("missingParent").join("parentMissing"),
+        ];
+        for trial in good {
+            env::set_var("TOR_PT_STATE_LOCATION", trial.to_str().unwrap());
+            let dir = make_state_dir()?;
+            if dir != trial.to_str().unwrap() {
+                panic!("make_state_dir returned an unexpected path {dir} (expecting {trial:?})");
+            }
+        }
+
+        // Name already exists, but is an ordinary file.
+        let temp_file = temp_dir.path().join("file");
+        let _ = std::fs::File::create(&temp_file)?;
+
+        env::set_var("TOR_PT_STATE_LOCATION", &temp_file);
+        assert!(
+            make_state_dir().is_err(),
+            "make_state_dir with a file unexpectedly succeeded"
+        );
+
+        // Directory name that cannot be created. (Subdir of a file)
+        env::set_var("TOR_PT_STATE_LOCATION", temp_file.join("subDir"));
+        assert!(
+            make_state_dir().is_err(),
+            "make_state_dir with a subdirectory of a file unexpectedly succeeded"
+        );
+
+        Ok(())
     }
 
     #[test]
