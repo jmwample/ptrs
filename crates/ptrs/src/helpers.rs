@@ -419,6 +419,27 @@ mod test {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
+    fn is_client_from_env() -> Result<(), Error> {
+        env::remove_var(constants::CLIENT_TRANSPORTS);
+        env::remove_var(constants::SERVER_TRANSPORTS);
+        assert!(is_client().is_err());
+
+        env::set_var(constants::CLIENT_TRANSPORTS, "trebuchet");
+        env::remove_var(constants::SERVER_TRANSPORTS);
+        assert!(is_client().is_ok_and(|is_client| is_client));
+
+        env::remove_var(constants::CLIENT_TRANSPORTS);
+        env::set_var(constants::SERVER_TRANSPORTS, "trebuchet1");
+        assert!(is_client().is_ok_and(|is_client| !is_client));
+
+        env::set_var(constants::CLIENT_TRANSPORTS, "trebuchet2");
+        env::set_var(constants::SERVER_TRANSPORTS, "trebuchet2");
+        assert!(is_client().is_err());
+
+        Ok(())
+    }
+
+    #[test]
     fn statedir() -> Result<(), Error> {
         // TOR_PT_STATE_LOCATION not set.
         env::remove_var(constants::STATE_LOCATION);
@@ -571,14 +592,15 @@ mod test {
 
     #[test]
     fn validate_url() -> Result<(), Error> {
-        // This function validates that a provided url:
-        // - uses one of `socks4a`, `socks5`, `http` protocols.
-        // - has a defined host field that DOES NOT require dns resolution. (i.e. an IP address)
-        // - DOES NOT have defined `path`, `query`, or `fragment` fields.
-        // - socks5 urls must have non-empty username and password fields.
-        // - if socks4 urls have a password they must have a username.
+        env::remove_var(constants::PROXY);
+        assert!(get_proxy_url().is_ok_and(|url| url.is_none()));
 
-        let bad_url = vec!["asdals;kdmma", "http/example.com", "127.0.0.1:8080"];
+        let bad_url = vec![
+            "asdals;kdmma",
+            "http/example.com",
+            "127.0.0.1:8080",
+            "socks5://admin:admin@:9000", // No host
+        ];
 
         let bad = vec![
             "socks5://admin:admin@1.2.3.4:",
@@ -637,8 +659,9 @@ mod test {
         }
 
         for trial in good {
-            let url = Url::parse(trial).unwrap();
-            let res = validate_proxy_url(&url);
+            env::set_var(constants::PROXY, trial);
+
+            let res = get_proxy_url();
             assert!(
                 res.is_ok(),
                 "\"{trial}\" unexpectedly failed to validate: {res:?}"
