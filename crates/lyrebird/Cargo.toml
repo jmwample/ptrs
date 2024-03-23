@@ -2,7 +2,7 @@
 name = "lyrebird"
 version = "0.1.0"
 edition = "2021"
-authers = ["Jack Wampler"]
+authors = ["Jack Wampler"]
 
 
 [[bin]]

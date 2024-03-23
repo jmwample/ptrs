@@ -11,7 +11,7 @@ use obfs4::{obfs4::ClientBuilder, Obfs4PT};
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use fast_socks5::{
     server::{DenyAuthentication, SimpleUserPassword},
     util::target_addr::TargetAddr,
@@ -37,10 +37,15 @@ use tokio_util::sync::CancellationToken;
 // };
 // use tor_rtcompat::PreferredRuntime;
 // use tor_socksproto::{SocksAuth, SocksVersion};
-use tracing::{error, info, warn, Level};
+use tracing::{error, info, debug, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
-use std::{env, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{
+    env,
+    net::{Ipv4Addr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+};
 
 /// Client Socks address to listen on.
 const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
@@ -54,12 +59,18 @@ struct BridgeLineParseError;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Log to {TOR_PT_STATE_LOCATION}/obfs4proxy.log
-    #[arg(long, default_value_t = false)]
-    enable_logging: bool,
+    /// Run in server mode or client mode
+    mode: Mode,
+
+    /// Target address, server address when running as client, forward address when running as
+    /// server
+    dst: String,
+
+    /// Listen address, defaults to ":9000" for client, ":9001" for server
+    laddr: Option<String>,
 
     /// Log Level (ERROR/WARN/INFO/DEBUG/TRACE)
-    #[arg(long, default_value_t=String::from("ERROR"))]
+    #[arg(short, long, default_value_t=String::from("ERROR"))]
     log_level: String,
 
     /// Disable the address scrubber on logging
@@ -67,82 +78,68 @@ struct Args {
     unsafe_logging: bool,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum Mode {
+    /// Run as client forward proxy
+    Client,
+    /// Run as server handling terminating pt connections and forwarding to socks proxy
+    Server,
+}
+
 /// initialize the logging receiver(s) for things to be logged into using the
 /// tracing / tracing_subscriber libraries
 // TODO: GeoIP. Json for file log writer.
-fn init_logging_recvr(
-    enable: bool,
-    should_scrub: bool,
-    level_str: &str,
-    statedir: &str,
-) -> Result<()> {
+fn init_logging_recvr(should_scrub: bool, level_str: &str) -> Result<()> {
     if should_scrub {
         safelog::enforce_safe_logging();
     } else {
         safelog::disable_safe_logging();
     }
 
+    let log_lvl = LevelFilter::from_str(level_str)?;
+
     let console_layer = tracing_subscriber::fmt::layer()
-        .pretty()
         .with_writer(std::io::stdout)
-        .with_filter(LevelFilter::INFO);
+        .with_filter(log_lvl);
 
-    let log_layers = if enable {
-        let level = Level::from_str(level_str)?;
-
-        let file = std::fs::File::create(format!("{statedir}/obfs4proxy.log"))?;
-
-        let state_dir_layer = tracing_subscriber::fmt::layer()
-            .with_writer(file)
-            .with_filter(LevelFilter::from_level(level));
-
-        console_layer.and_then(state_dir_layer).boxed()
-    } else {
-        console_layer.boxed()
-    };
-
-    tracing_subscriber::registry().with(log_layers).init();
+    tracing_subscriber::registry()
+        .with(console_layer.boxed())
+        .init();
+    warn!("log level set to {level_str}");
 
     Ok(())
-}
-
-fn resolve_target_addr(addr: &TargetAddr) -> Result<SocketAddr> {
-    match addr {
-        TargetAddr::Ip(sa) => Ok(*sa),
-        TargetAddr::Domain(_, _) => {
-            // this will always fail because ptrs does not do dns lookups.
-            ptrs::resolve_addr(format!("{addr}")).context("domain resolution failed")
-        }
-    }
 }
 
 /// Main function, ties everything together and parses arguments etc.
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
 
-    // Make state directory
-    let statedir = ptrs::make_state_dir()?;
-
     // launch tracing subscriber with filter level
-    init_logging_recvr(
-        args.enable_logging,
-        !args.unsafe_logging,
-        &args.log_level,
-        &statedir,
-    )?;
+    init_logging_recvr(!args.unsafe_logging, &args.log_level)?;
 
-    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let dst_addr = SocketAddr::from_str(&args.dst)?;
+
+    let listen_addr = match args.laddr {
+        Some(a) => SocketAddr::from_str(&a)?,
+        None => match args.mode {
+            Mode::Client => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 9000)),
+            Mode::Server => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 9001)),
+        },
+    };
 
     // launch runners
-    let mut exit_rx = if ptrs::is_client()? {
-        // running as CLIENT
-        client_setup(&statedir, cancel_token.clone()).await?
-    } else {
-        // running as SERVER
-        server_setup(&statedir, cancel_token.clone()).await?
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    let mut exit_rx = match args.mode {
+        Mode::Client => {
+            // running as CLIENT
+            client_setup(listen_addr, dst_addr, cancel_token.clone()).await?
+        }
+        Mode::Server => {
+            // running as SERVER
+            server_setup(listen_addr, dst_addr, cancel_token.clone()).await?
+        }
     };
 
     info!("accepting connections");
@@ -187,34 +184,24 @@ async fn main() -> Result<()> {
 // ================================================================ //
 
 async fn client_setup(
-    statedir: &str,
+    listen_addr: SocketAddr,
+    remote_addr: SocketAddr,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
-    let client_pt_info = ptrs::ClientInfo::new()?;
-    let proxy_uri = client_pt_info.uri.ok_or(BridgeLineParseError)?;
     let (tx, rx) = oneshot::channel::<bool>();
 
     let mut listeners = Vec::new();
 
-    // This only launches lyrebird / obfs4 for now and doesn't track other PT types
-    for name in client_pt_info.methods {
-        info!(name);
-        if name != obfs4_name {
-            warn!("no such transport is supported");
-            continue;
-        }
+    let builder = Obfs4PT::client_builder();
+    let listener = tokio::net::TcpListener::bind(CLIENT_SOCKS_ADDR).await?;
 
-        let builder = Obfs4PT::client_builder();
-        let listener = tokio::net::TcpListener::bind(CLIENT_SOCKS_ADDR).await?;
-
-        listeners.push(client_accept_loop(
-            listener,
-            builder,
-            proxy_uri.clone(),
-            cancel_token.clone(),
-        ));
-    }
+    listeners.push(client_accept_loop(
+        listener,
+        builder,
+        remote_addr,
+        cancel_token.clone(),
+    ));
 
     // spawn a task that runs and monitors the progress of the listeners.
     tokio::spawn(async move {
@@ -246,7 +233,7 @@ async fn client_setup(
 async fn client_accept_loop<C>(
     listener: TcpListener,
     builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + Send + 'static,
-    proxy_uri: url::Url,
+    remote_addr: SocketAddr,
     cancel_token: CancellationToken,
 ) -> Result<()>
 where
@@ -254,6 +241,10 @@ where
     C: ptrs::ClientTransport<TcpStream, std::io::Error> + 'static,
 {
     let pt_name = C::method_name();
+    info!(
+        "{pt_name} client accept loop launched listening on: {}",
+        listener.local_addr()?
+    );
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => info!("{pt_name} received shutdown signal"),
@@ -265,7 +256,7 @@ where
                     }
                     Ok(c) => c,
                 };
-                tokio::spawn(client_handle_connection(conn, builder.clone(), proxy_uri.clone(), client_addr));
+                tokio::spawn(client_handle_connection(conn, builder.clone(), remote_addr.clone(), client_addr));
                 // tokio::spawn(client_handle_connection( conn, builder.build(), proxy_uri.clone(), client_addr));
             }
         }
@@ -277,9 +268,9 @@ where
 /// This function assumes that the provided connection / socket manages reconstruction
 /// and reliability before passing to this layer.
 async fn client_handle_connection<In, C>(
-    conn: In,
+    mut conn: In,
     builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C>,
-    _proxy_uri: url::Url,
+    remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
 where
@@ -288,27 +279,6 @@ where
     // the provided client builder should build the C ClientTransport.
     C: ptrs::ClientTransport<TcpStream, std::io::Error>,
 {
-    let mut config: fast_socks5::server::Config<SimpleUserPassword> =
-        fast_socks5::server::Config::default();
-    config.set_skip_auth(true);
-    let socks5_conn = fast_socks5::server::Socks5Socket::new(conn, Arc::new(config));
-
-    let socks5_conn = socks5_conn.upgrade_to_socks5().await?;
-    let target_addr = socks5_conn
-        .target_addr()
-        .ok_or(BridgeLineParseError)
-        .context("missing remote address in request")?;
-    // TODO: get args from the socks request
-    // let args = socks5_conn.get_args();
-
-    // // I am not sure we even enable socks auth for the local client proxy
-    // if socks5_conn.auth() != AuthenticationMethod::Password { username: (), password: () } {
-    //     warn!(address=sensitive(client_addr).to_string(), "failed to authenticate client socks5 conn");
-    //     return
-    // }
-
-    let remote_addr = resolve_target_addr(target_addr).context("no remote address")?;
-
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
     // build the pluggable transport client and then dial, completing the
@@ -330,7 +300,7 @@ where
         Ok(c) => c,
     };
 
-    if let Err(e) = copy_bidirectional(&mut socks5_conn.into_inner(), &mut pt_conn).await {
+    if let Err(e) = copy_bidirectional(&mut conn, &mut pt_conn).await {
         warn!(
             addres = sensitive(client_addr).to_string(),
             "tunnel closed with error: {e:#?}"
@@ -349,7 +319,7 @@ where
 async fn client_handle_connection_clientpt<In, C>(
     conn: In,
     pt_client: C,
-    _proxy_uri: url::Url,
+    remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
 where
@@ -412,8 +382,6 @@ where
         _ => return Err(anyhow!("negotiated unsupported authentication method")),
     };
 
-    let remote_addr = resolve_target_addr(target_addr).context("no remote address")?;
-
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
     // build the pluggable transport client and then dial, completing the
@@ -444,45 +412,36 @@ where
 // ================================================================ //
 
 async fn server_setup(
-    statedir: &str,
+    listen_addr: SocketAddr,
+    remote_addr: SocketAddr,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
 
-    let server_info = ptrs::ServerInfo::new()?;
     let (tx, rx) = oneshot::channel::<bool>();
 
     let mut listeners = Vec::new();
 
-    for bind_addr in server_info.bind_addrs {
-        info!(bind_addr.method_name);
-        if bind_addr.method_name != obfs4_name {
-            warn!("no such transport is supported");
-            continue;
-        }
+    let options = ptrs::args::Args::new();
 
-        let mut builder = Obfs4PT::server_builder();
-        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::statefile_location(
-            &mut builder,
-            statedir,
-        )?;
-        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
-            &mut builder,
-            &bind_addr.options,
-        )?;
-        let server = builder.build();
-        // // I hate having to use the specific < > notation ^^ but I am not sure how to avoid it.
-        // let server = builder.statefile_location(statedir)?
-        //     .options(bind_addr.options)?
-        //     .build();
+    let mut builder = Obfs4PT::server_builder();
+    <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
+        &mut builder,
+        &options,
+    )?;
+    let server = builder.build();
+    // // TODO: I hate having to use the specific < > notation ^^ but I am not sure how to avoid it.
+    // let server = builder
+    //     .options(bind_addr.options)?
+    //     .build();
 
-        let listener = tokio::net::TcpListener::bind(bind_addr.addr).await?;
-        listeners.push(server_listen_loop::<TcpStream, _>(
-            listener,
-            server,
-            cancel_token.clone(),
-        ));
-    }
+    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
+    listeners.push(server_listen_loop::<TcpStream, _>(
+        listener,
+        server,
+        remote_addr,
+        cancel_token.clone(),
+    ));
 
     // spawn a task that runs and monitors the progress of the listeners.
     tokio::spawn(async move {
@@ -514,6 +473,7 @@ async fn server_setup(
 async fn server_listen_loop<In, S>(
     listener: TcpListener,
     server: S,
+    remote_addr: SocketAddr,
     cancel_token: CancellationToken,
 ) -> Result<()>
 where
@@ -524,6 +484,10 @@ where
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
     let method_name = <S as ServerTransport<In>>::method_name();
+    info!(
+        "{method_name} server accept loop launched listening on: {}",
+        listener.local_addr()?
+    );
     let server = Arc::new(server);
     loop {
         tokio::select! {
@@ -539,9 +503,11 @@ where
                    }
                    Ok(c) => c,
                };
+               debug!("accepted new connection -> {}:{}", sensitive(client_addr.ip()), client_addr.port());
                tokio::spawn(server_handle_connection(
                    conn,
                    server.clone(),
+                   remote_addr,
                    client_addr,
                ));
             }
@@ -554,6 +520,7 @@ where
 async fn server_handle_connection<In, S>(
     mut conn: In,
     server: Arc<S>,
+    remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
 where
@@ -566,9 +533,9 @@ where
     // let mut conn_pt = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
 
     // let mut conn_or = server.connect_to_or().await?;
-    let mut conn_or = TcpStream::connect("127.0.0.1:8000").await?;
+    let mut remote_conn = TcpStream::connect(remote_addr).await?;
 
-    if let Err(e) = copy_bidirectional(&mut conn, &mut conn_or).await {
+    if let Err(e) = copy_bidirectional(&mut conn, &mut remote_conn).await {
         warn!(
             address = sensitive(client_addr).to_string(),
             "tunnel closed with error {e:#?}"

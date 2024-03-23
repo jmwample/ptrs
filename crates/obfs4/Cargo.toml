@@ -12,6 +12,11 @@ name = "fwd_proxy"
 test = false
 bench = false
 
+[[bin]]
+name = "fwd"
+test = false
+bench = false
+
 [dependencies]
 ## Local
 ptrs = { path="../ptrs" }
@@ -67,6 +72,10 @@ tor-hscrypto = "0.6.0"
 cipher = "0.4.4"
 zeroize = "1.7.0"
 thiserror = "1.0.56"
+
+# fwd
+fast-socks5 = "0.9.1"
+url = "2.5.0"
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
