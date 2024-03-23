@@ -113,7 +113,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &Args) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, _opts: Args) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 

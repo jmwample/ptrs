@@ -50,6 +50,11 @@ use std::{
 /// Client Socks address to listen on.
 const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
 
+
+/// Pre-generated / shared key for use while running in debug mode.
+#[cfg(debug)]
+const DEV_PRIV_KEY: [u8;32] = b"0123456789abcdeffedcba9876543210";
+
 const U4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9000);
 const U6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000);
 
@@ -117,7 +122,6 @@ fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    println!("unsafe_logging: {}", args.unsafe_logging);
     // launch tracing subscriber with filter level
     let _guard = init_logging_recvr(args.unsafe_logging, &args.log_level)?;
 
@@ -272,7 +276,6 @@ where
                     Ok(c) => c,
                 };
                 tokio::spawn(client_handle_connection(conn, builder.clone(), remote_addr, client_addr));
-                // tokio::spawn(client_handle_connection( conn, builder.build(), proxy_uri.clone(), client_addr));
             }
         }
     }
@@ -284,7 +287,7 @@ where
 /// and reliability before passing to this layer.
 async fn client_handle_connection<In, C>(
     mut conn: In,
-    builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C>,
+    mut builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + 'static,
     remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
@@ -298,6 +301,7 @@ where
 
     // build the pluggable transport client and then dial, completing the
     // connection and handshake when the `wrap(..)` is await-ed.
+    let mut b = builder.options(ptrs::args::Args::new())?;
     let pt_client = builder.build();
     let mut pt_conn = match ptrs::ClientTransport::<TcpStream, std::io::Error>::establish(
         pt_client,
@@ -330,51 +334,6 @@ where
             );
         }
     }
-    Ok(())
-}
-
-/// This function assumes that the provided connection / socket manages reconstruction
-/// and reliability before passing to this layer.
-///
-/// proxy_uri (currently unused) is meant to indicate that the outgoing connection
-/// should be made through _another_ proxy based on the proxy uri. This is relatively
-/// easy in golang, but I am not sure how easy it will be here. I believe this is
-/// a rather uncommon option so it is left unimplemented for now.
-async fn client_handle_connection_clientpt<In, C>(
-    mut conn: In,
-    pt_client: C,
-    remote_addr: SocketAddr,
-    client_addr: SocketAddr,
-) -> Result<()>
-where
-    // the provided T must be usable as a connection in an async context
-    In: AsyncRead + AsyncWrite + Send + Unpin,
-    // the provided B must implement the Client Builder interface for T
-    C: ptrs::ClientTransport<TcpStream, std::io::Error>,
-{
-    let remote = tokio::net::TcpStream::connect(remote_addr);
-
-    // build the pluggable transport client and then dial, completing the
-    // connection and handshake when the `wrap(..)` is await-ed.
-    let mut pt_conn = match pt_client.establish(Box::pin(remote)).await {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(
-                address = sensitive(client_addr).to_string(),
-                "handshake failed: {e}"
-            );
-            drop(conn);
-            return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
-        }
-    };
-
-    if let Err(e) = copy_bidirectional(&mut conn, &mut pt_conn).await {
-        warn!(
-            address = sensitive(client_addr).to_string(),
-            "tunnel closed with error: {e}"
-        );
-    }
-
     Ok(())
 }
 
@@ -454,7 +413,9 @@ where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     // The provided S must be usable as a Pluggable Transport Server.
-    S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream> + 'static,
+    S: ptrs::ServerTransport<In> + Clone + Send + Sync + 'static,
+    S: ptrs::ServerTransport<TcpStream>,
+    // S: ptrs::ServerTransport<TcpStream> + Clone,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
     let method_name = <S as ServerTransport<In>>::method_name();
@@ -462,7 +423,6 @@ where
         "{method_name} server accept loop launched listening on: {}",
         listener.local_addr()?
     );
-    let server = Arc::new(server);
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -501,7 +461,7 @@ where
 
 async fn server_handle_connection<In, S>(
     mut conn: In,
-    server: Arc<S>,
+    server: S,
     remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
@@ -509,14 +469,15 @@ where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     // The provided S must be usable as a Pluggable Transport Server.
-    S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream>,
+    S: ptrs::ServerTransport<In> + Clone + Send + Sync + 'static,
+    S: ptrs::ServerTransport<TcpStream>,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
-    // let mut conn_pt = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
+    let mut pt_conn = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
 
     let mut remote_conn = TcpStream::connect(remote_addr).await?;
 
-    match copy_bidirectional(&mut conn, &mut remote_conn).await {
+    match copy_bidirectional(&mut pt_conn, &mut remote_conn).await {
         Err(e) => {
             warn!(
                 address = sensitive(client_addr).to_string(),
@@ -535,19 +496,19 @@ where
 }
 async fn server_echo_connection<In, S>(
     mut conn: In,
-    server: Arc<S>,
+    server: S,
     client_addr: SocketAddr,
 ) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     // The provided S must be usable as a Pluggable Transport Server.
-    S: ptrs::ServerTransport<In> + Send + Sync + ptrs::ServerTransport<TcpStream>,
+    S: ptrs::ServerTransport<In> + Clone + Send + Sync + 'static,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
-    // let mut conn_pt = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
+    let mut pt_conn = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
 
-    let (mut r, mut w) = tokio::io::split(conn);
+    let (mut r, mut w) = tokio::io::split(pt_conn);
     match tokio::io::copy(&mut r, &mut w).await {
         Err(e) => {
             warn!(
@@ -565,3 +526,4 @@ where
 
     Ok(())
 }
+

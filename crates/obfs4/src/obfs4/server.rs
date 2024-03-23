@@ -21,7 +21,7 @@ use crate::{
     Error, Result,
 };
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
 use hmac::{Hmac, Mac};
@@ -126,7 +126,7 @@ impl ServerBuilder {
         self
     }
     pub fn build(&self) -> Server {
-        Server {
+        Server(Arc::new(ServerInner {
             identity_keys: self.identity_keys.clone(),
             iat_mode: self.iat_mode,
             biased: false,
@@ -134,11 +134,14 @@ impl ServerBuilder {
 
             // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
-        }
+        }))
     }
 }
 
-pub struct Server {
+#[derive(Clone)]
+pub struct Server(Arc<ServerInner>);
+
+pub struct ServerInner {
     pub(crate) handshake_timeout: Option<tokio::time::Duration>,
     pub(crate) iat_mode: IAT,
     pub(crate) biased: bool,
@@ -147,6 +150,14 @@ pub struct Server {
     pub(crate) replay_filter: ReplayFilter,
     // pub(crate) metrics: Metrics,
 }
+
+impl Deref for Server {
+    type Target = ServerInner;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
 
 impl Server {
     pub fn new_from_random<R: RngCore + CryptoRng>(mut rng: R) -> Self {
@@ -165,7 +176,7 @@ impl Server {
 
         let identity_keys = Obfs4NtorSecretKey { pk, sk };
 
-        Self {
+        Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
             iat_mode: IAT::Off,
@@ -173,12 +184,12 @@ impl Server {
 
             // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
-        }
+        }))
     }
 
     pub fn getrandom() -> Self {
         let identity_keys = Obfs4NtorSecretKey::getrandom();
-        Self {
+        Self(Arc::new(ServerInner {
             identity_keys,
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             iat_mode: IAT::Off,
@@ -186,7 +197,7 @@ impl Server {
 
             // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
             replay_filter: ReplayFilter::new(REPLAY_TTL),
-        }
+        }))
     }
 
     pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
