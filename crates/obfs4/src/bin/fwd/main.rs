@@ -310,16 +310,25 @@ where
                 address = sensitive(client_addr).to_string(),
                 "handshake failed: {e}"
             );
+            conn.shutdown().await?;
             return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
         }
         Ok(c) => c,
     };
 
-    if let Err(e) = copy_bidirectional(&mut conn, &mut pt_conn).await {
-        warn!(
-            addres = sensitive(client_addr).to_string(),
-            "tunnel closed with error: {e}"
-        );
+    match copy_bidirectional(&mut conn, &mut pt_conn).await {
+        Err(e) => {
+            warn!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed with error: {e}"
+            );
+        }
+        Ok((up, down)) => {
+            info!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed {up} {down}"
+            );
+        }
     }
     Ok(())
 }
@@ -332,7 +341,7 @@ where
 /// easy in golang, but I am not sure how easy it will be here. I believe this is
 /// a rather uncommon option so it is left unimplemented for now.
 async fn client_handle_connection_clientpt<In, C>(
-    conn: In,
+    mut conn: In,
     pt_client: C,
     remote_addr: SocketAddr,
     client_addr: SocketAddr,
@@ -343,60 +352,6 @@ where
     // the provided B must implement the Client Builder interface for T
     C: ptrs::ClientTransport<TcpStream, std::io::Error>,
 {
-    let mut config: fast_socks5::server::Config<SimpleUserPassword> =
-        fast_socks5::server::Config::default();
-    // config.set_skip_auth(true);
-    let mut socks5_conn = fast_socks5::server::Socks5Socket::new(conn, Arc::new(config));
-
-    // let mut socks5_conn = socks5_conn.upgrade_to_socks5().await?;
-    let target_addr = socks5_conn
-        .target_addr()
-        .ok_or(BridgeLineParseError)
-        .context("missing remote address in request")?;
-
-    // TODO: get args from the socks request username:Password if it exists.
-    // This seems non-trivial to match against the golang obfs4 implementation.
-    // Maybe implement my own thing that implements the `Authenticate` trait?
-    // Maybe work with the tor_socksproto package?
-    //
-    // Pluggable transports use the username/password field to pass
-    // per-connection arguments.  The fields contain ASCII strings that
-    // are combined and then parsed into key/value pairs.
-    // argStr := string(uname)
-    // if !(plen == 1 && passwd[0] == 0x00) {
-    let args: Option<ptrs::args::Args> = match socks5_conn.auth() {
-        AuthenticationMethod::Password { username, password } => {
-            if username.is_empty() {
-                socks5_conn.flush().await?;
-                socks5_conn.shutdown().await?;
-                return Err(anyhow!("username with 0 length"));
-            }
-            if password.is_empty() {
-                socks5_conn.flush().await?;
-                socks5_conn.shutdown().await?;
-                return Err(anyhow!("password with 0 length"));
-            }
-
-            let mut arg_string = username.clone();
-            // tor will set the password to 'NUL', if the field doesn't contain any
-            // actual argument data.
-            if !(password.len() == 1 && password.as_bytes().first().copied() == Some(0x00)) {
-                arg_string.push_str(password);
-            }
-
-            match ptrs::args::Args::from_str(&arg_string) {
-                Ok(a) => Some(a),
-                Err(e) => {
-                    return Err(anyhow!(
-                        "failed to parse provided args \"{arg_string}\": {e}"
-                    ))
-                }
-            }
-        }
-        AuthenticationMethod::None => None,
-        _ => return Err(anyhow!("negotiated unsupported authentication method")),
-    };
-
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
     // build the pluggable transport client and then dial, completing the
@@ -406,16 +361,17 @@ where
         Err(e) => {
             warn!(
                 address = sensitive(client_addr).to_string(),
-                "handshake failed: {e:#?}"
+                "handshake failed: {e}"
             );
+            drop(conn);
             return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
         }
     };
 
-    if let Err(e) = copy_bidirectional(&mut socks5_conn.into_inner(), &mut pt_conn).await {
+    if let Err(e) = copy_bidirectional(&mut conn, &mut pt_conn).await {
         warn!(
-            addres = sensitive(client_addr).to_string(),
-            "tunnel closed with error: {e:#?}"
+            address = sensitive(client_addr).to_string(),
+            "tunnel closed with error: {e}"
         );
     }
 
@@ -560,11 +516,19 @@ where
 
     let mut remote_conn = TcpStream::connect(remote_addr).await?;
 
-    if let Err(e) = copy_bidirectional(&mut conn, &mut remote_conn).await {
-        warn!(
-            address = sensitive(client_addr).to_string(),
-            "tunnel closed with error {e:#?}"
-        )
+    match copy_bidirectional(&mut conn, &mut remote_conn).await {
+        Err(e) => {
+            warn!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed with error: {e}"
+            );
+        }
+        Ok((up, down)) => {
+            info!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed {up} {down}"
+            );
+        }
     }
 
     Ok(())
@@ -584,11 +548,19 @@ where
     // let mut conn_pt = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
 
     let (mut r, mut w) = tokio::io::split(conn);
-    if let Err(e) = tokio::io::copy(&mut r, &mut w).await {
-        warn!(
-            address = sensitive(client_addr).to_string(),
-            "tunnel closed with error {e:#?}"
-        )
+    match tokio::io::copy(&mut r, &mut w).await {
+        Err(e) => {
+            warn!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed with error: {e}"
+            );
+        }
+        Ok(b) => {
+            info!(
+                address = sensitive(client_addr).to_string(),
+                "tunnel closed {b} {b}"
+            );
+        }
     }
 
     Ok(())
