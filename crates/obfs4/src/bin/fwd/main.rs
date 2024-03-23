@@ -248,7 +248,10 @@ where
     );
     loop {
         tokio::select! {
-            _ = cancel_token.cancelled() => info!("{pt_name} received shutdown signal"),
+            _ = cancel_token.cancelled() => {
+                info!("{pt_name} received shutdown signal");
+                break
+            }
             res = listener.accept() => {
                 let (conn, client_addr) = match res {
                     Err(e) => {
@@ -294,7 +297,7 @@ where
         Err(e) => {
             warn!(
                 address = sensitive(client_addr).to_string(),
-                "handshake failed: {e:#?}"
+                "handshake failed: {e}"
             );
             return Err(obfs4::Error::from(e.to_string())).context("handshake failed");
         }
@@ -304,7 +307,7 @@ where
     if let Err(e) = copy_bidirectional(&mut conn, &mut pt_conn).await {
         warn!(
             addres = sensitive(client_addr).to_string(),
-            "tunnel closed with error: {e:#?}"
+            "tunnel closed with error: {e}"
         );
     }
     Ok(())
