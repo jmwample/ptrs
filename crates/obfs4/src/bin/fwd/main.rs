@@ -74,7 +74,7 @@ struct Args {
     log_level: String,
 
     /// Disable the address scrubber on logging
-    #[arg(long, default_value_t = false)]
+    #[arg(long, action)]
     unsafe_logging: bool,
 }
 
@@ -89,12 +89,7 @@ enum Mode {
 /// initialize the logging receiver(s) for things to be logged into using the
 /// tracing / tracing_subscriber libraries
 // TODO: GeoIP. Json for file log writer.
-fn init_logging_recvr(should_scrub: bool, level_str: &str) -> Result<()> {
-    if should_scrub {
-        safelog::enforce_safe_logging();
-    } else {
-        safelog::disable_safe_logging();
-    }
+fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::Guard> {
 
     let log_lvl = LevelFilter::from_str(level_str)?;
 
@@ -107,7 +102,12 @@ fn init_logging_recvr(should_scrub: bool, level_str: &str) -> Result<()> {
         .init();
     warn!("log level set to {level_str}");
 
-    Ok(())
+    if unsafe_logging {
+        info!("⚠️ ⚠️  enabling unsafe logging ⚠️ ⚠️ ");
+        safelog::disable_safe_logging().context("failed to get safelog Guard")
+    } else {
+        safelog::enforce_safe_logging().context("failed to get safelog Guard")
+    }
 }
 
 /// Main function, ties everything together and parses arguments etc.
@@ -115,8 +115,9 @@ fn init_logging_recvr(should_scrub: bool, level_str: &str) -> Result<()> {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
+    println!("unsafe_logging: {}",args.unsafe_logging);
     // launch tracing subscriber with filter level
-    init_logging_recvr(!args.unsafe_logging, &args.log_level)?;
+    let _guard = init_logging_recvr(args.unsafe_logging, &args.log_level)?;
 
     let dst_addr = SocketAddr::from_str(&args.dst)?;
 
@@ -256,7 +257,7 @@ where
                     }
                     Ok(c) => c,
                 };
-                tokio::spawn(client_handle_connection(conn, builder.clone(), remote_addr.clone(), client_addr));
+                tokio::spawn(client_handle_connection(conn, builder.clone(), remote_addr, client_addr));
                 // tokio::spawn(client_handle_connection( conn, builder.build(), proxy_uri.clone(), client_addr));
             }
         }
