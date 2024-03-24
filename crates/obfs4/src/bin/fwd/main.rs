@@ -7,6 +7,7 @@
 //!   - use the better copy interactive for bidirectional copy
 #![allow(unused, dead_code)]
 
+use futures::Future;
 use obfs4::{obfs4::ClientBuilder, Obfs4PT};
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
@@ -49,11 +50,6 @@ use std::{
 
 /// Client Socks address to listen on.
 const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
-
-/// Pre-generated / shared key for use while running in debug mode.
-#[cfg(debug)]
-const DEV_PRIV_KEY: [u8; 32] = b"0123456789abcdeffedcba9876543210";
-
 const U4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9000);
 const U6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000);
 
@@ -89,13 +85,13 @@ struct Args {
 enum Mode {
     /// Run as client forward proxy
     Client,
-    /// Run as server handling terminating pt connections and forwarding to socks proxy
+    /// Run as server, terminating the pluggable transport protocol and forwarding traffic
+    /// to the next connection handler.
     Server,
 }
 
-/// initialize the logging receiver(s) for things to be logged into using the
+/// Initialize the logging receiver(s) for things to be logged into using the
 /// tracing / tracing_subscriber libraries
-// TODO: GeoIP. Json for file log writer.
 fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::Guard> {
     let log_lvl = LevelFilter::from_str(level_str)?;
 
@@ -106,7 +102,7 @@ fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::
     tracing_subscriber::registry()
         .with(console_layer.boxed())
         .init();
-    info!("log level set to {level_str}");
+    warn!("log level set to {level_str}");
 
     if unsafe_logging {
         info!("⚠️ ⚠️  unsafe logging enabled ⚠️ ⚠️ ");
@@ -120,6 +116,7 @@ fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    obfs4::dev::print_dev_args();
 
     // launch tracing subscriber with filter level
     let _guard = init_logging_recvr(args.unsafe_logging, &args.log_level)?;
@@ -192,6 +189,12 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn warn_fut(client_addr: SocketAddr, f: impl Future<Output = Result<()>>) {
+    if let Err(e) = f.await {
+        warn!(address = sensitive(client_addr).to_string(), "{e}");
+    }
 }
 
 // ================================================================ //
@@ -274,7 +277,8 @@ where
                     }
                     Ok(c) => c,
                 };
-                tokio::spawn(client_handle_connection(conn, builder.clone(), remote_addr, client_addr));
+                debug!("accepted new connection -> {}:{}", sensitive(client_addr.ip()), client_addr.port());
+                tokio::spawn(warn_fut(client_addr, client_handle_connection(conn, builder.clone(), remote_addr, client_addr)));
             }
         }
     }
@@ -300,9 +304,14 @@ where
 
     // build the pluggable transport client and then dial, completing the
     // connection and handshake when the `wrap(..)` is await-ed.
-    let args = &ptrs::args::Args::new();
-    let mut b = builder.options(args)?;
+    let args = ptrs::args::Args::parse_client_parameters(obfs4::dev::CLIENT_ARGS)?;
+
+    debug!("client building {:?}", args);
+    let mut b = builder
+        .options(&args)
+        .context("failed setting builder opts")?;
     let pt_client = builder.build();
+
     let mut pt_conn = match ptrs::ClientTransport::<TcpStream, std::io::Error>::establish(
         pt_client,
         Box::pin(remote),
@@ -437,20 +446,21 @@ where
                    }
                    Ok(c) => c,
                };
+               println!("HEREHRERHARWFANREWLAKNR");
                debug!("accepted new connection -> {}:{}", sensitive(client_addr.ip()), client_addr.port());
                if echo {
-                   tokio::spawn(server_echo_connection(
+                   tokio::spawn(warn_fut(client_addr, server_echo_connection(
                        conn,
                        server.clone(),
                        client_addr,
-                   ));
+                   )));
                } else {
-                   tokio::spawn(server_handle_connection(
+                   tokio::spawn(warn_fut(client_addr, server_handle_connection(
                        conn,
                        server.clone(),
                        remote_addr,
                        client_addr,
-                   ));
+                   )));
                 }
             }
         }
@@ -476,7 +486,7 @@ where
     let mut pt_conn = server
         .reveal(conn)
         .await
-        .context("server handshake failed {client_addr}")?;
+        .context("server handshake failed")?;
 
     let mut remote_conn = TcpStream::connect(remote_addr).await?;
 
@@ -512,7 +522,7 @@ where
     let mut pt_conn = server
         .reveal(conn)
         .await
-        .context("server handshake failed {client_addr}")?;
+        .context("server handshake failed")?;
 
     let (mut r, mut w) = tokio::io::split(pt_conn);
     match tokio::io::copy(&mut r, &mut w).await {
