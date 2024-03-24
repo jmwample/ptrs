@@ -60,7 +60,7 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, opts: args::Args) -> Result<&mut Self, Self::Error>;
+    fn options(&mut self, opts: &args::Args) -> Result<&mut Self, Self::Error>;
 
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.

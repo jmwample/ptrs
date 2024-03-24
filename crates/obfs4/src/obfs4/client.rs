@@ -72,37 +72,37 @@ impl ClientBuilder {
         })
     }
 
-    pub fn with_node_pubkey(mut self, pubkey: [u8; KEY_LENGTH]) -> Self {
+    pub fn with_node_pubkey(&mut self, pubkey: [u8; KEY_LENGTH]) -> &mut Self {
         self.station_pubkey = pubkey;
         self
     }
 
-    pub fn with_statefile_path(mut self, path: &str) -> Self {
+    pub fn with_statefile_path(&mut self, path: &str) -> &mut Self {
         self.statefile_path = Some(path.into());
         self
     }
 
-    pub fn with_node_id(mut self, id: [u8; NODE_ID_LENGTH]) -> Self {
+    pub fn with_node_id(&mut self, id: [u8; NODE_ID_LENGTH]) -> &mut Self {
         self.station_id = id;
         self
     }
 
-    pub fn with_iat_mode(mut self, iat: IAT) -> Self {
+    pub fn with_iat_mode(&mut self, iat: IAT) -> &mut Self {
         self.iat_mode = iat;
         self
     }
 
-    pub fn with_handshake_timeout(mut self, d: Duration) -> Self {
+    pub fn with_handshake_timeout(&mut self, d: Duration) -> &mut Self {
         self.handshake_timeout = MaybeTimeout::Length(d);
         self
     }
 
-    pub fn with_handshake_deadline(mut self, deadline: Instant) -> Self {
+    pub fn with_handshake_deadline(&mut self, deadline: Instant) -> &mut Self {
         self.handshake_timeout = MaybeTimeout::Fixed(deadline);
         self
     }
 
-    pub fn fail_fast(mut self) -> Self {
+    pub fn fail_fast(&mut self) -> &mut Self {
         self.handshake_timeout = MaybeTimeout::Unset;
         self
     }

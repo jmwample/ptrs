@@ -4,7 +4,7 @@ use crate::{
         probdist::{self, WeightedDist},
     },
     obfs4::{constants::*, framing, sessions::Session},
-    Result,
+    Error, Result,
 };
 
 use bytes::{Buf, BytesMut};
@@ -25,9 +25,6 @@ use std::{
 
 use super::framing::{FrameError, Messages};
 
-// mod handshake_client;
-// mod handshake_server;
-
 #[allow(dead_code, unused)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum IAT {
@@ -43,6 +40,18 @@ pub(crate) enum MaybeTimeout {
     Fixed(Instant),
     Length(Duration),
     Unset,
+}
+
+impl std::str::FromStr for IAT {
+    type Err = Error;
+    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
+        match s {
+            "0" => Ok(IAT::Off),
+            "1" => Ok(IAT::Enabled),
+            "2" => Ok(IAT::Paranoid),
+            _ => Err(format!("invalid iat-mode '{s}'").into()),
+        }
+    }
 }
 
 impl MaybeTimeout {

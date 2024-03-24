@@ -50,10 +50,9 @@ use std::{
 /// Client Socks address to listen on.
 const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
 
-
 /// Pre-generated / shared key for use while running in debug mode.
 #[cfg(debug)]
-const DEV_PRIV_KEY: [u8;32] = b"0123456789abcdeffedcba9876543210";
+const DEV_PRIV_KEY: [u8; 32] = b"0123456789abcdeffedcba9876543210";
 
 const U4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9000);
 const U6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000);
@@ -301,7 +300,8 @@ where
 
     // build the pluggable transport client and then dial, completing the
     // connection and handshake when the `wrap(..)` is await-ed.
-    let mut b = builder.options(ptrs::args::Args::new())?;
+    let args = &ptrs::args::Args::new();
+    let mut b = builder.options(args)?;
     let pt_client = builder.build();
     let mut pt_conn = match ptrs::ClientTransport::<TcpStream, std::io::Error>::establish(
         pt_client,
@@ -473,7 +473,10 @@ where
     S: ptrs::ServerTransport<TcpStream>,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
-    let mut pt_conn = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
+    let mut pt_conn = server
+        .reveal(conn)
+        .await
+        .context("server handshake failed {client_addr}")?;
 
     let mut remote_conn = TcpStream::connect(remote_addr).await?;
 
@@ -506,7 +509,10 @@ where
     S: ptrs::ServerTransport<In> + Clone + Send + Sync + 'static,
     <S as ptrs::ServerTransport<In>>::OutErr: 'static,
 {
-    let mut pt_conn = server.reveal(conn).await.context("server handshake failed {client_addr}")?;
+    let mut pt_conn = server
+        .reveal(conn)
+        .await
+        .context("server handshake failed {client_addr}")?;
 
     let (mut r, mut w) = tokio::io::split(pt_conn);
     match tokio::io::copy(&mut r, &mut w).await {
@@ -526,4 +532,3 @@ where
 
     Ok(())
 }
-

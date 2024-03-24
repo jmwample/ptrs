@@ -4,6 +4,7 @@ use super::*;
 use crate::{
     common::{
         colorize,
+        curve25519::PublicKey,
         curve25519::StaticSecret,
         drbg,
         replay_filter::{self, ReplayFilter},
@@ -21,7 +22,7 @@ use crate::{
     Error, Result,
 };
 
-use std::{ops::Deref, sync::Arc};
+use std::{borrow::BorrowMut, ops::Deref, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
 use hmac::{Hmac, Mac};
@@ -158,24 +159,20 @@ impl Deref for Server {
     }
 }
 
-
 impl Server {
-    pub fn new_from_random<R: RngCore + CryptoRng>(mut rng: R) -> Self {
-        let mut id = [0_u8; 20];
-        // Random bytes will work for testing, but aren't necessarily actually a valid id.
-        rng.fill_bytes(&mut id);
-
-        // Generated identity secret key does not need to be elligator2 representable
-        // so we can use the regular dalek_x25519 key generation.
-        let sk = StaticSecret::random_from_rng(rng);
-
+    pub fn new(sec: [u8; KEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
+        let sk = StaticSecret::from(sec);
         let pk = Obfs4NtorPublicKey {
-            pk: (&sk).into(),
+            pk: PublicKey::from(&sk),
             id: id.into(),
         };
 
         let identity_keys = Obfs4NtorSecretKey { pk, sk };
 
+        Self::new_from_key(identity_keys)
+    }
+
+    pub(crate) fn new_from_key(identity_keys: Obfs4NtorSecretKey) -> Self {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
@@ -187,17 +184,28 @@ impl Server {
         }))
     }
 
+    pub fn new_from_random<R: RngCore + CryptoRng>(mut rng: R) -> Self {
+        let mut id = [0_u8; 20];
+        // Random bytes will work for testing, but aren't necessarily actually a valid id.
+        rng.fill_bytes(&mut id);
+
+        // Generated identity secret key does not need to be elligator2 representable
+        // so we can use the regular dalek_x25519 key generation.
+        let sk = StaticSecret::random_from_rng(rng);
+
+        let pk = Obfs4NtorPublicKey {
+            pk: PublicKey::from(&sk),
+            id: id.into(),
+        };
+
+        let identity_keys = Obfs4NtorSecretKey { pk, sk };
+
+        Self::new_from_key(identity_keys)
+    }
+
     pub fn getrandom() -> Self {
         let identity_keys = Obfs4NtorSecretKey::getrandom();
-        Self(Arc::new(ServerInner {
-            identity_keys,
-            handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
-            iat_mode: IAT::Off,
-            biased: false,
-
-            // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
-            replay_filter: ReplayFilter::new(REPLAY_TTL),
-        }))
+        Self::new_from_key(identity_keys)
     }
 
     pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
@@ -209,6 +217,11 @@ impl Server {
 
         session.handshake(&self, stream, deadline).await
     }
+
+    // pub fn set_iat_mode(&mut self, mode: IAT) -> &Self {
+    //     self.iat_mode = mode;
+    //     self
+    // }
 
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {
         Ok(self)

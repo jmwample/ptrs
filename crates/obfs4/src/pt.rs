@@ -1,5 +1,10 @@
 use crate::{
-    obfs4::{self, proto::Obfs4Stream},
+    obfs4::{
+        self,
+        constants::*,
+        handshake::Obfs4NtorPublicKey,
+        proto::{Obfs4Stream, IAT},
+    },
     Error,
 };
 use ptrs::{args::Args, FutureResult as F};
@@ -8,9 +13,11 @@ use std::{
     marker::PhantomData,
     net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
+    str::FromStr,
     time::Duration,
 };
 
+use hex::FromHex;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
@@ -113,7 +120,57 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: Args) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
+        let server_materials = match opts.get(CERT_ARG) {
+            Some(cert_strs) if !cert_strs.is_empty() => {
+                // The "new" (version >= 0.0.3) bridge lines use a unified "cert" argument
+                // for the Node ID and Public Key.
+                if cert_strs.is_empty() {
+                    return Err(format!("missing argument '{NODE_ID_ARG}'").into());
+                }
+                let ntor_pk = Obfs4NtorPublicKey::from_str(&cert_strs[0])?;
+                let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
+                let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
+                (pk, id)
+            }
+            _ => {
+                // The "old" style (version <= 0.0.2) bridge lines use separate Node ID
+                // and Public Key arguments in Base16 encoding and are a UX disaster.
+                let node_id_strs = opts
+                    .get(NODE_ID_ARG)
+                    .ok_or(format!("missing argument '{NODE_ID_ARG}'"))?;
+                if node_id_strs.is_empty() {
+                    return Err(format!("missing argument '{NODE_ID_ARG}'").into());
+                }
+                let id = <[u8; NODE_ID_LENGTH]>::from_hex(&node_id_strs[0])
+                    .map_err(|e| format!("malformed node id: {e}"))?;
+
+                let public_key_strs = opts
+                    .get(PUBLIC_KEY_ARG)
+                    .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
+                if public_key_strs.is_empty() {
+                    return Err(format!("missing argument '{NODE_ID_ARG}'").into());
+                }
+                let pk = <[u8; 32]>::from_hex(&public_key_strs[0])
+                    .map_err(|e| format!("malformed public key: {e}"))?;
+                // Obfs4NtorPublicKey::new(pk, node_id)
+                (pk, id)
+            }
+        };
+
+        // IAT config is common across the two bridge line formats.
+        let iat_strs = opts
+            .get(IAT_ARG)
+            .ok_or(format!("missing argument '{IAT_ARG}'"))?;
+        if iat_strs.is_empty() {
+            return Err(format!("missing argument '{IAT_ARG}'").into());
+        }
+        let iat_mode = IAT::from_str(&iat_strs[0])?;
+
+        self.with_node_pubkey(server_materials.0)
+            .with_node_id(server_materials.1)
+            .with_iat_mode(iat_mode);
+
         Ok(self)
     }
 

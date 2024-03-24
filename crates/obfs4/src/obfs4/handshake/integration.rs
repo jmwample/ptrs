@@ -42,8 +42,7 @@ fn test_obfs4_roundtrip() -> Result<()> {
 
     let chs_materials = CHSMaterials::new(relay_private.pk, colorize(sid));
 
-    let mut server = Server::new_from_random(&mut rng);
-    server.identity_keys = relay_private;
+    let server = Server::new_from_key(relay_private);
 
     let shs_materials = SHSMaterials {
         identity_keys: server.identity_keys.clone(),
@@ -70,8 +69,8 @@ fn test_obfs4_roundtrip() -> Result<()> {
 // Same as previous test, but use the higher-level APIs instead.
 #[test]
 fn test_obfs4_roundtrip_highlevel() -> Result<()> {
-    let mut rng = testing_rng();
-    let relay_secret = StaticSecret::random_from_rng(&mut rng);
+    let rng = testing_rng();
+    let relay_secret = StaticSecret::random_from_rng(rng);
     let relay_public = PublicKey::from(&relay_secret);
     let relay_identity = RsaIdentity::from_bytes(&[12; 20]).unwrap();
     let relay_ntpk = Obfs4NtorPublicKey {
@@ -85,8 +84,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
         pk: relay_ntpk,
         sk: relay_secret,
     };
-    let mut server = Server::new_from_random(&mut rng);
-    server.identity_keys = relay_ntsk.clone();
+    let server = Server::new_from_key(relay_ntsk.clone());
     let shs_materials = [SHSMaterials::new(
         &relay_ntsk,
         "s-yyy".into(),
@@ -110,8 +108,6 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
 #[test]
 fn test_obfs4_testvec_compat() -> Result<()> {
     init_subscriber();
-    let rng = rand::thread_rng();
-
     let b_sk = hex!("a83fdd04eb9ed77a2b38d86092a09a1cecfb93a7bdec0da35e542775b2e7af6e");
     let x_sk = hex!("308ff4f3a0ebe8c1a93bcd40d67e3eec6b856aa5c07ef6d5a3d3cedf13dcf150");
     let y_sk = hex!("881f9ad60e0833a627f0c47f5aafbdcb0b5471800eaeaa1e678291b947e4295c");
@@ -125,8 +121,7 @@ fn test_obfs4_testvec_compat() -> Result<()> {
         pk: (&sk).into(),
     };
     let relay_sk = Obfs4NtorSecretKey { pk, sk };
-    let mut server = Server::new_from_random(rng);
-    server.identity_keys = relay_sk;
+    let server = Server::new_from_key(relay_sk.clone());
 
     let x: StaticSecret = x_sk.into();
 
