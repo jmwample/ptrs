@@ -306,7 +306,7 @@ where
     // connection and handshake when the `wrap(..)` is await-ed.
     let args = ptrs::args::Args::parse_client_parameters(obfs4::dev::CLIENT_ARGS)?;
 
-    debug!("client building {:?}", args);
+    debug!("client building with {:?}", args);
     let mut b = builder
         .options(&args)
         .context("failed setting builder opts")?;
@@ -446,7 +446,6 @@ where
                    }
                    Ok(c) => c,
                };
-               println!("HEREHRERHARWFANREWLAKNR");
                debug!("accepted new connection -> {}:{}", sensitive(client_addr.ip()), client_addr.port());
                if echo {
                    tokio::spawn(warn_fut(client_addr, server_echo_connection(

@@ -23,7 +23,7 @@ pub(crate) mod test_utils;
 
 #[cfg(debug_assertions)]
 pub mod dev {
-    use super::common::curve25519::{PublicKey, StaticSecret};
+    use super::common::curve25519::StaticSecret;
     use super::obfs4::constants::*;
     use super::obfs4::handshake::Obfs4NtorSecretKey;
     use ptrs::args::Args;
@@ -33,13 +33,11 @@ pub mod dev {
     const DEV_PRIV_KEY: &[u8; 32] = b"0123456789abcdeffedcba9876543210";
 
     pub const CLIENT_ARGS: &str =
-        "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag,iat-mode=0";
+        "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0";
     pub const SERVER_ARGS: &str = "";
     pub fn print_dev_args() {
         let static_secret = StaticSecret::from(*DEV_PRIV_KEY);
-        let pk = PublicKey::from(&static_secret);
-        let sk =
-            Obfs4NtorSecretKey::new(static_secret, pk, RsaIdentity::from([0u8; NODE_ID_LENGTH]));
+        let sk = Obfs4NtorSecretKey::new(static_secret, RsaIdentity::from([0u8; NODE_ID_LENGTH]));
         let mut client_args = Args::new();
         client_args.insert(CERT_ARG.into(), vec![sk.pk.to_string()]);
         client_args.insert(IAT_ARG.into(), vec!["0".into()]);
@@ -52,7 +50,6 @@ pub mod dev {
         use tokio::net::TcpStream;
 
         let args = Args::parse_client_parameters(CLIENT_ARGS).unwrap();
-        println!("client args: {args:?}");
         let mut builder = ClientBuilder::default();
         <ClientBuilder as ptrs::ClientBuilderByTypeInst<TcpStream>>::options(&mut builder, &args)
             .unwrap();

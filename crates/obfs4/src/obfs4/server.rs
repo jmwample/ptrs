@@ -4,8 +4,7 @@ use super::*;
 use crate::{
     common::{
         colorize,
-        curve25519::PublicKey,
-        curve25519::StaticSecret,
+        curve25519::{PublicKey, StaticSecret},
         drbg,
         replay_filter::{self, ReplayFilter},
         HmacSha256,
@@ -22,15 +21,17 @@ use crate::{
     Error, Result,
 };
 
-use std::{borrow::BorrowMut, ops::Deref, sync::Arc};
+use std::{borrow::BorrowMut, ops::Deref, str::FromStr, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
+use hex::FromHex;
 use hmac::{Hmac, Mac};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::Encoder;
+use tor_llcrypto::pk::rsa::RsaIdentity;
 use tracing::{debug, info};
 
 pub struct ServerBuilder {
@@ -137,6 +138,34 @@ impl ServerBuilder {
             replay_filter: ReplayFilter::new(REPLAY_TTL),
         }))
     }
+
+    pub fn parse_args_json(arg_str: impl AsRef<str>) -> Result<ptrs::args::Args> {
+        let state: ServerState =
+            serde_json::from_str(arg_str.as_ref()).map_err(|e| Error::Other(Box::new(e)))?;
+
+        let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(state.node_id)?;
+        let seed = drbg::Seed::from_hex(state.drbg_seed)?;
+        let sk = <[u8; KEY_LENGTH]>::from_hex(state.private_key)?;
+        let secret_key = StaticSecret::from(sk);
+        let obf4_ntsk = Obfs4NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
+
+        let iat_mode = match state.iat_mode {
+            Some(s) => IAT::from_str(&s)?,
+            None => IAT::default(),
+        };
+
+        let args = ptrs::args::Args::new();
+        Ok(args)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ServerState {
+    node_id: String,
+    private_key: String,
+    public_key: String,
+    drbg_seed: String,
+    iat_mode: Option<String>,
 }
 
 #[derive(Clone)]

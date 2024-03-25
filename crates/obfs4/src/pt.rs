@@ -22,6 +22,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
+use tracing::trace;
 
 pub type Obfs4PT = Transport<TcpStream>;
 
@@ -128,6 +129,7 @@ where
                 if cert_strs.is_empty() {
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
+                trace!("cert string: {}", &cert_strs[0]);
                 let ntor_pk = Obfs4NtorPublicKey::from_str(&cert_strs[0])?;
                 let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
                 let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
