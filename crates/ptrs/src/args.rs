@@ -95,6 +95,14 @@ impl Args {
         self.get_mut(key).unwrap().push(value.to_string());
     }
 
+    pub fn retrieve(&self, key: impl AsRef<str>) -> Option<String> {
+        let v = self.get(key.as_ref().into())?;
+        if v.is_empty() {
+            return None;
+        }
+        Some(v[0].clone())
+    }
+
     /// Parse a name–value mapping as from an encoded SOCKS username/password.
     ///
     /// "First the '<Key>=<Value>' formatted arguments MUST be escaped, such that all

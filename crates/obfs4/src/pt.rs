@@ -122,38 +122,33 @@ where
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
     fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
-        let server_materials = match opts.get(CERT_ARG) {
-            Some(cert_strs) if !cert_strs.is_empty() => {
+        let server_materials = match opts.retrieve(CERT_ARG) {
+            Some(cert_strs) => {
                 // The "new" (version >= 0.0.3) bridge lines use a unified "cert" argument
                 // for the Node ID and Public Key.
                 if cert_strs.is_empty() {
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
-                trace!("cert string: {}", &cert_strs[0]);
-                let ntor_pk = Obfs4NtorPublicKey::from_str(&cert_strs[0])?;
+                trace!("cert string: {}", &cert_strs);
+                let ntor_pk = Obfs4NtorPublicKey::from_str(&cert_strs)?;
                 let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
                 let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
                 (pk, id)
             }
-            _ => {
+            None => {
                 // The "old" style (version <= 0.0.2) bridge lines use separate Node ID
                 // and Public Key arguments in Base16 encoding and are a UX disaster.
                 let node_id_strs = opts
-                    .get(NODE_ID_ARG)
+                    .retrieve(NODE_ID_ARG)
                     .ok_or(format!("missing argument '{NODE_ID_ARG}'"))?;
-                if node_id_strs.is_empty() {
-                    return Err(format!("missing argument '{NODE_ID_ARG}'").into());
-                }
-                let id = <[u8; NODE_ID_LENGTH]>::from_hex(&node_id_strs[0])
+                let id = <[u8; NODE_ID_LENGTH]>::from_hex(&node_id_strs)
                     .map_err(|e| format!("malformed node id: {e}"))?;
 
                 let public_key_strs = opts
-                    .get(PUBLIC_KEY_ARG)
+                    .retrieve(PUBLIC_KEY_ARG)
                     .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
-                if public_key_strs.is_empty() {
-                    return Err(format!("missing argument '{NODE_ID_ARG}'").into());
-                }
-                let pk = <[u8; 32]>::from_hex(&public_key_strs[0])
+
+                let pk = <[u8; 32]>::from_hex(&public_key_strs)
                     .map_err(|e| format!("malformed public key: {e}"))?;
                 // Obfs4NtorPublicKey::new(pk, node_id)
                 (pk, id)
@@ -162,12 +157,9 @@ where
 
         // IAT config is common across the two bridge line formats.
         let iat_strs = opts
-            .get(IAT_ARG)
+            .retrieve(IAT_ARG)
             .ok_or(format!("missing argument '{IAT_ARG}'"))?;
-        if iat_strs.is_empty() {
-            return Err(format!("missing argument '{IAT_ARG}'").into());
-        }
-        let iat_mode = IAT::from_str(&iat_strs[0])?;
+        let iat_mode = IAT::from_str(&iat_strs)?;
 
         self.with_node_pubkey(server_materials.0)
             .with_node_id(server_materials.1)

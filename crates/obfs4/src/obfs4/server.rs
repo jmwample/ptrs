@@ -20,6 +20,7 @@ use crate::{
     stream::Stream,
     Error, Result,
 };
+use ptrs::args::Args;
 
 use std::{borrow::BorrowMut, ops::Deref, str::FromStr, sync::Arc};
 
@@ -33,6 +34,8 @@ use tokio::time::{Duration, Instant};
 use tokio_util::codec::Encoder;
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tracing::{debug, info};
+
+const STATE_FILENAME: &str = "obfs4_state.json";
 
 pub struct ServerBuilder {
     pub iat_mode: IAT,
@@ -54,40 +57,6 @@ impl Default for ServerBuilder {
 }
 
 impl ServerBuilder {
-    /// TODO: Implement server from statefile
-    pub fn from_statefile(location: &str) -> Result<Self> {
-        let identity_keys = Obfs4NtorSecretKey {
-            sk: [0_u8; KEY_LENGTH].into(),
-            pk: Obfs4NtorPublicKey {
-                pk: [0_u8; KEY_LENGTH].into(),
-                id: [0_u8; NODE_ID_LENGTH].into(),
-            },
-        };
-        Ok(Self {
-            iat_mode: IAT::Off,
-            identity_keys,
-            statefile_path: Some(location.into()),
-            handshake_timeout: MaybeTimeout::Default_,
-        })
-    }
-
-    /// TODO: parse server params form str vec
-    pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
-        let identity_keys = Obfs4NtorSecretKey {
-            sk: [0_u8; KEY_LENGTH].into(),
-            pk: Obfs4NtorPublicKey {
-                pk: [0_u8; KEY_LENGTH].into(),
-                id: [0_u8; NODE_ID_LENGTH].into(),
-            },
-        };
-        Ok(Self {
-            iat_mode: IAT::Off,
-            identity_keys,
-            statefile_path: None,
-            handshake_timeout: MaybeTimeout::Default_,
-        })
-    }
-
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
     pub fn node_keys(mut self, keys: [u8; KEY_LENGTH * 2]) -> Self {
@@ -139,33 +108,116 @@ impl ServerBuilder {
         }))
     }
 
-    pub fn parse_args_json(arg_str: impl AsRef<str>) -> Result<ptrs::args::Args> {
-        let state: ServerState =
-            serde_json::from_str(arg_str.as_ref()).map_err(|e| Error::Other(Box::new(e)))?;
+    pub fn validate_args(args: &Args) -> Result<()> {
+        let _ = RequiredServerState::try_from(args)?;
 
-        let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(state.node_id)?;
-        let seed = drbg::Seed::from_hex(state.drbg_seed)?;
-        let sk = <[u8; KEY_LENGTH]>::from_hex(state.private_key)?;
-        let secret_key = StaticSecret::from(sk);
-        let obf4_ntsk = Obfs4NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
+        Ok(())
+    }
 
-        let iat_mode = match state.iat_mode {
-            Some(s) => IAT::from_str(&s)?,
-            None => IAT::default(),
-        };
+    pub fn parse_state(
+        statedir: Option<impl AsRef<str>>,
+        args: Args,
+    ) -> Result<RequiredServerState> {
+        let mut required_args = args.clone();
 
-        let args = ptrs::args::Args::new();
-        Ok(args)
+        // if the provided arguments do not satisfy all required arguments, we
+        // attempt to parse the server state from json IFF a statedir path was
+        // provided. Otherwise this method just fails.
+        if let Err(e) = Self::validate_args(&args) {
+            match statedir {
+                Some(p) => Self::server_state_from_file(p, &mut required_args)?,
+                None => return Err(e),
+            }
+        }
+
+        RequiredServerState::try_from(&required_args)
+    }
+
+    fn server_state_from_file(statedir: impl AsRef<str>, args: &mut Args) -> Result<()> {
+        let mut file_path = String::from(statedir.as_ref());
+        file_path.push_str(STATE_FILENAME);
+
+        let state_str = std::fs::read(file_path)?;
+
+        Self::server_state_from_json(&state_str[..], args)
+    }
+
+    fn server_state_from_json(state_rdr: impl std::io::Read, args: &mut Args) -> Result<()> {
+        let state: JsonServerState =
+            serde_json::from_reader(state_rdr).map_err(|e| Error::Other(Box::new(e)))?;
+
+        state.extend_args(args);
+        Ok(())
     }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct ServerState {
-    node_id: String,
-    private_key: String,
-    public_key: String,
-    drbg_seed: String,
+struct JsonServerState {
+    node_id: Option<String>,
+    private_key: Option<String>,
+    public_key: Option<String>,
+    drbg_seed: Option<String>,
     iat_mode: Option<String>,
+}
+
+impl JsonServerState {
+    fn extend_args(self, args: &mut Args) {
+        if let Some(id) = self.node_id {
+            args.add(NODE_ID_ARG.into(), &id);
+        }
+        if let Some(sk) = self.private_key {
+            args.add(PRIVATE_KEY_ARG.into(), &sk);
+        }
+        if let Some(pubkey) = self.public_key {
+            args.add(PUBLIC_KEY_ARG.into(), &pubkey);
+        }
+        if let Some(seed) = self.drbg_seed {
+            args.add(SEED_ARG.into(), &seed);
+        }
+        if let Some(mode) = self.iat_mode {
+            args.add(IAT_ARG.into(), &mode);
+        }
+    }
+}
+
+struct RequiredServerState {
+    private_key: Obfs4NtorSecretKey,
+    drbg_seed: drbg::Drbg,
+    iat_mode: IAT,
+}
+
+impl TryFrom<&Args> for RequiredServerState {
+    type Error = Error;
+    fn try_from(value: &Args) -> std::prelude::v1::Result<Self, Self::Error> {
+        let privkey_str = value
+            .retrieve(PRIVATE_KEY_ARG)
+            .ok_or("missing argument {PRIVATE_KEY_ARG}")?;
+        let sk = <[u8; KEY_LENGTH]>::from_hex(privkey_str)?;
+
+        let drbg_seed_str = value
+            .retrieve(SEED_ARG)
+            .ok_or("missing argument {SEED_ARG}")?;
+        let drbg_seed = drbg::Seed::from_hex(drbg_seed_str)?;
+
+        let node_id_str = value
+            .retrieve(NODE_ID_ARG)
+            .ok_or("missing argument {NODE_ID_ARG}")?;
+        let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(node_id_str)?;
+
+        let iat_mode = match value.retrieve(IAT_ARG) {
+            Some(s) => IAT::from_str(&s)?,
+            None => IAT::default(),
+        };
+
+        let secret_key = StaticSecret::from(sk);
+        let private_key = Obfs4NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
+
+        Ok(RequiredServerState {
+            private_key,
+            drbg_seed: drbg::Drbg::new(Some(drbg_seed))?,
+            iat_mode,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -293,3 +345,66 @@ impl Server {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::dev;
+
+    use super::*;
+
+    use tracing::trace;
+
+    #[test]
+    fn parse_json_state() -> Result<()> {
+        crate::test_utils::init_subscriber();
+
+        let mut args = Args::new();
+        let test_state = format!(
+            r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{IAT_ARG}": "0", "{SEED_ARG}": "abcdefabcdefabcdefabcdef" }}"#
+        );
+        let state = ServerBuilder::server_state_from_json(test_state.as_bytes(), &mut args)?;
+
+        trace!("ARGS ARGS {}", args.encode_smethod_args());
+
+        Ok(())
+    }
+}
+
+/*
+   // unused fns for ServerBuilder
+
+    /// TODO: Implement server from statefile
+    pub fn from_statefile(location: &str) -> Result<Self> {
+        let identity_keys = Obfs4NtorSecretKey {
+            sk: [0_u8; KEY_LENGTH].into(),
+            pk: Obfs4NtorPublicKey {
+                pk: [0_u8; KEY_LENGTH].into(),
+                id: [0_u8; NODE_ID_LENGTH].into(),
+            },
+        };
+        Ok(Self {
+            iat_mode: IAT::Off,
+            identity_keys,
+            statefile_path: Some(location.into()),
+            handshake_timeout: MaybeTimeout::Default_,
+        })
+    }
+
+    /// TODO: parse server params form str vec
+    pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
+        let identity_keys = Obfs4NtorSecretKey {
+            sk: [0_u8; KEY_LENGTH].into(),
+            pk: Obfs4NtorPublicKey {
+                pk: [0_u8; KEY_LENGTH].into(),
+                id: [0_u8; NODE_ID_LENGTH].into(),
+            },
+        };
+        Ok(Self {
+            iat_mode: IAT::Off,
+            identity_keys,
+            statefile_path: None,
+            handshake_timeout: MaybeTimeout::Default_,
+        })
+    }
+
+*/
