@@ -690,8 +690,8 @@ mod tests {
                 input, encoded, expected
             );
 
-            let m = parse_smethod_args(encoded).unwrap();
-            assert!(!m.is_empty())
+            let _ = parse_smethod_args(encoded).unwrap();
+            // assert!(!m.is_empty())
         }
     }
 

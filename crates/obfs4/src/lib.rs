@@ -45,8 +45,6 @@ pub mod dev {
         client_args.insert(CERT_ARG.into(), vec![sk.pk.to_string()]);
         client_args.insert(IAT_ARG.into(), vec!["0".into()]);
         println!("{}", client_args.encode_smethod_args());
-        println!("{}", hex::encode(sk.pk.pk.as_bytes()));
-        println!("{}", hex::encode(DEV_PRIV_KEY));
     }
 
     #[test]

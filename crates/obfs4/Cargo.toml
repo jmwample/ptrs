@@ -8,11 +8,6 @@ name = "obfs4"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "fwd_proxy"
-test = false
-bench = false
-
-[[bin]]
 name = "fwd"
 test = false
 bench = false
