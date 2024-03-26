@@ -27,17 +27,6 @@ use tokio::{
 };
 use tokio::{net::ToSocketAddrs, task::JoinSet};
 use tokio_util::sync::CancellationToken;
-// use tokio_stream::StreamExt;
-// use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
-// use tor_linkspec::PtTransportName;
-// use tor_ptmgr::ipc::{
-//     PtClientParameters,
-//     PtCommonParameters,
-//     PtServerParameters,
-//     // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
-// };
-// use tor_rtcompat::PreferredRuntime;
-// use tor_socksproto::{SocksAuth, SocksVersion};
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
@@ -362,7 +351,7 @@ async fn server_setup<A: ToSocketAddrs>(
 
     let mut listeners = Vec::new();
 
-    let options = ptrs::args::Args::new();
+    let options = ptrs::args::Args::parse_client_parameters(obfs4::dev::SERVER_ARGS)?;
 
     let mut builder = Obfs4PT::server_builder();
     <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(

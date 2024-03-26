@@ -1,6 +1,6 @@
 //! # obfs4 - The obfourscator
 
-use crate::{traits::*, Result};
+// use crate::{traits::*, Result};
 
 pub mod client;
 pub mod server;
@@ -13,8 +13,6 @@ pub use server::{Server, ServerBuilder};
 pub(crate) mod constants;
 pub(crate) mod handshake;
 pub(crate) mod sessions;
-
-const NAME: &str = "obfs4";
 
 #[allow(non_camel_case_types)]
 pub enum Builder {

@@ -96,7 +96,7 @@ impl Args {
     }
 
     pub fn retrieve(&self, key: impl AsRef<str>) -> Option<String> {
-        let v = self.get(key.as_ref().into())?;
+        let v = self.get(key.as_ref())?;
         if v.is_empty() {
             return None;
         }

@@ -141,14 +141,14 @@ where
                 let node_id_strs = opts
                     .retrieve(NODE_ID_ARG)
                     .ok_or(format!("missing argument '{NODE_ID_ARG}'"))?;
-                let id = <[u8; NODE_ID_LENGTH]>::from_hex(&node_id_strs)
+                let id = <[u8; NODE_ID_LENGTH]>::from_hex(node_id_strs)
                     .map_err(|e| format!("malformed node id: {e}"))?;
 
                 let public_key_strs = opts
                     .retrieve(PUBLIC_KEY_ARG)
                     .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
 
-                let pk = <[u8; 32]>::from_hex(&public_key_strs)
+                let pk = <[u8; 32]>::from_hex(public_key_strs)
                     .map_err(|e| format!("malformed public key: {e}"))?;
                 // Obfs4NtorPublicKey::new(pk, node_id)
                 (pk, id)

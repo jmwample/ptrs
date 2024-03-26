@@ -114,10 +114,7 @@ impl ServerBuilder {
         Ok(())
     }
 
-    pub fn parse_state(
-        statedir: Option<impl AsRef<str>>,
-        args: Args,
-    ) -> Result<RequiredServerState> {
+    fn parse_state(statedir: Option<impl AsRef<str>>, args: Args) -> Result<RequiredServerState> {
         let mut required_args = args.clone();
 
         // if the provided arguments do not satisfy all required arguments, we
@@ -151,31 +148,36 @@ impl ServerBuilder {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct JsonServerState {
+    #[serde(rename = "node-id")]
     node_id: Option<String>,
+    #[serde(rename = "private-key")]
     private_key: Option<String>,
+    #[serde(rename = "public-key")]
     public_key: Option<String>,
+    #[serde(rename = "drbg-seed")]
     drbg_seed: Option<String>,
+    #[serde(rename = "iat-mode")]
     iat_mode: Option<String>,
 }
 
 impl JsonServerState {
     fn extend_args(self, args: &mut Args) {
         if let Some(id) = self.node_id {
-            args.add(NODE_ID_ARG.into(), &id);
+            args.add(NODE_ID_ARG, &id);
         }
         if let Some(sk) = self.private_key {
-            args.add(PRIVATE_KEY_ARG.into(), &sk);
+            args.add(PRIVATE_KEY_ARG, &sk);
         }
         if let Some(pubkey) = self.public_key {
-            args.add(PUBLIC_KEY_ARG.into(), &pubkey);
+            args.add(PUBLIC_KEY_ARG, &pubkey);
         }
         if let Some(seed) = self.drbg_seed {
-            args.add(SEED_ARG.into(), &seed);
+            args.add(SEED_ARG, &seed);
         }
         if let Some(mode) = self.iat_mode {
-            args.add(IAT_ARG.into(), &mode);
+            args.add(IAT_ARG, &mode);
         }
     }
 }
@@ -360,11 +362,10 @@ mod tests {
 
         let mut args = Args::new();
         let test_state = format!(
-            r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{IAT_ARG}": "0", "{SEED_ARG}": "abcdefabcdefabcdefabcdef" }}"#
+            r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{IAT_ARG}": "0", "{SEED_ARG}": "abcdefabcdefabcdefabcdef"}}"#
         );
-        let state = ServerBuilder::server_state_from_json(test_state.as_bytes(), &mut args)?;
-
-        trace!("ARGS ARGS {}", args.encode_smethod_args());
+        ServerBuilder::server_state_from_json(test_state.as_bytes(), &mut args)?;
+        debug!("{:?}\n{}", args.encode_smethod_args(), test_state);
 
         Ok(())
     }

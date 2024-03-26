@@ -18,6 +18,8 @@ pub use pt::{Obfs4PT, Transport};
 mod error;
 pub use error::{Error, Result};
 
+pub const NAME: &str = "obfs4";
+
 #[cfg(test)]
 pub(crate) mod test_utils;
 
@@ -34,7 +36,8 @@ pub mod dev {
 
     pub const CLIENT_ARGS: &str =
         "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0";
-    pub const SERVER_ARGS: &str = "";
+    pub const SERVER_ARGS: &str = "drbg-seed=abcdefabcdefabcdefabcdef;iat-mode=0;node-id=00112233445566778899;private-key=0123456789abcdeffedcba9876543210";
+
     pub fn print_dev_args() {
         let static_secret = StaticSecret::from(*DEV_PRIV_KEY);
         let sk = Obfs4NtorSecretKey::new(static_secret, RsaIdentity::from([0u8; NODE_ID_LENGTH]));
