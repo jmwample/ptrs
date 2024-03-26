@@ -105,9 +105,15 @@ impl Args {
 
     /// Parse a name–value mapping as from an encoded SOCKS username/password.
     ///
+    /// From `pt-spec.txt`:
+    ///
     /// "First the '<Key>=<Value>' formatted arguments MUST be escaped, such that all
     /// backslash, equal sign, and semicolon characters are escaped with a
-    /// backslash."
+    /// backslash.
+    ///
+    /// Second, all of the escaped are concatenated together."
+    ///
+    /// Example: `shared-secret=rahasia;secrets-file=/tmp/blob`
     pub fn parse_client_parameters(params: &str) -> Result<Self, Error> {
         Self::parse(params)
     }
@@ -170,7 +176,7 @@ impl Args {
             return String::from("");
         }
 
-        let escape = |s: &str| -> String { backslash_escape(s, vec!['=', ';']) };
+        let escape = |s: &str| -> String { backslash_escape(s, vec!['=', ',']) };
 
         self.iter()
             .sorted()
@@ -179,10 +185,10 @@ impl Args {
                     .iter()
                     .map(|value| format!("{}={}", escape(key), escape(value)))
                     .collect::<Vec<String>>()
-                    .join(";")
+                    .join(",")
             })
             .collect::<Vec<String>>()
-            .join(";")
+            .join(",")
     }
 }
 
@@ -255,7 +261,43 @@ impl Opts {
     /// the transport. Colons, semicolons, equal signs and backslashes must be
     /// escaped with a backslash."
     ///
-    /// Example: `scramblesuit:key=banana;automata:rule=110;automata:depth=3`
+    /// Example:
+    /// ```
+    /// let input = "scramblesuit:key=banana;automata:rule=110;automata:depth=3";
+    /// let mut expected = HashMap::new();
+    /// expected.insert!(String::from("scramblesuit"), args!{"key"=> vec!["banana"]};
+    /// expected.insert!(String::from("automata"), args!{"rule"=> vec!["110"], "depth" => vec!["3"]};
+    ///
+    /// match Opts::parse_server_transport_options(input) {
+    ///     Ok(map) => assert_eq!(map, expected),
+    ///     Err(e) => panic!(e),
+    /// }
+    ///
+    /// ```
+    /// From `pt-spec.txt`:
+    ///
+    /// ```txt
+    /// "TOR_PT_SERVER_TRANSPORT_OPTIONS"
+    ///
+    ///        Specifies per-PT protocol configuration directives, as a
+    ///        semicolon-separated list of <key>:<value> pairs, where <key>
+    ///        is a PT name and <value> is a k=v string value with options
+    ///        that are to be passed to the transport.
+    ///
+    ///        Colons, semicolons, and backslashes MUST be
+    ///        escaped with a backslash.
+    ///
+    ///        If there are no arguments that need to be passed to any of
+    ///        PT transport protocols, "TOR_PT_SERVER_TRANSPORT_OPTIONS"
+    ///        MAY be omitted.
+    ///
+    ///        Example:
+    ///
+    ///          TOR_PT_SERVER_TRANSPORT_OPTIONS=scramblesuit:key=banana;automata:rule=110;automata:depth=3
+    ///
+    ///          Will pass to 'scramblesuit' the parameter 'key=banana' and to
+    ///          'automata' the arguments 'rule=110' and 'depth=3'.
+    /// ```
     pub fn parse_server_transport_options(s: &str) -> Result<Self, Error> {
         let mut opts = Opts::new();
         if s.is_empty() {
@@ -657,20 +699,20 @@ mod tests {
     fn test_encode_smethod_args() {
         let tests = [
             // (None, ""),
-            (HashMap::new(), ""),
             (
                 hashmap! {"j"=>vec!["v1", "v2", "v3"], "k"=>vec!["v1", "v2", "v3"]},
-                "j=v1;j=v2;j=v3;k=v1;k=v2;k=v3",
+                "j=v1,j=v2,j=v3,k=v1,k=v2,k=v3",
             ),
             (
-                hashmap! {"=;\\"=>vec!["=", ";", "\\"]},
-                "\\=\\;\\\\=\\=;\\=\\;\\\\=\\;;\\=\\;\\\\=\\\\",
+                hashmap! {"=,\\"=>vec!["=", ",", "\\"]},
+                "\\=\\,\\\\=\\=,\\=\\,\\\\=\\,,\\=\\,\\\\=\\\\",
             ),
             (hashmap! {"secret"=>vec!["yes"]}, "secret=yes"),
             (
                 hashmap! {"secret"=> vec!["nou"], "cache" => vec!["/tmp/cache"]},
-                "cache=/tmp/cache;secret=nou",
+                "cache=/tmp/cache,secret=nou",
             ),
+            // (HashMap::new(), ""),
         ];
 
         assert_eq!("", Args::new().encode_smethod_args());
@@ -687,11 +729,14 @@ mod tests {
             assert_eq!(
                 &encoded, expected,
                 "{:?} → {} (expected {})",
-                input, encoded, expected
+                input, &encoded, expected
             );
 
-            let _ = parse_smethod_args(encoded).unwrap();
-            // assert!(!m.is_empty())
+            let mut smethod = String::from("ARGS:");
+            smethod.push_str(&encoded);
+            let m = parse_smethod_args(&smethod).unwrap();
+            assert!(!m.is_empty(), "{:?} -> {}", &input_map, &encoded);
+            // println!("{} → {:?}", encoded, m);
         }
     }
 
@@ -729,6 +774,21 @@ mod tests {
     /// Chomp one key/value pair off a list of smethod args.
     /// Returns (k, v, unparsed rest of string).
     /// Will also chomp the comma at the end, if there is one.
+    ///
+    /// From `pt-spec.txt #3.3.3`:
+    /// ```txt
+    /// ARGS:[<Key>=<Value>,]+[<Key>=<Value>]
+    ///
+    ///   The "ARGS" option is used to pass additional key/value
+    ///   formatted information that clients will require to use
+    ///   the reverse proxy.
+    ///
+    ///   Equal signs and commas MUST be escaped with a backslash.
+    ///
+    ///   Tor: The ARGS are included in the transport line of the
+    ///   Bridge's extra-info document.
+    ///
+    /// ```
     fn parse_one_smethod_arg(args: &str) -> Result<(String, String, &str), &'static str> {
         // NOTE(eta): Apologies for this looking a bit gnarly. Ideally, this is what you'd use
         //            something like `nom` for, but I didn't want to bring in a dep just for this.

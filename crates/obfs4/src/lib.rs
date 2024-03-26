@@ -25,6 +25,7 @@ pub(crate) mod test_utils;
 
 #[cfg(debug_assertions)]
 pub mod dev {
+
     use super::common::curve25519::StaticSecret;
     use super::obfs4::constants::*;
     use super::obfs4::handshake::Obfs4NtorSecretKey;
@@ -49,14 +50,22 @@ pub mod dev {
 
     #[test]
     fn test_parse() {
-        use super::obfs4::ClientBuilder;
+        use super::obfs4::{ClientBuilder, ServerBuilder};
         use tokio::net::TcpStream;
+
+        // print_dev_args()
 
         let args = Args::parse_client_parameters(CLIENT_ARGS).unwrap();
         let mut builder = ClientBuilder::default();
         <ClientBuilder as ptrs::ClientBuilderByTypeInst<TcpStream>>::options(&mut builder, &args)
             .unwrap();
 
-        // print_dev_args()
+        let server_params = Args::parse_client_parameters(SERVER_ARGS).unwrap();
+        let mut server_builder = ServerBuilder::default();
+        <ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
+            &mut server_builder,
+            &server_params,
+        )
+        .unwrap();
     }
 }

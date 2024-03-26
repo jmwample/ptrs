@@ -135,6 +135,28 @@ pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
 /// - DOES NOT have defined `path`, `query`, or `fragment` fields.
 /// - socks5 urls must have non-empty username and password fields.
 /// - if socks4 urls have a password they must have a username.
+///
+/// From `pt-spec.txt 3.5`:
+///
+/// ```
+///    On the client side, arguments are passed via the authentication
+///    fields that are part of the SOCKS protocol.
+///
+///    ... The arguments are transmitted when making the outgoing
+///    connection using the authentication mechanism specific to the
+///    SOCKS protocol version.
+///
+///     - In the case of SOCKS 4, the concatenated argument list is
+///       transmitted in the "USERID" field of the "CONNECT" request.
+///
+///     - In the case of SOCKS 5, the parent process must negotiate
+///       "Username/Password" authentication [RFC1929], and transmit
+///       the arguments encoded in the "UNAME" and "PASSWD" fields.
+///
+///       If the encoded argument list is less than 255 bytes in
+///       length, the "PLEN" field must be set to "1" and the "PASSWD"
+///       field must contain a single NUL character.
+/// ```
 #[allow(clippy::collapsible_if)]
 pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
     const SCHEMES: [&str; 3] = ["socks5", "socks4a", "http"];
