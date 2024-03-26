@@ -466,6 +466,10 @@ impl Server {
         let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
         loop {
             let n = stream.read(&mut buf).await?;
+            if n == 0 {
+                stream.shutdown().await?;
+                return Err(IoError::from(IoErrorKind::UnexpectedEof).into());
+            }
             trace!("{} successful read {n}B", session_id);
 
             match self.server(&mut |_: &()| Some(()), &[materials.clone()], &buf[..n]) {

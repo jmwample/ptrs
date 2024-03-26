@@ -1,0 +1,23 @@
+[package]
+name = "o5"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "o5"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+getrandom = "0.2.11"
+rand = { version="0.8.5", features=["getrandom"]}
+rand_core = "0.6.4"
+
+subtle = "2.5.0"
+x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reusable_secrets", "elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "elligator2-ntor"}
+
+# ntor_arti
+zeroize = "1.7.0"
+
+[dev-dependencies]
+# o5 pqc test
+pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}

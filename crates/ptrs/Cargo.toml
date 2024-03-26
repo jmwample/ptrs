@@ -5,9 +5,14 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.30"
+itertools = "0.12.1"
+subtle = "2.5.0"
+thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.40"
 url = "2.5.0"
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
+serial_test = "3.0.0"
+tempfile = "3"

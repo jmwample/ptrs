@@ -20,6 +20,10 @@ use crate::{
 
 use std::borrow::Borrow;
 
+use base64::{
+    engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+    Engine as _,
+};
 use bytes::BytesMut;
 use digest::Mac;
 use hmac::Hmac;
@@ -124,6 +128,8 @@ pub(crate) struct Obfs4NtorPublicKey {
 }
 
 impl Obfs4NtorPublicKey {
+    const CERT_LENGTH: usize = NODE_ID_LENGTH + NODE_PUBKEY_LENGTH;
+    const CERT_SUFFIX: &'static str = "==";
     /// Construct a new Obfs4NtorPublicKey from its components.
     #[allow(unused)]
     pub(crate) fn new(pk: [u8; NODE_PUBKEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
@@ -131,6 +137,32 @@ impl Obfs4NtorPublicKey {
             pk: pk.into(),
             id: id.into(),
         }
+    }
+}
+
+impl std::str::FromStr for Obfs4NtorPublicKey {
+    type Err = Error;
+    fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+        let mut cert = String::from(s);
+        cert.push_str(Self::CERT_SUFFIX);
+        let decoded = STANDARD
+            .decode(cert.as_bytes())
+            .map_err(|e| format!("failed to decode cert: {e}"))?;
+        if decoded.len() != Self::CERT_LENGTH {
+            return Err(format!("cert length {} is invalid", decoded.len()).into());
+        }
+        let id: [u8; NODE_ID_LENGTH] = decoded[..NODE_ID_LENGTH].try_into().unwrap();
+        let pk: [u8; NODE_PUBKEY_LENGTH] = decoded[NODE_ID_LENGTH..].try_into().unwrap();
+        Ok(Obfs4NtorPublicKey::new(pk, id))
+    }
+}
+
+#[allow(clippy::to_string_trait_impl)]
+impl std::string::ToString for Obfs4NtorPublicKey {
+    fn to_string(&self) -> String {
+        let mut s = Vec::from(self.id.as_bytes());
+        s.extend(self.pk.as_bytes());
+        STANDARD_NO_PAD.encode(s)
     }
 }
 
@@ -146,7 +178,8 @@ pub(crate) struct Obfs4NtorSecretKey {
 impl Obfs4NtorSecretKey {
     /// Construct a new Obfs4NtorSecretKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(sk: StaticSecret, pk: PublicKey, id: RsaIdentity) -> Self {
+    pub(crate) fn new(sk: StaticSecret, id: RsaIdentity) -> Self {
+        let pk = PublicKey::from(&sk);
         Self {
             pk: Obfs4NtorPublicKey { id, pk },
             sk,
@@ -156,10 +189,9 @@ impl Obfs4NtorSecretKey {
     /// Construct a new ['Obfs4NtorSecretKey'] from a CSPRNG.
     pub(crate) fn getrandom() -> Self {
         let sk = Representable::random_static();
-        let pk: PublicKey = (&sk).into();
         let mut id = [0_u8; NODE_ID_LENGTH];
         getrandom::getrandom(&mut id).expect("internal randomness error");
-        Self::new(sk, pk, RsaIdentity::from(id))
+        Self::new(sk, RsaIdentity::from(id))
     }
 
     /// Generate a key using the given `rng`, suitable for testing.
