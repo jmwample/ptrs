@@ -36,7 +36,7 @@ pub mod dev {
 
     pub const CLIENT_ARGS: &str =
         "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0";
-    pub const SERVER_ARGS: &str = "drbg-seed=abcdefabcdefabcdefabcdef;iat-mode=0;node-id=00112233445566778899;private-key=0123456789abcdeffedcba9876543210";
+    pub const SERVER_ARGS: &str = "drbg-seed=0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d0e0f;node-id=0000000000000000000000000000000000000000;private-key=3031323334353637383961626364656666656463626139383736353433323130;iat-mode=0";
 
     pub fn print_dev_args() {
         let static_secret = StaticSecret::from(*DEV_PRIV_KEY);
@@ -45,6 +45,8 @@ pub mod dev {
         client_args.insert(CERT_ARG.into(), vec![sk.pk.to_string()]);
         client_args.insert(IAT_ARG.into(), vec!["0".into()]);
         println!("{}", client_args.encode_smethod_args());
+        println!("{}", hex::encode(sk.pk.pk.as_bytes()));
+        println!("{}", hex::encode(DEV_PRIV_KEY));
     }
 
     #[test]
@@ -56,5 +58,7 @@ pub mod dev {
         let mut builder = ClientBuilder::default();
         <ClientBuilder as ptrs::ClientBuilderByTypeInst<TcpStream>>::options(&mut builder, &args)
             .unwrap();
+
+        // print_dev_args()
     }
 }

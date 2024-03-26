@@ -69,7 +69,20 @@ where
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &Args) -> Result<&mut Self, Self::Error> {
+    fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
+        // TODO: pass on opts
+
+        let state = Self::parse_state(None::<&str>, opts)?;
+        self.identity_keys = state.private_key;
+        self.iat_mode(state.iat_mode);
+        // self.drbg = state.drbg_seed; // TODO apply seed from args to server
+
+        trace!(
+            "node_pubkey: {}, node_id: {}, iat: {}",
+            hex::encode(self.identity_keys.pk.pk.as_bytes()),
+            hex::encode(self.identity_keys.pk.id.as_bytes()),
+            self.iat_mode,
+        );
         Ok(self)
     }
 
@@ -164,6 +177,12 @@ where
         self.with_node_pubkey(server_materials.0)
             .with_node_id(server_materials.1)
             .with_iat_mode(iat_mode);
+        trace!(
+            "node_pubkey: {}, node_id: {}, iat: {}",
+            hex::encode(self.station_pubkey),
+            hex::encode(self.station_id),
+            iat_mode
+        );
 
         Ok(self)
     }

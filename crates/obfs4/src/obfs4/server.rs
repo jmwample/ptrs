@@ -42,6 +42,7 @@ pub struct ServerBuilder {
     pub statefile_path: Option<String>,
     pub(crate) identity_keys: Obfs4NtorSecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
+    // pub(crate) drbg: Drbg, // TODO: build in DRBG
 }
 
 impl Default for ServerBuilder {
@@ -59,7 +60,7 @@ impl Default for ServerBuilder {
 impl ServerBuilder {
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
-    pub fn node_keys(mut self, keys: [u8; KEY_LENGTH * 2]) -> Self {
+    pub fn node_keys(&mut self, keys: [u8; KEY_LENGTH * 2]) -> &Self {
         let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
         let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
         self.identity_keys.sk = sk.into();
@@ -67,32 +68,32 @@ impl ServerBuilder {
         self
     }
 
-    pub fn statefile_path(mut self, path: &str) -> Self {
+    pub fn statefile_path(&mut self, path: &str) -> &Self {
         self.statefile_path = Some(path.into());
         self
     }
 
-    pub fn node_id(mut self, id: [u8; NODE_ID_LENGTH]) -> Self {
+    pub fn node_id(&mut self, id: [u8; NODE_ID_LENGTH]) -> &Self {
         self.identity_keys.pk.id = id.into();
         self
     }
 
-    pub fn iat_mode(mut self, iat: IAT) -> Self {
+    pub fn iat_mode(&mut self, iat: IAT) -> &Self {
         self.iat_mode = iat;
         self
     }
 
-    pub fn with_handshake_timeout(mut self, d: Duration) -> Self {
+    pub fn with_handshake_timeout(&mut self, d: Duration) -> &Self {
         self.handshake_timeout = MaybeTimeout::Length(d);
         self
     }
 
-    pub fn with_handshake_deadline(mut self, deadline: Instant) -> Self {
+    pub fn with_handshake_deadline(&mut self, deadline: Instant) -> &Self {
         self.handshake_timeout = MaybeTimeout::Fixed(deadline);
         self
     }
 
-    pub fn fail_fast(mut self) -> Self {
+    pub fn fail_fast(&mut self) -> &Self {
         self.handshake_timeout = MaybeTimeout::Unset;
         self
     }
@@ -114,20 +115,25 @@ impl ServerBuilder {
         Ok(())
     }
 
-    fn parse_state(statedir: Option<impl AsRef<str>>, args: Args) -> Result<RequiredServerState> {
-        let mut required_args = args.clone();
+    pub(crate) fn parse_state(
+        statedir: Option<impl AsRef<str>>,
+        args: &Args,
+    ) -> Result<RequiredServerState> {
+        if statedir.is_none() {
+            return RequiredServerState::try_from(args);
+        }
 
         // if the provided arguments do not satisfy all required arguments, we
         // attempt to parse the server state from json IFF a statedir path was
         // provided. Otherwise this method just fails.
-        if let Err(e) = Self::validate_args(&args) {
-            match statedir {
-                Some(p) => Self::server_state_from_file(p, &mut required_args)?,
-                None => return Err(e),
+        let mut required_args = args.clone();
+        match RequiredServerState::try_from(args) {
+            Ok(state) => Ok(state),
+            Err(e) => {
+                Self::server_state_from_file(statedir.unwrap(), &mut required_args)?;
+                RequiredServerState::try_from(&required_args)
             }
         }
-
-        RequiredServerState::try_from(&required_args)
     }
 
     fn server_state_from_file(statedir: impl AsRef<str>, args: &mut Args) -> Result<()> {
@@ -182,10 +188,10 @@ impl JsonServerState {
     }
 }
 
-struct RequiredServerState {
-    private_key: Obfs4NtorSecretKey,
-    drbg_seed: drbg::Drbg,
-    iat_mode: IAT,
+pub(crate) struct RequiredServerState {
+    pub(crate) private_key: Obfs4NtorSecretKey,
+    pub(crate) drbg_seed: drbg::Drbg,
+    pub(crate) iat_mode: IAT,
 }
 
 impl TryFrom<&Args> for RequiredServerState {
@@ -370,42 +376,3 @@ mod tests {
         Ok(())
     }
 }
-
-/*
-   // unused fns for ServerBuilder
-
-    /// TODO: Implement server from statefile
-    pub fn from_statefile(location: &str) -> Result<Self> {
-        let identity_keys = Obfs4NtorSecretKey {
-            sk: [0_u8; KEY_LENGTH].into(),
-            pk: Obfs4NtorPublicKey {
-                pk: [0_u8; KEY_LENGTH].into(),
-                id: [0_u8; NODE_ID_LENGTH].into(),
-            },
-        };
-        Ok(Self {
-            iat_mode: IAT::Off,
-            identity_keys,
-            statefile_path: Some(location.into()),
-            handshake_timeout: MaybeTimeout::Default_,
-        })
-    }
-
-    /// TODO: parse server params form str vec
-    pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
-        let identity_keys = Obfs4NtorSecretKey {
-            sk: [0_u8; KEY_LENGTH].into(),
-            pk: Obfs4NtorPublicKey {
-                pk: [0_u8; KEY_LENGTH].into(),
-                id: [0_u8; NODE_ID_LENGTH].into(),
-            },
-        };
-        Ok(Self {
-            iat_mode: IAT::Off,
-            identity_keys,
-            statefile_path: None,
-            handshake_timeout: MaybeTimeout::Default_,
-        })
-    }
-
-*/

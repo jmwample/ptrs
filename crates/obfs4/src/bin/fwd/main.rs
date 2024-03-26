@@ -105,7 +105,7 @@ fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    obfs4::dev::print_dev_args();
+    // obfs4::dev::print_dev_args();
 
     // launch tracing subscriber with filter level
     let _guard = init_logging_recvr(args.unsafe_logging, &args.log_level)?;

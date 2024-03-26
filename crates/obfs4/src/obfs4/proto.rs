@@ -54,6 +54,17 @@ impl std::str::FromStr for IAT {
     }
 }
 
+impl std::fmt::Display for IAT {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IAT::Off => write!(f, "0")?,
+            IAT::Enabled => write!(f, "1")?,
+            IAT::Paranoid => write!(f, "2")?,
+        }
+        Ok(())
+    }
+}
+
 impl MaybeTimeout {
     pub(crate) fn duration(&self) -> Option<Duration> {
         match self {
