@@ -9,7 +9,7 @@
 
 use futures::Future;
 use obfs4::{obfs4::ClientBuilder, Obfs4PT};
-use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
+use ptrs::{args::Args, ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
@@ -38,9 +38,10 @@ use std::{
 };
 
 /// Client Socks address to listen on.
-const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
 const U4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9000);
 const U6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000);
+
+const DEV_ARG: &str = "dev";
 
 /// Error defined to denote a failure to get the bridge line
 #[derive(Debug, thiserror::Error)]
@@ -50,7 +51,7 @@ struct BridgeLineParseError;
 /// Tunnel SOCKS5 traffic through obfs4 connections
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+struct CliArgs {
     /// Run in server mode or client mode
     mode: Mode,
 
@@ -68,6 +69,9 @@ struct Args {
     /// Disable the address scrubber on logging
     #[arg(long, action)]
     unsafe_logging: bool,
+
+    #[arg(short, long)]
+    args: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -101,10 +105,22 @@ fn init_logging_recvr(unsafe_logging: bool, level_str: &str) -> Result<safelog::
     }
 }
 
+fn ingest_args(cli_args: &CliArgs) -> Option<Args> {
+    match &cli_args.args {
+        None => None,
+        #[cfg(debug_assertions)]
+        Some(a) if a == DEV_ARG => match cli_args.mode {
+            Mode::Client => Args::from_str(obfs4::dev::CLIENT_ARGS).ok(),
+            Mode::Server => Args::from_str(obfs4::dev::SERVER_ARGS).ok(),
+        },
+        Some(a) => Args::from_str(a).ok(),
+    }
+}
+
 /// Main function, ties everything together and parses arguments etc.
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = CliArgs::parse();
     // obfs4::dev::print_dev_args();
 
     // launch tracing subscriber with filter level
@@ -121,25 +137,28 @@ async fn main() -> Result<()> {
         d => (SocketAddr::from_str(d)?, false),
     };
 
-    let listen_addr = match args.laddr {
+    let listen_addr = match &args.laddr {
         Some(a) => a,
         None => match args.mode {
-            Mode::Client => String::from("[::]:9000"),
-            Mode::Server => String::from("[::]:9001"),
+            Mode::Client => "[::]:9000",
+            Mode::Server => "[::]:9001",
         },
     };
 
+    let params = ingest_args(&args);
     // launch runners
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     let mut exit_rx = match args.mode {
         Mode::Client => {
+            let params =
+                params.ok_or(anyhow!("missing arguments for client to connect to server"))?;
             // running as CLIENT
-            client_setup(listen_addr, dst_addr, cancel_token.clone()).await?
+            client_setup(listen_addr, dst_addr, params, cancel_token.clone()).await?
         }
         Mode::Server => {
             // running as SERVER
-            server_setup(listen_addr, dst_addr, echo, cancel_token.clone()).await?
+            server_setup(listen_addr, dst_addr, echo, params, cancel_token.clone()).await?
         }
     };
 
@@ -193,6 +212,7 @@ async fn warn_fut(client_addr: SocketAddr, f: impl Future<Output = Result<()>>) 
 async fn client_setup<A: ToSocketAddrs>(
     listen_addrs: A,
     remote_addr: SocketAddr,
+    params: Args,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
@@ -200,14 +220,13 @@ async fn client_setup<A: ToSocketAddrs>(
 
     let mut listeners = Vec::new();
 
+    debug!("client building with {:?}", params);
     let builder = Obfs4PT::client_builder();
     let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
 
-    listeners.push(client_accept_loop(
-        listener,
-        builder,
-        remote_addr,
-        cancel_token.clone(),
+    listeners.push(warn_fut(
+        listener.local_addr()?,
+        client_accept_loop(listener, builder, remote_addr, params, cancel_token.clone()),
     ));
 
     // spawn a task that runs and monitors the progress of the listeners.
@@ -239,8 +258,9 @@ async fn client_setup<A: ToSocketAddrs>(
 
 async fn client_accept_loop<C>(
     listener: TcpListener,
-    builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + Send + 'static,
+    mut builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C> + Send + 'static,
     remote_addr: SocketAddr,
+    params: Args,
     cancel_token: CancellationToken,
 ) -> Result<()>
 where
@@ -248,6 +268,8 @@ where
     C: ptrs::ClientTransport<TcpStream, std::io::Error> + 'static,
 {
     let pt_name = C::method_name();
+    let builder = builder.options(&params)?;
+
     info!(
         "{pt_name} client accept loop launched listening on: {}",
         listener.local_addr()?
@@ -279,7 +301,7 @@ where
 /// and reliability before passing to this layer.
 async fn client_handle_connection<In, C>(
     mut conn: In,
-    mut builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + 'static,
+    mut builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C> + 'static,
     remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
@@ -291,16 +313,10 @@ where
 {
     let remote = tokio::net::TcpStream::connect(remote_addr);
 
-    // build the pluggable transport client and then dial, completing the
-    // connection and handshake when the `wrap(..)` is await-ed.
-    let args = ptrs::args::Args::parse_client_parameters(obfs4::dev::CLIENT_ARGS)?;
-
-    debug!("client building with {:?}", args);
-    let mut b = builder
-        .options(&args)
-        .context("failed setting builder opts")?;
     let pt_client = builder.build();
 
+    // build the pluggable transport client and then dial, completing the
+    // connection and handshake when the `wrap(..)` is await-ed.
     let mut pt_conn = match ptrs::ClientTransport::<TcpStream, std::io::Error>::establish(
         pt_client,
         Box::pin(remote),
@@ -343,6 +359,7 @@ async fn server_setup<A: ToSocketAddrs>(
     listen_addrs: A,
     remote_addr: SocketAddr,
     echo: bool,
+    params: Option<Args>,
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
@@ -351,18 +368,14 @@ async fn server_setup<A: ToSocketAddrs>(
 
     let mut listeners = Vec::new();
 
-    let options = ptrs::args::Args::parse_client_parameters(obfs4::dev::SERVER_ARGS)?;
-
     let mut builder = Obfs4PT::server_builder();
-    <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
-        &mut builder,
-        &options,
-    )?;
-    let server = builder.build();
-    // // TODO: I hate having to use the specific < > notation ^^ but I am not sure how to avoid it.
-    // let server = builder
-    //     .options(bind_addr.options)?
-    //     .build();
+    let server = if params.is_some() {
+        builder.options(&params.unwrap())?.build()
+    } else {
+        builder.build()
+    };
+
+    info!("client params: \"{}\"", builder.get_client_params());
 
     let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
     listeners.push(server_listen_loop::<TcpStream, _>(

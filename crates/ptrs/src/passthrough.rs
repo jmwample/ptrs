@@ -8,8 +8,6 @@ where
 {
     type ClientBuilder = BuilderC;
     type ServerBuilder = BuilderS;
-    // type Client = Passthrough;
-    // type Server = Passthrough;
 
     fn name() -> String {
         String::from("passthrough")
@@ -37,54 +35,43 @@ where
     type ServerPT = Passthrough;
     type Transport = Passthrough;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
-        Ok(self)
+    fn method_name() -> String {
+        String::from("passthrough")
     }
 
-    /// Pluggable transport attempts to parse and validate options from a string,
-    /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// The maximum time we should wait for a pluggable transport binary to
-    /// report successful initialization. If `None`, a default value is used.
-    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// An IPv4 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
-    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// An IPv6 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
-    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
     fn build(&self) -> Self::ServerPT {
         Passthrough {}
     }
 
-    fn method_name() -> String {
-        String::from("passthrough")
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn get_client_params(&self) -> String {
+        String::new()
+    }
+
+    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
+        Ok(self)
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BuilderC {}
 
-impl<T> ClientBuilderByTypeInst<T> for BuilderC
+impl<T> ClientBuilder<T> for BuilderC
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
@@ -92,47 +79,32 @@ where
     type Error = std::io::Error;
     type Transport = Passthrough;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
-        Ok(self)
+    fn method_name() -> String {
+        String::from("passthrough")
     }
 
-    /// Pluggable transport attempts to parse and validate options from a string,
-    /// typically using ['parse_smethod_args'].
-    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// The maximum time we should wait for a pluggable transport binary to
-    /// report successful initialization. If `None`, a default value is used.
-    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// An IPv4 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
-    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// An IPv6 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
-    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
-        Ok(self)
-    }
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
     fn build(&self) -> Self::ClientPT {
         Passthrough {}
     }
 
-    fn method_name() -> String {
-        String::from("passthrough")
+    fn options(&mut self, _opts: &args::Args) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
+    fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
+        Ok(self)
     }
 }
 
@@ -209,7 +181,7 @@ mod design_tests {
 
     use super::{BuilderC, BuilderS, Passthrough};
     use crate::{
-        ClientBuilderByTypeInst,
+        ClientBuilder,
         ClientTransport,
         FutureResult,
         PluggableTransport,
@@ -238,8 +210,8 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
-                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
@@ -247,9 +219,9 @@ mod design_tests {
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
-        P::ClientBuilder: ClientBuilderByTypeInst<T>,
-        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
-        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::Error: std::error::Error + 'static,
+        P::ClientBuilder: ClientBuilder<T>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT: ClientTransport<T,E>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::Error: std::error::Error + 'static,
         E: std::error::Error + 'static,
     {
         Ok(P::client_builder()
@@ -315,15 +287,15 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
+                <<B as ClientBuilder<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
+                <<B as ClientBuilder<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
     >
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-        B: ClientBuilderByTypeInst<T>,
+        B: ClientBuilder<T>,
         B::ClientPT: ClientTransport<T, E>,
         B::Error: std::error::Error + 'static,
     {
@@ -389,8 +361,8 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
-                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT as ClientTransport<T,E>>::OutRW,
+                <<<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT as ClientTransport<T,E>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
@@ -398,9 +370,9 @@ mod design_tests {
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
-        P::ClientBuilder: ClientBuilderByTypeInst<T>,
-        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::ClientPT: ClientTransport<T,E>,
-        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilderByTypeInst<T>>::Error: std::error::Error + 'static,
+        P::ClientBuilder: ClientBuilder<T>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::ClientPT: ClientTransport<T,E>,
+        <<P as PluggableTransport<T>>::ClientBuilder as ClientBuilder<T>>::Error: std::error::Error + 'static,
         E: std::error::Error + 'static,
     {
         Ok(P::client_builder()
@@ -463,15 +435,15 @@ mod design_tests {
     ) -> Result<
         Pin<
             FutureResult<
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
-                <<B as ClientBuilderByTypeInst<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
+                <<B as ClientBuilder<T>>::ClientPT as ClientTransport<T, E>>::OutRW,
+                <<B as ClientBuilder<T>>::ClientPT as ClientTransport<T, E>>::OutErr,
             >,
         >,
         Box<dyn std::error::Error>,
     >
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-        B: ClientBuilderByTypeInst<T>,
+        B: ClientBuilder<T>,
         B::ClientPT: ClientTransport<T, E>,
         B::Error: std::error::Error + 'static,
     {
@@ -544,7 +516,7 @@ mod design_tests {
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         P: PluggableTransport<T>,
-        P::ClientBuilder: ClientBuilderByTypeInst<T>,
+        P::ClientBuilder: ClientBuilder<T>,
         <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::ServerPT: ServerTransport<T>,
         <<P as PluggableTransport<T>>::ServerBuilder as ServerBuilder<T>>::Error: std::error::Error + 'static,
     {
@@ -837,11 +809,11 @@ mod design_tests {
         let pb: &BuilderC = &<Passthrough as PluggableTransport<TcpStream>>::client_builder();
 
         rx.await.unwrap();
-        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let client = <BuilderC as ClientBuilder<TcpStream>>::build(pb);
         let conn_fut1 = client.establish(Box::pin(tcp_dial_fut));
-        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let client = <BuilderC as ClientBuilder<TcpStream>>::build(pb);
         let conn_fut2 = client.establish(Box::pin(conn_fut1));
-        let client = <BuilderC as ClientBuilderByTypeInst<TcpStream>>::build(pb);
+        let client = <BuilderC as ClientBuilder<TcpStream>>::build(pb);
         let conn_fut3 = client.establish(Box::pin(conn_fut2));
         let mut conn = conn_fut3.await?;
 

@@ -22,7 +22,7 @@ use crate::{
 };
 use ptrs::args::Args;
 
-use std::{borrow::BorrowMut, ops::Deref, str::FromStr, sync::Arc};
+use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
@@ -37,15 +37,16 @@ use tracing::{debug, info};
 
 const STATE_FILENAME: &str = "obfs4_state.json";
 
-pub struct ServerBuilder {
+pub struct ServerBuilder<T> {
     pub iat_mode: IAT,
     pub statefile_path: Option<String>,
     pub(crate) identity_keys: Obfs4NtorSecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
     // pub(crate) drbg: Drbg, // TODO: build in DRBG
+    _stream_type: PhantomData<T>,
 }
 
-impl Default for ServerBuilder {
+impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
         let identity_keys = Obfs4NtorSecretKey::getrandom();
         Self {
@@ -53,11 +54,12 @@ impl Default for ServerBuilder {
             statefile_path: None,
             identity_keys,
             handshake_timeout: MaybeTimeout::Default_,
+            _stream_type: PhantomData,
         }
     }
 }
 
-impl ServerBuilder {
+impl<T> ServerBuilder<T> {
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
     pub fn node_keys(&mut self, keys: [u8; KEY_LENGTH * 2]) -> &Self {
@@ -97,6 +99,14 @@ impl ServerBuilder {
         self.handshake_timeout = MaybeTimeout::Unset;
         self
     }
+
+    pub fn client_params(&self) -> String {
+        let mut params = Args::new();
+        params.insert(CERT_ARG.into(), vec![self.identity_keys.pk.to_string()]);
+        params.insert(IAT_ARG.into(), vec![self.iat_mode.to_string()]);
+        params.encode_smethod_args()
+    }
+
     pub fn build(&self) -> Server {
         Server(Arc::new(ServerInner {
             identity_keys: self.identity_keys.clone(),
@@ -360,6 +370,7 @@ mod tests {
 
     use super::*;
 
+    use tokio::net::TcpStream;
     use tracing::trace;
 
     #[test]
@@ -370,7 +381,7 @@ mod tests {
         let test_state = format!(
             r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{IAT_ARG}": "0", "{SEED_ARG}": "abcdefabcdefabcdefabcdef"}}"#
         );
-        ServerBuilder::server_state_from_json(test_state.as_bytes(), &mut args)?;
+        ServerBuilder::<TcpStream>::server_state_from_json(test_state.as_bytes(), &mut args)?;
         debug!("{:?}\n{}", args.encode_smethod_args(), test_state);
 
         Ok(())

@@ -14,11 +14,11 @@ pub(crate) mod constants;
 pub(crate) mod handshake;
 pub(crate) mod sessions;
 
-#[allow(non_camel_case_types)]
-pub enum Builder {
-    client(ClientBuilder),
-    server(ServerBuilder),
-}
+// #[allow(non_camel_case_types)]
+// pub enum Builder {
+//     client(ClientBuilder),
+//     server(ServerBuilder),
+// }
 
 //impl Builder {
 //    pub fn from_statefile(location: &str, is_client: bool) -> Result<Self> {

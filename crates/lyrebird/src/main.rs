@@ -245,7 +245,7 @@ async fn client_setup(
 
 async fn client_accept_loop<C>(
     listener: TcpListener,
-    builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C> + Send + 'static,
+    builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C> + Send + 'static,
     proxy_uri: url::Url,
     cancel_token: CancellationToken,
 ) -> Result<()>
@@ -278,7 +278,7 @@ where
 /// and reliability before passing to this layer.
 async fn client_handle_connection<In, C>(
     conn: In,
-    builder: impl ptrs::ClientBuilderByTypeInst<TcpStream, ClientPT = C>,
+    builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C>,
     _proxy_uri: url::Url,
     client_addr: SocketAddr,
 ) -> Result<()>
@@ -462,19 +462,10 @@ async fn server_setup(
         }
 
         let mut builder = Obfs4PT::server_builder();
-        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::statefile_location(
-            &mut builder,
-            statedir,
-        )?;
-        <obfs4::obfs4::ServerBuilder as ptrs::ServerBuilder<TcpStream>>::options(
-            &mut builder,
-            &bind_addr.options,
-        )?;
-        let server = builder.build();
-        // // I hate having to use the specific < > notation ^^ but I am not sure how to avoid it.
-        // let server = builder.statefile_location(statedir)?
-        //     .options(bind_addr.options)?
-        //     .build();
+        let server = builder
+            .statefile_location(statedir)?
+            .options(&bind_addr.options)?
+            .build();
 
         let listener = tokio::net::TcpListener::bind(bind_addr.addr).await?;
         listeners.push(server_listen_loop::<TcpStream, _>(
