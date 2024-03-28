@@ -33,7 +33,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	golog "log"
+	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path"
@@ -41,7 +42,6 @@ import (
 	"syscall"
 
 	"github.com/refraction-networking/obfs4/common/drbg"
-	"github.com/refraction-networking/obfs4/common/log"
 	"github.com/refraction-networking/obfs4/transports"
 	"github.com/refraction-networking/obfs4/transports/base"
 	"github.com/refraction-networking/obfs4/transports/obfs4"
@@ -54,6 +54,7 @@ const (
 	fwdProxyAddr      = ":9001"
 	fwdProxyPort      = 9001
 	clientConnectAddr = "127.0.0.1:9001"
+	clientListenAddr  = "127.0.0.1:9000"
 )
 
 const (
@@ -65,54 +66,82 @@ const (
 	iatArg       = "iat-mode"
 )
 
-var pubkeyTest = ""
-var privkeyTest = ""
-var nodeID = ""
+var pubkeyTest = "d3485bec18ac4d14f05c19d38205282912d2489c6f7309865ecc13d506e0566a"
+var privkeyTest = "3031323334353637383961626364656666656463626139383736353433323130"
+var nodeID = "0000000000000000000000000000000000000000"
+var iatMode = "0"
 
 var termMon *termMonitor
 
-func clientConn() (net.Conn, error) {
+func clientSetup() (launched bool, listeners []net.Listener) {
+	name := "obfs4"
 
 	obfsTransport := obfs4.Transport{}
-	args := pt.Args{}
 
+	cf, err := obfsTransport.ClientFactory("")
+	if err != nil {
+		log.Fatalf("failed to create client factory")
+	}
+
+	args := pt.Args{}
 	args.Add(nodeIDArg, nodeID)
 	args.Add(publicKeyArg, pubkeyTest)
-	args.Add(iatArg, "1")
+	args.Add(iatArg, iatMode)
 
-	c, err := obfsTransport.ClientFactory("")
+	parsedArgs, err := cf.ParseArgs(&args)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client factory")
+		log.Fatalf("failed to parse obfs4 args")
 	}
 
-	parsedArgs, err := c.ParseArgs(&args)
+	ln, err := net.Listen("tcp", clientListenAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse obfs4 args")
+		return
 	}
 
-	return c.Dial("tcp", clientConnectAddr, net.Dial, parsedArgs)
+	go clientAcceptLoop(cf, ln, parsedArgs)
+
+	Infof("%s - registered listener: %s", name, elideAddr(ln.Addr().String()))
+	listeners = append(listeners, ln)
+	launched = true
+
+	return
 }
 
-func useConn(conn net.Conn) error {
+func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any) {
+	defer ln.Close()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if e, ok := err.(net.Error); (ok && !e.Timeout()) || !ok {
+				if e != net.ErrClosed {
+					Errorf("encountered error accepting connection: %s", e)
+				}
+				Errorf("shutting down client listener")
+				return
+			}
+			continue
+		}
+		Debugf("accepted new connection: %s", elideAddr(conn.RemoteAddr().String()))
+		go clientHandler(cf, conn, args)
+	}
+}
+
+func clientHandler(cf base.ClientFactory, conn net.Conn, args any) {
 	defer conn.Close()
 
-	message := "HELLO WORLD, owo"
-
-	_, err := conn.Write([]byte(message))
+	name := cf.Transport().Name()
+	addrStr := elideAddr(conn.RemoteAddr().String())
+	remote, err := cf.Dial("tcp", clientConnectAddr, net.Dial, args)
 	if err != nil {
-		return err
+		Errorf("%s(%s) handshake failed: %s", name, addrStr, err)
+		return
 	}
 
-	buf := make([]byte, 100)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return err
+	if err = copyLoop(remote, remote); err != nil {
+		Warnf("%s(%s) closed connection: %s", name, addrStr, elideError(err))
+	} else {
+		Infof("%s(%s) closed connection", name, addrStr)
 	}
-
-	if string(buf[:n]) != message {
-		golog.Fatalf("unexpected response message: \"%s\"", string(buf[:n]))
-	}
-	return nil
 }
 
 func serverSetup() (launched bool, listeners []net.Listener) {
@@ -121,9 +150,11 @@ func serverSetup() (launched bool, listeners []net.Listener) {
 	args := pt.Args{}
 	args.Add(nodeIDArg, nodeID)
 	args.Add(privateKeyArg, privkeyTest)
+	args.Add(iatArg, iatMode)
+
 	seed, err := drbg.NewSeed()
 	if err != nil {
-		golog.Fatalf("failed to create DRBG seed: %w", err)
+		log.Fatalf("failed to create DRBG seed: %s", err)
 		return false, nil
 	}
 	args.Add(seedArg, seed.Hex())
@@ -132,7 +163,7 @@ func serverSetup() (launched bool, listeners []net.Listener) {
 
 	f, err := t.ServerFactory("", &args)
 	if err != nil {
-		golog.Fatalf("failed to create server factory: %w", err)
+		log.Fatalf("failed to create server factory: %s", err)
 		return false, nil
 	}
 
@@ -145,7 +176,7 @@ func serverSetup() (launched bool, listeners []net.Listener) {
 		_ = serverAcceptLoop(f, ln)
 	}()
 
-	log.Infof("%s - registered listener: %s", name, log.ElideAddr(ln.Addr().String()))
+	Infof("%s - registered listener: %s", name, elideAddr(ln.Addr().String()))
 	listeners = append(listeners, ln)
 	launched = true
 
@@ -162,30 +193,30 @@ func serverAcceptLoop(f base.ServerFactory, ln net.Listener) error {
 			}
 			continue
 		}
-		go serverHandler(f, conn)
+		go serverEchoHandler(f, conn)
 	}
 }
 
-func serverHandler(f base.ServerFactory, conn net.Conn) {
+func serverEchoHandler(f base.ServerFactory, conn net.Conn) {
 	defer conn.Close()
 	termMon.onHandlerStart()
 	defer termMon.onHandlerFinish()
 
 	name := f.Transport().Name()
-	addrStr := log.ElideAddr(conn.RemoteAddr().String())
-	log.Infof("%s(%s) - new connection", name, addrStr)
+	addrStr := elideAddr(conn.RemoteAddr().String())
+	Infof("%s(%s) - new connection", name, addrStr)
 
 	// Instantiate the server transport method and handshake.
 	remote, err := f.WrapConn(conn)
 	if err != nil {
-		log.Warnf("%s(%s) - handshake failed: %s", name, addrStr, log.ElideError(err))
+		Warnf("%s(%s) - handshake failed: %s", name, addrStr, elideError(err))
 		return
 	}
 
 	if err = copyLoop(remote, remote); err != nil {
-		log.Warnf("%s(%s) - closed connection: %s", name, addrStr, log.ElideError(err))
+		Warnf("%s(%s) - closed connection: %s", name, addrStr, elideError(err))
 	} else {
-		log.Infof("%s(%s) - closed connection", name, addrStr)
+		Infof("%s(%s) - closed connection", name, addrStr)
 	}
 }
 
@@ -200,14 +231,20 @@ func copyLoop(a net.Conn, b net.Conn) error {
 		defer b.Close()
 		defer a.Close()
 		_, err := io.Copy(b, a)
-		errChan <- err
+		if e, ok := err.(net.Error); !(ok && e == net.ErrClosed) || !ok {
+			// if the close error is anything other than "use of closed conn" report it
+			errChan <- err
+		}
 	}()
 	go func() {
 		defer wg.Done()
 		defer a.Close()
 		defer b.Close()
 		_, err := io.Copy(a, b)
-		errChan <- err
+		if e, ok := err.(net.Error); !(ok && e == net.ErrClosed) || !ok {
+			// if the close error is anything other than "use of closed conn" report it
+			errChan <- err
+		}
 	}()
 
 	// Wait for both upstream and downstream to close.  Since one side
@@ -226,52 +263,47 @@ func getVersion() string {
 	return fmt.Sprintf("obfs4proxy-%s", obfs4proxyVersion)
 }
 
-// Feature #15435 adds a new env var for determining if Tor keeps stdin
-// open for use in termination detection.
-func ptShouldExitOnStdinClose() bool {
-	return os.Getenv("TOR_PT_EXIT_ON_STDIN_CLOSE") == "1"
-}
-
 func main() {
+	var err error
 	// Initialize the termination state monitor as soon as possible.
 	termMon = newTermMonitor()
 
 	// Handle the command line arguments.
 	_, execName := path.Split(os.Args[0])
 	showVer := flag.Bool("version", false, "Print version and exit")
-	logLevelStr := flag.String("logLevel", "ERROR", "Log level (ERROR/WARN/INFO/DEBUG)")
+	logLevelStr := flag.String("log-level", "ERROR", "Log level (ERROR/WARN/INFO/DEBUG)")
 	isClient := flag.Bool("client", false, "set this if client")
+	flag.BoolVar(&unsafeLogging, "x", false, "Enable unsafe logging")
 	flag.Parse()
 
 	if *showVer {
 		fmt.Printf("%s\n", getVersion())
 		os.Exit(0)
 	}
-	if err := log.SetLogLevel(*logLevelStr); err != nil {
-		golog.Fatalf("[ERROR]: %s - failed to set log level: %s", execName, err)
+
+	var level *slog.Level
+	if level, err = parseLevel(*logLevelStr); err != nil {
+		log.Fatalf("[ERROR]: %s - failed to set log level: %s", execName, err)
 	}
+	_ = slog.SetLogLoggerLevel(*level)
+	Infof("log level set to %s", *logLevelStr)
 
 	// Determine if this is a client or server, initialize the common state.
 	var ptListeners []net.Listener
 	var launched bool
-	var err error
 	if err = transports.Init(); err != nil {
-		log.Errorf("%s - failed to initialize transports: %s", execName, err)
+		Errorf("%s - failed to initialize transports: %s", execName, err)
 		os.Exit(-1)
 	}
 
-	log.Noticef("%s - launched", getVersion())
+	Infof("%s - launched", getVersion())
 
 	// Do the managed pluggable transport protocol configuration.
 	if *isClient {
-		log.Infof("%s - initializing client transport listeners", execName)
-		conn, err := clientConn()
-		if err != nil {
-			golog.Fatalf("failed to dial and wrap")
-		}
-		go useConn(conn)
+		Infof("%s - initializing client transport listeners", execName)
+		launched, ptListeners = clientSetup()
 	} else {
-		log.Infof("%s - initializing server transport listeners", execName)
+		Infof("%s - initializing server transport listeners", execName)
 		launched, ptListeners = serverSetup()
 	}
 	if !launched {
@@ -280,9 +312,9 @@ func main() {
 		os.Exit(-1)
 	}
 
-	log.Infof("%s - accepting connections", execName)
+	Infof("%s - accepting connections", execName)
 	defer func() {
-		log.Noticef("%s - terminated", execName)
+		Infof("%s - terminated", execName)
 	}()
 
 	// At this point, the pt config protocol is finished, and incoming
