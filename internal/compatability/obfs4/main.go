@@ -30,15 +30,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path"
-	"sync"
 	"syscall"
 
 	"github.com/refraction-networking/obfs4/common/drbg"
@@ -100,7 +100,7 @@ func clientSetup() (launched bool, listeners []net.Listener) {
 
 	go clientAcceptLoop(cf, ln, parsedArgs)
 
-	Infof("%s - registered listener: %s", name, elideAddr(ln.Addr().String()))
+	Infof("%s registered listener: %s", name, elideAddr(ln.Addr().String()))
 	listeners = append(listeners, ln)
 	launched = true
 
@@ -113,8 +113,8 @@ func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any) {
 		conn, err := ln.Accept()
 		if err != nil {
 			if e, ok := err.(net.Error); (ok && !e.Timeout()) || !ok {
-				if e != net.ErrClosed {
-					Errorf("encountered error accepting connection: %s", e)
+				if !errors.Is(e, net.ErrClosed) {
+					Errorf("listener error: %s", e)
 				}
 				Errorf("shutting down client listener")
 				return
@@ -137,14 +137,16 @@ func clientHandler(cf base.ClientFactory, conn net.Conn, args any) {
 		return
 	}
 
-	if err = copyLoop(remote, remote); err != nil {
-		Warnf("%s(%s) closed connection: %s", name, addrStr, elideError(err))
+	Infof("%s(%s) successful connection", name, addrStr)
+
+	if up, dn, err := copyLoop(conn, remote); err != nil {
+		Warnf("%s(%s) closed connection (%d⬆️  - %d⬇️ ): %s", name, addrStr, up, dn, elideError(err))
 	} else {
-		Infof("%s(%s) closed connection", name, addrStr)
+		Infof("%s(%s) closed connection (%d⬆️  - %d⬇️ )", name, addrStr, up, dn)
 	}
 }
 
-func serverSetup() (launched bool, listeners []net.Listener) {
+func serverSetup(handler Backend) (launched bool, listeners []net.Listener) {
 	name := "obfs4"
 
 	args := pt.Args{}
@@ -173,90 +175,50 @@ func serverSetup() (launched bool, listeners []net.Listener) {
 	}
 
 	go func() {
-		_ = serverAcceptLoop(f, ln)
+		_ = serverAcceptLoop(f, ln, handler)
 	}()
 
-	Infof("%s - registered listener: %s", name, elideAddr(ln.Addr().String()))
+	Infof("%s registered listener: %s", name, elideAddr(ln.Addr().String()))
 	listeners = append(listeners, ln)
 	launched = true
 
 	return
 }
 
-func serverAcceptLoop(f base.ServerFactory, ln net.Listener) error {
+func serverAcceptLoop(f base.ServerFactory, ln net.Listener, handler Backend) error {
 	defer ln.Close()
+
+	name := f.Transport().Name()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if e, ok := err.(net.Error); (ok && !e.Timeout()) || !ok {
+				if !errors.Is(e, net.ErrClosed) {
+					Errorf("listener error: %s", e)
+				}
+				Errorf("shutting down server listener")
 				return err
 			}
 			continue
 		}
-		go serverEchoHandler(f, conn)
+
+		go func() {
+			addrStr := elideAddr(conn.RemoteAddr().String())
+			Infof("%s(%s) new connection", name, addrStr)
+
+			// Instantiate the server transport method and handshake.
+			remote, err := f.WrapConn(conn)
+			if err != nil {
+				Warnf("%s(%s) handshake failed: %s", name, addrStr, elideError(err))
+				return
+			}
+			Infof("%s(%s) successful connection", name, addrStr)
+
+			// hand the connection off to  the backend
+			handler(f, remote)
+			// serverEchoHandler(f, remote)
+		}()
 	}
-}
-
-func serverEchoHandler(f base.ServerFactory, conn net.Conn) {
-	defer conn.Close()
-	termMon.onHandlerStart()
-	defer termMon.onHandlerFinish()
-
-	name := f.Transport().Name()
-	addrStr := elideAddr(conn.RemoteAddr().String())
-	Infof("%s(%s) - new connection", name, addrStr)
-
-	// Instantiate the server transport method and handshake.
-	remote, err := f.WrapConn(conn)
-	if err != nil {
-		Warnf("%s(%s) - handshake failed: %s", name, addrStr, elideError(err))
-		return
-	}
-
-	if err = copyLoop(remote, remote); err != nil {
-		Warnf("%s(%s) - closed connection: %s", name, addrStr, elideError(err))
-	} else {
-		Infof("%s(%s) - closed connection", name, addrStr)
-	}
-}
-
-func copyLoop(a net.Conn, b net.Conn) error {
-	errChan := make(chan error, 2)
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		defer b.Close()
-		defer a.Close()
-		_, err := io.Copy(b, a)
-		if e, ok := err.(net.Error); !(ok && e == net.ErrClosed) || !ok {
-			// if the close error is anything other than "use of closed conn" report it
-			errChan <- err
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		defer a.Close()
-		defer b.Close()
-		_, err := io.Copy(a, b)
-		if e, ok := err.(net.Error); !(ok && e == net.ErrClosed) || !ok {
-			// if the close error is anything other than "use of closed conn" report it
-			errChan <- err
-		}
-	}()
-
-	// Wait for both upstream and downstream to close.  Since one side
-	// terminating closes the other, the second error in the channel will be
-	// something like EINVAL (though io.Copy() will swallow EOF), so only the
-	// first error is returned.
-	wg.Wait()
-	if len(errChan) > 0 {
-		return <-errChan
-	}
-
-	return nil
 }
 
 func getVersion() string {
@@ -273,6 +235,7 @@ func main() {
 	showVer := flag.Bool("version", false, "Print version and exit")
 	logLevelStr := flag.String("log-level", "ERROR", "Log level (ERROR/WARN/INFO/DEBUG)")
 	isClient := flag.Bool("client", false, "set this if client")
+	fwdDst := flag.String("fwd", "", "use the transparent forward proxy backend `-fwd=\"<addr:port>\"`")
 	flag.BoolVar(&unsafeLogging, "x", false, "Enable unsafe logging")
 	flag.Parse()
 
@@ -283,7 +246,7 @@ func main() {
 
 	var level *slog.Level
 	if level, err = parseLevel(*logLevelStr); err != nil {
-		log.Fatalf("[ERROR]: %s - failed to set log level: %s", execName, err)
+		log.Fatalf("[ERROR]: %s failed to set log level: %s", execName, err)
 	}
 	_ = slog.SetLogLoggerLevel(*level)
 	Infof("log level set to %s", *logLevelStr)
@@ -292,19 +255,30 @@ func main() {
 	var ptListeners []net.Listener
 	var launched bool
 	if err = transports.Init(); err != nil {
-		Errorf("%s - failed to initialize transports: %s", execName, err)
+		Errorf("%s failed to initialize transports: %s", execName, err)
 		os.Exit(-1)
 	}
 
-	Infof("%s - launched", getVersion())
+	Infof("%s launched", getVersion())
 
 	// Do the managed pluggable transport protocol configuration.
 	if *isClient {
-		Infof("%s - initializing client transport listeners", execName)
+		Infof("%s initializing client transport listeners", execName)
 		launched, ptListeners = clientSetup()
 	} else {
-		Infof("%s - initializing server transport listeners", execName)
-		launched, ptListeners = serverSetup()
+
+		handler := serverEchoHandler
+		if *fwdDst != "" {
+			addrport, err := netip.ParseAddrPort(*fwdDst)
+			if err != nil {
+				log.Fatalf("specified fwd handler with invalid Addr:Port dst (%s): %s", *fwdDst, err)
+			}
+			addr := net.TCPAddrFromAddrPort(addrport)
+			handler = makeServerFwdBackend(addr)
+		}
+
+		Infof("%s initializing server transport listeners", execName)
+		launched, ptListeners = serverSetup(handler)
 	}
 	if !launched {
 		// Initialization failed, the client or server setup routines should
@@ -312,9 +286,9 @@ func main() {
 		os.Exit(-1)
 	}
 
-	Infof("%s - accepting connections", execName)
+	Infof("%s accepting connections", execName)
 	defer func() {
-		Infof("%s - terminated", execName)
+		Infof("%s terminated", execName)
 	}()
 
 	// At this point, the pt config protocol is finished, and incoming

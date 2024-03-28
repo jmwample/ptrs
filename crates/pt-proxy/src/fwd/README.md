@@ -68,13 +68,13 @@ Usage: fwd server <COMMAND>
 
 Commands:
   echo   For each (successful) connection echo client traffic back over the tunnel.
-                $ fwd [OPTIONS] server echo
+                $ fwd [OPTIONS] [LADDR] server echo
 
   fwd    For each (successful) connection transparently proxy traffic to the provided host.
-                $ fwd [OPTIONS] server fwd "127.0.0.1:8080"
+                $ fwd [OPTIONS] [LADDR] server fwd "127.0.0.1:8080"
 
   socks  Run a socks5 server to handle all (successful) incoming connections.
-                $ fwd [OPTIONS] server socks --auth "user:example"
+                $ fwd [OPTIONS] [LADDR] server socks --auth "user:example"
 
   help   Print this message or the help of the given subcommand(s)
 
