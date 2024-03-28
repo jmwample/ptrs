@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/refraction-networking/obfs4/transports/base"
+	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/transports/base"
 )
 
 type Backend func(f base.ServerFactory, conn net.Conn)
