@@ -30,7 +30,7 @@ pub(crate) enum Backends {
     /// Run a socks5 server to handle all (successful) incoming connections.
     Socks {
         /// Optional authentication (username:password) for the socks endpoint
-        auth: Option<String>
+        auth: Option<String>,
     },
 
     /// For each (successful) connection transparently proxy traffic to the provided host.
@@ -101,10 +101,7 @@ where
     Ok(())
 }
 
-async fn server_echo_connection<In>(
-    mut conn: In,
-    client_addr: SocketAddr,
-) -> Result<()>
+async fn server_echo_connection<In>(mut conn: In, client_addr: SocketAddr) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,

@@ -71,13 +71,12 @@ struct CliArgs {
     log_level: String,
 
     /// Disable the address scrubber on logging
-    #[arg(short='x', long, action)]
+    #[arg(short = 'x', long, action)]
     unsafe_logging: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Subcommand)]
 enum Mode {
-
     /// Run as client forward proxy, initiating pluggable transport connection.
     Client {
         /// Target address, server address when running as client, forward address when running as

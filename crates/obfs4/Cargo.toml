@@ -7,14 +7,9 @@ edition = "2021"
 name = "obfs4"
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "fwd"
-test = false
-bench = false
-
 [dependencies]
 ## Local
-ptrs = { path="../ptrs" }
+ptrs = { path="../ptrs", version="0.1.0" }
 
 ## PRNG
 getrandom = "0.2.11"
