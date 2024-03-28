@@ -50,9 +50,8 @@ const CLIENT_SOCKS_ADDR: &str = "127.0.0.1:0";
 #[error("Error while obtaining bridge line data")]
 struct BridgeLineParseError;
 
-/// Tunnel SOCKS5 traffic through obfs4 connections
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, long_about = None, about="Tunnel Tor SOCKS5 traffic through pluggable transport connections")]
 struct Args {
     /// Log to {TOR_PT_STATE_LOCATION}/obfs4proxy.log
     #[arg(long, default_value_t = false)]

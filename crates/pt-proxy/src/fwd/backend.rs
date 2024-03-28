@@ -23,20 +23,26 @@ pub(crate) trait Backend {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, clap::Subcommand)]
 pub(crate) enum Backends {
-    /// For each (successful) connection echo client traffic back over the tunnel.
     #[default]
+    #[command(
+        about = "For each (successful) connection echo client traffic back over the tunnel.\n\t$ fwd [OPTIONS] server echo\n"
+    )]
     Echo,
 
-    /// Run a socks5 server to handle all (successful) incoming connections.
-    Socks {
-        /// Optional authentication (username:password) for the socks endpoint
-        auth: Option<String>,
-    },
-
-    /// For each (successful) connection transparently proxy traffic to the provided host.
+    #[command(
+        about = "For each (successful) connection transparently proxy traffic to the provided host.\n\t$ fwd [OPTIONS] server fwd \"127.0.0.1:8080\"\n"
+    )]
     Fwd {
         /// Destination address for forwarded traffic.
         dst: String,
+    },
+
+    #[command(
+        about = "Run a socks5 server to handle all (successful) incoming connections.\n\t$ fwd [OPTIONS] server socks --auth \"user:example\"\n"
+    )]
+    Socks {
+        /// Optional authentication (username:password) for the socks endpoint
+        auth: Option<String>,
     },
 }
 

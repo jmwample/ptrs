@@ -1,4 +1,4 @@
-//! Lyrebird client
+//! Forward Proxy
 //!
 //! TODO: (priority: after mvp)
 //!   - use tunnel_manager for managing proxy connections so we can track metrics
@@ -51,9 +51,8 @@ const DEV_ARG: &str = "dev";
 #[error("Error while obtaining bridge line data")]
 struct BridgeLineParseError;
 
-/// Tunnel SOCKS5 traffic through obfs4 connections
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, long_about = None, about="Generalized client and server for transparently proxying traffic over PTs.")]
 struct CliArgs {
     /// Run in server mode or client mode
     #[command(subcommand)]
