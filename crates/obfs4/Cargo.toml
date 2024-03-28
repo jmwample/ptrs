@@ -2,6 +2,13 @@
 name = "obfs4"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
+rust-version = "1.70"
+license = "MIT OR Apache-2.0"
+description = "Pure rust implementation of the obfs4 pluggable transport"
+keywords = ["tor", "censorship", "pluggable", "transports"]
+categories = ["network-programming", "cryptography"]
+repository = "https://github.com/jmwample/o7"
 
 [lib]
 name = "obfs4"

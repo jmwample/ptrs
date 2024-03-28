@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
 rust-version = "1.70"
 license = "MIT OR Apache-2.0"
-description = "Manage a set of pluggable transports to circumvent censorship"
+description = "Binaries for running pluggable transports"
 keywords = ["tor", "censorship", "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
 repository = "https://github.com/jmwample/o7"
@@ -27,8 +27,8 @@ bench = false
 
 [dependencies]
 # internal crates
-ptrs = { path="../ptrs" }
-obfs4 = { path="../obfs4" }
+ptrs = { path="../ptrs", version="0.1.0" }
+obfs4 = { path="../obfs4", version="0.1.0" }
 
 # fwd deps
 anyhow = "1.0"
