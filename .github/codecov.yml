@@ -4,5 +4,4 @@ ignore:
   - internal/
   - target/
   - crates/obfs4/src/test_utils/*
-  - crates/pt-proxy/src/lyrebird/*
-  - crates/pt-proxy/src/fwd/*
+  - crates/lyrebird/src/**/main.rs

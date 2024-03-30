@@ -1,5 +1,5 @@
 [package]
-name = "pt-proxy"
+name = "lyrebird"
 version = "0.1.0"
 edition = "2021"
 authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
@@ -17,18 +17,18 @@ path = "src/fwd/main.rs"
 test = false
 bench = false
 
-
 [[bin]]
 name = "lyrebird"
-path = "src/lyrebird/main.rs"
+path = "src/main.rs"
 test = false
 bench = false
-
 
 [dependencies]
 # internal crates
 ptrs = { path="../ptrs", version="0.1.0" }
 obfs4 = { path="../obfs4", version="0.1.0" }
+
+# shared deps
 
 # fwd deps
 anyhow = "1.0"
