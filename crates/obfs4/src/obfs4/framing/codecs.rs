@@ -1,6 +1,6 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
-    obfs4::framing::{FrameError, Messages},
+    obfs4::{constants::MESSAGE_OVERHEAD, framing::{FrameError, Messages}},
 };
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -208,6 +208,9 @@ impl Decoder for EncryptingCodec {
             return Err(e.into());
         }
         let plaintext = res?;
+        if plaintext.len() < MESSAGE_OVERHEAD {
+            return Err( FrameError::InvalidMessage )
+        } 
 
         // Clean up and prepare for the next frame
         //
@@ -216,9 +219,12 @@ impl Decoder for EncryptingCodec {
         src.advance(next_len);
 
         debug!("⬅️ decoding {next_len}B src:{}B", src.remaining());
-        let msg = Messages::try_parse(&mut BytesMut::from(plaintext.as_slice()))?;
-
-        Ok(Some(msg))
+        match Messages::try_parse(&mut BytesMut::from(plaintext.as_slice())){
+            Ok(Messages::Padding(_)) => Ok(None),
+            Ok(m) => Ok(Some(m)),
+            Err(FrameError::UnknownMessageType(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
 
