@@ -10,7 +10,7 @@ use crypto_secretbox::{
 };
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{error, trace};
+use tracing::{debug, error, info, trace};
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -138,8 +138,8 @@ impl Decoder for EncryptingCodec {
             let mut length = src.get_u16();
 
             // De-obfuscate the length field
-            let length_mask = self.decoder.drbg.uint64() as u16;
-            trace!(
+            let length_mask = self.decoder.drbg.length_mask();
+            info!(
                 "decoding {length:04x}^{length_mask:04x} {:04x}B",
                 length ^ length_mask
             );
@@ -215,7 +215,7 @@ impl Decoder for EncryptingCodec {
         self.decoder.next_length = 0;
         src.advance(next_len);
 
-        trace!("decoded: {next_len}B src:{}B", src.remaining());
+        debug!("⬅️ decoding {next_len}B src:{}B", src.remaining());
         let msg = Messages::try_parse(&mut BytesMut::from(plaintext.as_slice()))?;
 
         Ok(Some(msg))
@@ -285,9 +285,9 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
-        let length_mask: u16 = self.encoder.drbg.uint64() as u16;
-        trace!(
-            "encoded {length}B, {length:04x}^{length_mask:04x} {:04x}",
+        let length_mask: u16 = self.encoder.drbg.length_mask();
+        debug!(
+            "encoding➡️ {length}B, {length:04x}^{length_mask:04x} {:04x}",
             length ^ length_mask
         );
         length ^= length_mask;

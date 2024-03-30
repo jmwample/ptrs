@@ -130,3 +130,28 @@ impl Representable {
         panic!("failed to generate representable secret, getrandom failed");
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use hex::FromHex;
+
+    #[test]
+    fn representative_match() {
+        let mut repres = <[u8; 32]>::from_hex(
+            "8781b04fefa49473ca5943ab23a14689dad56f8118d5869ad378c079fd2f4079",
+        )
+        .unwrap();
+        let incorrect = "1af2d7ac95b5dd1ab2b5926c9019fa86f211e77dd796f178f3fe66137b0d5d15";
+        let expected = "a946c3dd16d99b8c38972584ca599da53e32e8b13c1e9a408ff22fdb985c2d79";
+
+        // we are not clearing the high order bits before translating the representative to a
+        // public key.
+        repres[31] &= 0x3f;
+
+        let r = PublicRepresentative::from(repres);
+        let p = PublicKey::from(&r);
+        assert_ne!(incorrect, hex::encode(p.as_bytes()));
+        assert_eq!(expected, hex::encode(p.as_bytes()));
+    }
+}

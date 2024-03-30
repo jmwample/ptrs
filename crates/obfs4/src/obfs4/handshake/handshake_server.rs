@@ -105,10 +105,16 @@ impl Server {
         // Ensure that none of the keys are broken (i.e. equal to zero).
         let okay =
             ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
+        trace!("x {} y {}", hex::encode(their_pk), hex::encode(ephem_pub));
 
         let (key_seed, authcode) =
             ntor_derive(&xy, &xb, &materials.identity_keys.pk, &their_pk, &ephem_pub)
                 .map_err(into_internal!("Error deriving keys"))?;
+        trace!(
+            "seed: {} auth: {}",
+            hex::encode(key_seed.as_slice()),
+            hex::encode(authcode)
+        );
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
@@ -198,7 +204,8 @@ impl Server {
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?;
         }
 
-        let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        r_bytes[31] &= 0x3f;
         let repres = PublicRepresentative::from(&r_bytes);
 
         // derive the mark
@@ -274,7 +281,7 @@ impl Server {
         }
 
         Ok(ClientHandshakeMessage::new(
-            repres, 0, // doesn't matter when we are reading client handshake msg
+            repres, 0, // pad_len doesn't matter when we are reading client handshake msg
             epoch_hr,
         ))
     }

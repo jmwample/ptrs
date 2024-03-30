@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::{Decoder, Framed};
-use tracing::{debug, trace};
+use tracing::trace;
 
 use std::{
     io::Error as IoError,
@@ -221,7 +221,6 @@ where
         buf: &[u8],
     ) -> Poll<StdResult<usize, IoError>> {
         let msg_len = buf.remaining();
-        debug!("{} writing {msg_len}B", self.session.id());
         let mut this = self.as_mut().project();
 
         // determine if the stream is ready to send an event?
@@ -292,8 +291,6 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<StdResult<(), IoError>> {
-        // trace!("{} reading", self.session.id());
-
         // If there is no payload from the previous Read() calls, consume data off
         // the network.  Not all data received is guaranteed to be usable payload,
         // so do this in a loop until we would block on a read or an error occurs.

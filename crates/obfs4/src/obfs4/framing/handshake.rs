@@ -117,6 +117,7 @@ impl ClientHandshakeMessage {
     }
 
     pub fn get_public(&mut self) -> PublicKey {
+        trace!("repr: {}", hex::encode(self.repres));
         match self.pubkey {
             Some(pk) => pk,
             None => {

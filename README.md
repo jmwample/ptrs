@@ -77,6 +77,10 @@ community and has been used for both the compiler and many public libraries sinc
 [Why dual MIT/ASL2license?](https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license)).
 In order to match the community standards, o7 is using the dual MIT+Apache-2.0 license.
 
+## MSRV Policy
+
+Minimum Supported Rust Version (MSRV) can be changed in the future, but it will be done with a minor version bump.
+
 ## Contributing
 
 Contributors, Issues, and Pull Requests are Welcome!

@@ -120,7 +120,7 @@ func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any) {
 				if !errors.Is(e, net.ErrClosed) {
 					Errorf("listener error: %s", e)
 				}
-				Errorf("shutting down client listener")
+				Infof("shutting down client listener")
 				return
 			}
 			continue
@@ -200,7 +200,7 @@ func serverAcceptLoop(f base.ServerFactory, ln net.Listener, handler Backend) er
 				if !errors.Is(e, net.ErrClosed) {
 					Errorf("listener error: %s", e)
 				}
-				Errorf("shutting down server listener")
+				Infof("shutting down server listener")
 				return err
 			}
 			continue
@@ -220,7 +220,6 @@ func serverAcceptLoop(f base.ServerFactory, ln net.Listener, handler Backend) er
 
 			// hand the connection off to  the backend
 			handler(f, remote)
-			// serverEchoHandler(f, remote)
 		}()
 	}
 }

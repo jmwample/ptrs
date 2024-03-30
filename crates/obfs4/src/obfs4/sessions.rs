@@ -206,7 +206,7 @@ impl ClientSession<Initialized> {
                 }
             };
 
-        // post handshake state updates
+        // post-handshake state updates
         session.set_session_id(keygen.session_id());
         let mut codec: framing::Obfs4Codec = keygen.into();
 
