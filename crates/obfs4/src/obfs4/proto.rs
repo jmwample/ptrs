@@ -319,6 +319,9 @@ where
             if let framing::Messages::Payload(message) = msg {
                 buf.put_slice(&message);
                 return Poll::Ready(Ok(()));
+            } 
+            if let Messages::Padding(_) = msg {
+                continue
             }
 
             match self.as_mut().try_handle_non_payload_message(msg) {

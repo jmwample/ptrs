@@ -29,7 +29,7 @@ use crate::obfs4::{
 use tokio_util::bytes::{Buf, BufMut};
 use tracing::trace;
 
-const PAD: [u8;MAX_MESSAGE_PADDING_LENGTH] = [0u8; MAX_MESSAGE_PADDING_LENGTH];
+const PAD: [u8; MAX_MESSAGE_PADDING_LENGTH] = [0u8; MAX_MESSAGE_PADDING_LENGTH];
 
 #[derive(Debug, PartialEq)]
 pub enum MessageTypes {
@@ -92,7 +92,7 @@ impl Messages {
             }
             Messages::Padding(pad_len) => {
                 if *pad_len > MAX_MESSAGE_PADDING_LENGTH {
-                    return Err(FrameError::InvalidPayloadLength(*pad_len))
+                    return Err(FrameError::InvalidPayloadLength(*pad_len));
                 }
                 dst.put_u16(0u16);
                 if *pad_len > 0 {
@@ -104,21 +104,27 @@ impl Messages {
     }
 
     pub(crate) fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
+        let r: usize = buf.remaining();
         if buf.remaining() < MESSAGE_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
-        let pt: MessageTypes = buf.get_u8().try_into()?;
+
+        let type_u8 = buf.get_u8();
+        let pt: MessageTypes =  type_u8.clone().try_into()?;
         let length = buf.get_u16() as usize;
+        trace!("parsing msg: type:{type_u8} frame_len={r} msg_len={length}");
 
         match pt {
             MessageTypes::Payload => {
                 let mut dst = vec![];
                 if length == 0 {
                     // this "packet" is all padding -> get rid of it
+                    trace!("padding payload len={r}");
                     let n = buf.remaining();
                     buf.advance(n);
-                    return Ok(Messages::Padding(n))
+                    return Ok(Messages::Padding(n));
                 }
+                trace!("content payload len={r}");
 
                 dst.put(buf.take(length));
                 trace!("{}B remainng", buf.remaining());
@@ -132,32 +138,6 @@ impl Messages {
             }
         }
     }
-
-    /*
-    fn drain_padding<T: BufMut + Buf>(b: &mut T) -> usize {
-        if !b.has_remaining() {
-            return 0;
-        }
-
-        let length = b.remaining();
-        let mut count = length;
-        // make a shallow copy that we can work with so that we can continually
-        // check first byte without actually removing it (advancing the pointer
-        // in the Bytes object).
-        let mut buf = b.copy_to_bytes(b.remaining());
-        for i in 0..length {
-            if buf[0] != 0 {
-                count = i;
-                break;
-            }
-            _ = buf.get_u8();
-        }
-
-        b.put(buf);
-        trace!("drained {count}B, {}B remaining", b.remaining(),);
-        count
-    }
-    */
 }
 
 #[cfg(test)]
@@ -168,7 +148,6 @@ mod test {
 
     use rand::prelude::*;
     use tokio_util::bytes::BytesMut;
-
 
     #[test]
     fn prngseed() -> Result<(), FrameError> {

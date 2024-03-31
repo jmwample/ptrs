@@ -205,11 +205,14 @@ impl Server {
         }
 
         let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+
+        // derive the mark based on the literal bytes on the wire
+        h.update(&r_bytes[..]);
+
+        // clear the bits that are unreliable (and randomized) for elligator2
         r_bytes[31] &= 0x3f;
         let repres = PublicRepresentative::from(&r_bytes);
 
-        // derive the mark
-        h.update(&r_bytes[..]);
         let m = h.finalize_reset().into_bytes();
         let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 

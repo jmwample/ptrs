@@ -62,4 +62,3 @@ pub fn build_and_marshall<T: BufMut>(
     }
     Ok(())
 }
-
