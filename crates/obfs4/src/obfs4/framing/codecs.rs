@@ -290,7 +290,6 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
         let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
-        trace!("[encode] finished encrypting");
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
@@ -300,6 +299,12 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
             length ^ length_mask
         );
         length ^= length_mask;
+
+        trace!(
+            "prng_ciphertext: {}{}",
+            hex::encode(length.to_be_bytes()),
+            hex::encode(&ciphertext)
+        );
 
         // Write the length and payload to the buffer.
         dst.extend_from_slice(&length.to_be_bytes()[..]);

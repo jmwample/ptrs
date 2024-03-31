@@ -118,19 +118,13 @@ impl Server {
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
-        let mut reply = self.complete_server_hs(
+        let reply = self.complete_server_hs(
             &client_hs,
             materials,
             session_repres.unwrap(),
             &mut keygen,
             authcode,
         )?;
-
-        tor_bytes::Writer::write(&mut reply, &ephem_pub.as_bytes())
-            .and_then(|_| reply.write_and_consume(authcode))
-            .map_err(into_internal!(
-                "Generated relay handshake we couldn't encode"
-            ))?;
 
         if okay.into() {
             Ok((keygen, reply))
@@ -180,13 +174,14 @@ impl Server {
 
         let codec = &mut keygen.codec;
         codec
-            .encode(prng_pkt_buf, &mut buf)
+            .encode(prng_pkt_buf.clone(), &mut buf)
             .map_err(|e| RelayHandshakeError::FrameError(format!("{e}")))?;
 
         debug!(
-            "{} writing server handshake {}B",
+            "{} writing server handshake {}B ...{}",
             materials.session_id,
-            buf.len()
+            buf.len(),
+            hex::encode(&buf[buf.len() - 10..]),
         );
 
         Ok(buf.to_vec())

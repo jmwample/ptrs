@@ -13,7 +13,7 @@ use pin_project::pin_project;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Duration, Instant};
-use tokio_util::codec::{Decoder, Framed};
+use tokio_util::codec::Framed;
 use tracing::trace;
 
 use std::{
@@ -128,7 +128,7 @@ where
         codec: framing::Obfs4Codec,
         session: Session,
     ) -> O4Stream<T> {
-        let stream = codec.framed(inner);
+        let stream = Framed::new(inner, codec);
         let len_seed = session.len_seed();
 
         let mut hasher = Sha256::new();

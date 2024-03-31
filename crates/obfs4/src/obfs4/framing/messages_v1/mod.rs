@@ -88,7 +88,7 @@ impl Messages {
             }
             Messages::PrngSeed(buf) => {
                 dst.put_u16(buf.len() as u16);
-                dst.put(&buf[..]);
+                dst.put(&buf[..SEED_LENGTH]);
             }
             Messages::Padding(pad_len) => {
                 if *pad_len > MAX_MESSAGE_PADDING_LENGTH {
