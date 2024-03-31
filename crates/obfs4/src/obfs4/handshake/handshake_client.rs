@@ -197,7 +197,6 @@ fn try_parse(
     let server_auth: [u8; AUTHCODE_LENGTH] =
         buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH].try_into()?;
 
-
     let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
 
     //attempt to find the mark + MAC

@@ -110,7 +110,7 @@ impl Messages {
         }
 
         let type_u8 = buf.get_u8();
-        let pt: MessageTypes =  type_u8.clone().try_into()?;
+        let pt: MessageTypes = type_u8.try_into()?;
         let length = buf.get_u16() as usize;
         trace!("parsing msg: type:{type_u8} frame_len={r} msg_len={length}");
 
