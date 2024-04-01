@@ -11,3 +11,5 @@ members = [
 resolver = "2"
 
 
+[profile.test]
+default = ["ptrs/debug", "obfs4/debug", "lyrebird/debug"]

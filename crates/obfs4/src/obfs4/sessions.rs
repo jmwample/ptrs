@@ -23,11 +23,11 @@ use crate::{
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::BytesMut;
+use ptrs::{debug, info, trace};
 use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 use tokio_util::codec::Decoder;
-use tracing::{debug, info, trace};
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;
@@ -44,6 +44,7 @@ pub enum Session {
 }
 
 impl Session {
+    #[allow(unused)]
     pub fn id(&self) -> String {
         match self {
             Session::Client(cs) => format!("c{}", cs.session_id()),
@@ -438,7 +439,6 @@ impl ServerSession<Initialized> {
 
         // mark session as Established
         let session_state: ServerSession<Established> = session.transition(Established {});
-        info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
         let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
@@ -475,6 +475,7 @@ impl Server {
             match self.server(&mut |_: &()| Some(()), &[materials.clone()], &buf[..n]) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
+                    info!("{} handshake complete", session_id);
                     return Ok(keygen);
                 }
                 Err(RelayHandshakeError::EAgain) => {

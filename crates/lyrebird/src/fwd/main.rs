@@ -10,6 +10,7 @@
 use futures::Future;
 use obfs4::{obfs4::ClientBuilder, Obfs4PT};
 use ptrs::{args::Args, ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
+use ptrs::{debug, error, info, warn};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -27,7 +28,7 @@ use tokio::{
 };
 use tokio::{net::ToSocketAddrs, task::JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn, Level};
+use tracing::Level;
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use std::{

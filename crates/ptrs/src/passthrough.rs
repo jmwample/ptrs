@@ -166,11 +166,11 @@ impl Passthrough {
 #[cfg(test)]
 mod design_tests {
 
+    use crate::info;
     use tokio::{
         io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
         net::TcpStream,
     };
-    use tracing::info;
     use tracing_subscriber::filter::LevelFilter;
 
     use std::env;

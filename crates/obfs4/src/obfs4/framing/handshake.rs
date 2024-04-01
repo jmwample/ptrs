@@ -12,8 +12,8 @@ use crate::{
 
 use bytes::BufMut;
 use hmac::Mac;
+use ptrs::trace;
 use rand::Rng;
-use tracing::trace;
 
 // -----------------------------[ Server ]-----------------------------
 

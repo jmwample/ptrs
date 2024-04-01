@@ -11,9 +11,9 @@ use crypto_secretbox::{
     aead::{generic_array::GenericArray, Aead, KeyInit},
     XSalsa20Poly1305,
 };
+use ptrs::{debug, error, trace};
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{debug, error, trace};
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.

@@ -18,11 +18,11 @@ use std::{
 };
 
 use hex::FromHex;
+use ptrs::trace;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
-use tracing::trace;
 
 pub type Obfs4PT = Transport<TcpStream>;
 

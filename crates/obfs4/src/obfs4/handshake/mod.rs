@@ -27,12 +27,12 @@ use base64::{
 use bytes::BytesMut;
 use digest::Mac;
 use hmac::Hmac;
+use ptrs::warn;
 use subtle::ConstantTimeEq;
 use tor_bytes::{EncodeResult, SecretBuf, Writer};
 use tor_error::into_internal;
 use tor_llcrypto::d::Sha256;
 use tor_llcrypto::pk::rsa::RsaIdentity;
-use tracing::warn;
 
 #[cfg(test)]
 use rand::{CryptoRng, RngCore};

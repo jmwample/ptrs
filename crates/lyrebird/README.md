@@ -105,11 +105,24 @@ Arguments:
 
 Options:
   -a, --args <ARGS>            Transport argument string
+  -s, --state-dir <DIR>        Path to a directory where launch state is located.
   -l, --log-level <LOG_LEVEL>  Log Level (ERROR/WARN/INFO/DEBUG/TRACE) [default: INFO]
   -x, --unsafe-logging         Disable the address scrubber on logging
   -h, --help                   Print help
   -V, --version                Print version
 ```
+
+Examples
+
+
+```sh
+fwd -s ./state/ server fwd "127.0.0.1:5201"
+```
+
+```sh
+fwd -a "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0" -l DEBUG 127.0.0.1:9000 client 127.0.0.1:9001
+```
+
 
 ## Potential Features
 

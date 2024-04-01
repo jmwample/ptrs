@@ -9,12 +9,6 @@
   <a href="https://deps.rs/repo/github/jmwample/o7">
     <img src="https://deps.rs/repo/github/jmwample/o7/status.svg">
   </a>
-  <a href="https://crates.io/crates/o7">
-    <img src="https://img.shields.io/crates/v/o7.svg">
-  </a>
-  <a href="https://docs.rs/o7">
-    <img src="https://docs.rs/o7/badge.svg">
-  </a>
   <a href="https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license">
     <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License: MIT/Apache 2.0">
   </a>

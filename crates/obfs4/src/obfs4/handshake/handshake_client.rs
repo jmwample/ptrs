@@ -7,8 +7,8 @@ use crate::{
     obfs4::framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
 };
 
+use ptrs::{debug, trace};
 use rand::Rng;
-use tracing::{debug, trace};
 
 /// materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]

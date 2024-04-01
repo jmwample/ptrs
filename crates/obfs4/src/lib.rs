@@ -45,9 +45,9 @@ pub mod dev {
         use ptrs::ServerBuilder as _;
 
         use ptrs::args::Args;
+        use ptrs::trace;
         use tokio::net::TcpStream;
         use tor_llcrypto::pk::rsa::RsaIdentity;
-        use tracing::trace;
 
         pub fn trace_print_dev_args() {
             let static_secret = StaticSecret::from(*DEV_PRIV_KEY);
