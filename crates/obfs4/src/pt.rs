@@ -252,4 +252,26 @@ where
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn check_name() {
+        let pt_name = <Obfs4PT as ptrs::PluggableTransport<TcpStream>>::name();
+        assert_eq!(pt_name, Obfs4PT::NAME);
+
+        let cb_name = <obfs4::ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
+        assert_eq!(cb_name, Obfs4PT::NAME);
+
+        let sb_name =
+            <obfs4::ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
+        assert_eq!(sb_name, Obfs4PT::NAME);
+
+        let ct_name =
+            <obfs4::Client as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
+        assert_eq!(ct_name, Obfs4PT::NAME);
+
+        let st_name = <obfs4::Server as ptrs::ServerTransport<TcpStream>>::method_name();
+        assert_eq!(st_name, Obfs4PT::NAME);
+    }
+}

@@ -13,7 +13,7 @@ use crypto_secretbox::{
 };
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -142,7 +142,7 @@ impl Decoder for EncryptingCodec {
 
             // De-obfuscate the length field
             let length_mask = self.decoder.drbg.length_mask();
-            info!(
+            trace!(
                 "decoding {length:04x}^{length_mask:04x} {:04x}B",
                 length ^ length_mask
             );
