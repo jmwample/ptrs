@@ -10,7 +10,6 @@ pub mod obfs4;
 pub mod common;
 pub mod stream;
 pub mod traits;
-pub mod tunnel_mgr;
 
 mod pt;
 pub use pt::{Obfs4PT, Transport};
