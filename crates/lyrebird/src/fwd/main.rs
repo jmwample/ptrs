@@ -128,7 +128,6 @@ fn ingest_args(cli_args: &CliArgs) -> Option<Args> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = CliArgs::parse();
-    // obfs4::dev::print_dev_args();
 
     // launch tracing subscriber with filter level
     let _guard = init_logging_recvr(args.unsafe_logging, &args.log_level)?;
