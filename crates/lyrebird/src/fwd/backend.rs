@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use futures::Future;
+use ptrs::{info, warn};
 use safelog::sensitive;
 use tokio::io::{copy_bidirectional, AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tracing::{info, warn};
 
 use std::net::SocketAddr;
 use std::ops::Deref;

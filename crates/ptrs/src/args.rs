@@ -383,8 +383,8 @@ impl std::str::FromStr for Args {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::warn;
     use std::borrow::Cow;
-    use tracing::warn;
 
     #[test]
     fn test_get_args() {

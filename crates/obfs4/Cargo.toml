@@ -10,6 +10,10 @@ keywords = ["tor", "censorship", "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
 repository = "https://github.com/jmwample/o7"
 
+[features]
+default = []
+debug = ["ptrs/debug"]
+
 [lib]
 name = "obfs4"
 crate-type = ["cdylib", "rlib"]

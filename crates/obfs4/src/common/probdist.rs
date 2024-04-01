@@ -219,7 +219,8 @@ mod test {
     use crate::test_utils::init_subscriber;
     use crate::Result;
 
-    use tracing::{span_enabled, trace, Level};
+    use ptrs::trace;
+    use tracing::{span_enabled, Level};
 
     #[test]
     fn weighted_dist_uniformity() -> Result<()> {

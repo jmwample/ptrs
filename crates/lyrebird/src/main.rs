@@ -8,6 +8,7 @@
 #![allow(unused, dead_code)]
 
 use obfs4::{obfs4::ClientBuilder, Obfs4PT};
+use ptrs::{error, info, warn};
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 
 use anyhow::{anyhow, Context, Result};
@@ -26,18 +27,7 @@ use tokio::{
     sync::oneshot,
 };
 use tokio_util::sync::CancellationToken;
-// use tokio_stream::StreamExt;
-// use tor_chanmgr::transport::proxied::{settings_to_protocol, Protocol};
-// use tor_linkspec::PtTransportName;
-// use tor_ptmgr::ipc::{
-//     PtClientParameters,
-//     PtCommonParameters,
-//     PtServerParameters,
-//     // PluggableClientTransport, PluggableServerTransport, // PluggableTransport
-// };
-// use tor_rtcompat::PreferredRuntime;
-// use tor_socksproto::{SocksAuth, SocksVersion};
-use tracing::{error, info, warn, Level};
+use tracing::Level;
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use std::{env, net::SocketAddr, str::FromStr, sync::Arc};

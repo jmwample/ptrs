@@ -10,6 +10,9 @@ keywords = ["tor", "censorship", "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
 repository = "https://github.com/jmwample/o7"
 
+[features]
+default = []
+debug = ["ptrs/debug", "obfs4/debug"]
 
 [[bin]]
 name = "fwd"

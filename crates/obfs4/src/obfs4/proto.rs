@@ -10,11 +10,11 @@ use crate::{
 use bytes::{Buf, BytesMut};
 use futures::{Sink, Stream};
 use pin_project::pin_project;
+use ptrs::trace;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::Framed;
-use tracing::trace;
 
 use std::{
     io::Error as IoError,

@@ -27,13 +27,13 @@ use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
 use hmac::{Hmac, Mac};
+use ptrs::{debug, info};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::Encoder;
 use tor_llcrypto::pk::rsa::RsaIdentity;
-use tracing::{debug, info};
 
 const STATE_FILENAME: &str = "obfs4_state.json";
 
@@ -370,8 +370,8 @@ mod tests {
 
     use super::*;
 
+    use ptrs::trace;
     use tokio::net::TcpStream;
-    use tracing::trace;
 
     #[test]
     fn parse_json_state() -> Result<()> {

@@ -5,8 +5,8 @@ use crate::obfs4::framing::{self, FrameError};
 //
 // use futures::sink::{Sink, SinkExt};
 
+use ptrs::trace;
 use tokio_util::bytes::{Buf, BufMut};
-use tracing::trace;
 
 pub(crate) const MESSAGE_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =

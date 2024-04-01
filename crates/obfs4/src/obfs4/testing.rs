@@ -1,7 +1,7 @@
 use crate::{obfs4::Server, test_utils::init_subscriber, Result};
 
+use ptrs::{debug, trace};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::{debug, trace};
 
 use std::cmp::Ordering;
 use std::time::Duration;

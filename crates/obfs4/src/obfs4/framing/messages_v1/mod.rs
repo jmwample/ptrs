@@ -26,8 +26,8 @@ use crate::obfs4::{
     framing::{FrameError, MESSAGE_OVERHEAD},
 };
 
+use ptrs::trace;
 use tokio_util::bytes::{Buf, BufMut};
-use tracing::trace;
 
 const PAD: [u8; MAX_MESSAGE_PADDING_LENGTH] = [0u8; MAX_MESSAGE_PADDING_LENGTH];
 
@@ -104,27 +104,27 @@ impl Messages {
     }
 
     pub(crate) fn try_parse<T: BufMut + Buf>(buf: &mut T) -> Result<Self, FrameError> {
-        let r: usize = buf.remaining();
         if buf.remaining() < MESSAGE_OVERHEAD {
             Err(FrameError::InvalidMessage)?
         }
 
+        let _r: usize = buf.remaining();
         let type_u8 = buf.get_u8();
         let pt: MessageTypes = type_u8.try_into()?;
         let length = buf.get_u16() as usize;
-        trace!("parsing msg: type:{type_u8} frame_len={r} msg_len={length}");
+        trace!("parsing msg: type:{type_u8} frame_len={_r} msg_len={length}");
 
         match pt {
             MessageTypes::Payload => {
                 let mut dst = vec![];
                 if length == 0 {
                     // this "packet" is all padding -> get rid of it
-                    trace!("padding payload len={r}");
+                    trace!("padding payload len={_r}");
                     let n = buf.remaining();
                     buf.advance(n);
                     return Ok(Messages::Padding(n));
                 }
-                trace!("content payload len={r}");
+                trace!("content payload len={_r}");
 
                 dst.put(buf.take(length));
                 trace!("{}B remainng", buf.remaining());

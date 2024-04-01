@@ -9,9 +9,9 @@ use crate::{
     },
 };
 
+use ptrs::{debug, trace};
 use rand::thread_rng;
 use tokio_util::codec::Encoder;
-use tracing::{debug, trace};
 
 use std::time::Instant;
 
@@ -82,9 +82,9 @@ impl Server {
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
                 return Err(RelayHandshakeError::EAgain);
             }
-            Err(e) => {
+            Err(_e) => {
                 debug!(
-                    "{} failed to parse client handshake: {e}",
+                    "{} failed to parse client handshake: {_e}",
                     materials.session_id
                 );
                 return Err(RelayHandshakeError::BadClientHandshake);

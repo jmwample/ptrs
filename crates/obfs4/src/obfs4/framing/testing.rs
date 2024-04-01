@@ -14,9 +14,9 @@ use crate::Result;
 
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
+use ptrs::{debug, trace};
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{debug, trace};
 
 fn random_key_material() -> [u8; KEY_MATERIAL_LENGTH] {
     let mut r = [0_u8; KEY_MATERIAL_LENGTH];

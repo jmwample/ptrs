@@ -1,10 +1,10 @@
+use ptrs::trace;
 /// The replayfilter module implements a generic replay detection filter with a
 /// caller specifiable time-to-live.  It only detects if a given byte sequence
 /// has been seen before based on the SipHash-2-4 digest of the sequence.
 /// Collisions are treated as positive matches, though the probability of this
 /// happening is negligible.
 use siphasher::{prelude::*, sip::SipHasher24};
-use tracing::trace;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};

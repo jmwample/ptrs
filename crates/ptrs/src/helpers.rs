@@ -1,4 +1,7 @@
-use crate::args::{Args, Opts};
+use crate::{
+    args::{Args, Opts},
+    debug,
+};
 
 use std::{
     env,
@@ -11,7 +14,6 @@ use std::{
 
 use itertools::Itertools;
 use tokio::net::TcpStream;
-use tracing::debug;
 use url::Url;
 
 pub mod constants {
@@ -93,8 +95,8 @@ pub struct ClientInfo {
 
 impl ClientInfo {
     pub fn new() -> Result<Self, Error> {
-        let ver = get_managed_transport_ver()?;
-        debug!("VERSION {ver}");
+        let _ver = get_managed_transport_ver()?;
+        debug!("VERSION {_ver}");
 
         Ok(Self {
             methods: get_client_transports()?,
@@ -276,8 +278,8 @@ impl ServerInfo {
 
 impl ServerInfo {
     pub fn new() -> Result<Self, Error> {
-        let ver = get_managed_transport_ver()?;
-        debug!("VERSION {ver}");
+        let _ver = get_managed_transport_ver()?;
+        debug!("VERSION {_ver}");
 
         let bind_addrs = Bindaddr::get_server_bindaddrs()?;
 

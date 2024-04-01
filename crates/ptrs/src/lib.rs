@@ -21,6 +21,7 @@ pub use error::Error;
 pub mod args;
 mod helpers;
 pub use helpers::*;
+mod log;
 pub mod orport;
 
 pub trait PluggableTransport<InRW>

@@ -1,3 +1,9 @@
+# o5 Pluggable Transport Library
+
+A randomizing look like nothing pluggable transport library, spiritually a successor
+to `obfs4`.
+
+
 
 changes from obfs4:
 
@@ -19,8 +25,9 @@ changes from obfs4:
 
 Goals
 * Stick closer to Codec / Framed implementation for all packets (hadshake included)
-* use the tor/arti ntor implementation
+* use the tor/arti ntor v3 implementation
 
 
 Features to keep
 - once a session is established, unrecognized frame types are ignored
+
