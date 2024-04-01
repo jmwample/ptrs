@@ -2,6 +2,17 @@
 name = "ptrs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
+rust-version = "1.70"
+license = "MIT OR Apache-2.0"
+description = "Interdaces and utilities supporting pluggable transport implementations"
+keywords = ["tor", "censorship", "pluggable", "transports"]
+categories = ["network-programming", "cryptography"]
+repository = "https://github.com/jmwample/o7"
+
+[lib]
+name = "ptrs"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 futures = "0.3.30"

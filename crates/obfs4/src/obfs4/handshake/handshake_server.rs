@@ -105,26 +105,26 @@ impl Server {
         // Ensure that none of the keys are broken (i.e. equal to zero).
         let okay =
             ct::bool_to_choice(xy.was_contributory()) & ct::bool_to_choice(xb.was_contributory());
+        trace!("x {} y {}", hex::encode(their_pk), hex::encode(ephem_pub));
 
         let (key_seed, authcode) =
             ntor_derive(&xy, &xb, &materials.identity_keys.pk, &their_pk, &ephem_pub)
                 .map_err(into_internal!("Error deriving keys"))?;
+        trace!(
+            "seed: {} auth: {}",
+            hex::encode(key_seed.as_slice()),
+            hex::encode(authcode)
+        );
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
-        let mut reply = self.complete_server_hs(
+        let reply = self.complete_server_hs(
             &client_hs,
             materials,
             session_repres.unwrap(),
             &mut keygen,
             authcode,
         )?;
-
-        tor_bytes::Writer::write(&mut reply, &ephem_pub.as_bytes())
-            .and_then(|_| reply.write_and_consume(authcode))
-            .map_err(into_internal!(
-                "Generated relay handshake we couldn't encode"
-            ))?;
 
         if okay.into() {
             Ok((keygen, reply))
@@ -174,13 +174,14 @@ impl Server {
 
         let codec = &mut keygen.codec;
         codec
-            .encode(prng_pkt_buf, &mut buf)
+            .encode(prng_pkt_buf.clone(), &mut buf)
             .map_err(|e| RelayHandshakeError::FrameError(format!("{e}")))?;
 
         debug!(
-            "{} writing server handshake {}B",
+            "{} writing server handshake {}B ...{}",
             materials.session_id,
-            buf.len()
+            buf.len(),
+            hex::encode(&buf[buf.len() - 10..]),
         );
 
         Ok(buf.to_vec())
@@ -198,11 +199,15 @@ impl Server {
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?;
         }
 
-        let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+
+        // derive the mark based on the literal bytes on the wire
+        h.update(&r_bytes[..]);
+
+        // clear the bits that are unreliable (and randomized) for elligator2
+        r_bytes[31] &= 0x3f;
         let repres = PublicRepresentative::from(&r_bytes);
 
-        // derive the mark
-        h.update(&r_bytes[..]);
         let m = h.finalize_reset().into_bytes();
         let mark: [u8; MARK_LENGTH] = m[..MARK_LENGTH].try_into()?;
 
@@ -274,7 +279,7 @@ impl Server {
         }
 
         Ok(ClientHandshakeMessage::new(
-            repres, 0, // doesn't matter when we are reading client handshake msg
+            repres, 0, // pad_len doesn't matter when we are reading client handshake msg
             epoch_hr,
         ))
     }

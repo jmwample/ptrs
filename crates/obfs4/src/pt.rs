@@ -5,7 +5,7 @@ use crate::{
         handshake::Obfs4NtorPublicKey,
         proto::{Obfs4Stream, IAT},
     },
-    Error,
+    Error, OBFS4_NAME,
 };
 use ptrs::{args::Args, FutureResult as F};
 
@@ -31,7 +31,7 @@ pub struct Transport<T> {
     _p: PhantomData<T>,
 }
 impl<T> Transport<T> {
-    pub const NAME: &'static str = "obfs4";
+    pub const NAME: &'static str = OBFS4_NAME;
 }
 
 impl<T> ptrs::PluggableTransport<T> for Transport<T>
@@ -39,10 +39,10 @@ where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type ClientBuilder = obfs4::ClientBuilder;
-    type ServerBuilder = obfs4::ServerBuilder;
+    type ServerBuilder = obfs4::ServerBuilder<T>;
 
     fn name() -> String {
-        "obfs4".into()
+        OBFS4_NAME.into()
     }
 
     fn client_builder() -> <Self as ptrs::PluggableTransport<T>>::ClientBuilder {
@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<T> ptrs::ServerBuilder<T> for obfs4::ServerBuilder
+impl<T> ptrs::ServerBuilder<T> for obfs4::ServerBuilder<T>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
@@ -62,13 +62,14 @@ where
     type Error = Error;
     type Transport = Transport<T>;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
-        Ok(self)
+    fn build(&self) -> Self::ServerPT {
+        obfs4::ServerBuilder::build(self)
     }
 
-    /// Pluggable transport attempts to parse and validate options from a string,
-    /// typically using ['parse_smethod_args'].
+    fn method_name() -> String {
+        OBFS4_NAME.into()
+    }
+
     fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
         // TODO: pass on opts
 
@@ -86,40 +87,28 @@ where
         Ok(self)
     }
 
-    /// The maximum time we should wait for a pluggable transport binary to
-    /// report successful initialization. If `None`, a default value is used.
+    fn get_client_params(&self) -> String {
+        self.client_params()
+    }
+
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
     fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
-    /// An IPv4 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
     fn v4_bind_addr(&mut self, _addr: SocketAddrV4) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
 
-    /// An IPv6 address to bind outgoing connections to (if specified).
-    ///
-    /// Leaving this out will mean the PT uses a sane default.
     fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
         Ok(self)
     }
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
-    fn build(&self) -> Self::ServerPT {
-        obfs4::ServerBuilder::build(self)
-    }
-
-    fn method_name() -> String {
-        "obfs4".into()
-    }
 }
 
-impl<T> ptrs::ClientBuilderByTypeInst<T> for obfs4::ClientBuilder
+impl<T> ptrs::ClientBuilder<T> for obfs4::ClientBuilder
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
@@ -127,9 +116,16 @@ where
     type Error = Error;
     type Transport = Transport<T>;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
-        Ok(self)
+    fn method_name() -> String {
+        OBFS4_NAME.into()
+    }
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ClientPT {
+        obfs4::ClientBuilder::build(self)
     }
 
     /// Pluggable transport attempts to parse and validate options from a string,
@@ -187,6 +183,11 @@ where
         Ok(self)
     }
 
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, _path: &str) -> Result<&mut Self, Self::Error> {
+        Ok(self)
+    }
+
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.
     fn timeout(&mut self, _timeout: Option<Duration>) -> Result<&mut Self, Self::Error> {
@@ -205,18 +206,6 @@ where
     /// Leaving this out will mean the PT uses a sane default.
     fn v6_bind_addr(&mut self, _addr: SocketAddrV6) -> Result<&mut Self, Self::Error> {
         Ok(self)
-    }
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
-    fn build(&self) -> Self::ClientPT {
-        obfs4::ClientBuilder::build(self)
-    }
-
-    fn method_name() -> String {
-        "obfs4".into()
     }
 }
 
@@ -240,7 +229,7 @@ where
     }
 
     fn method_name() -> String {
-        "obfs4".into()
+        OBFS4_NAME.into()
     }
 }
 
@@ -250,7 +239,7 @@ where
 {
     type OutRW = Obfs4Stream<InRW>;
     type OutErr = Error;
-    type Builder = obfs4::ServerBuilder;
+    type Builder = obfs4::ServerBuilder<InRW>;
 
     /// Use something that can be accessed reference (Arc, Rc, etc.)
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
@@ -258,9 +247,31 @@ where
     }
 
     fn method_name() -> String {
-        "obfs4".into()
+        OBFS4_NAME.into()
     }
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn check_name() {
+        let pt_name = <Obfs4PT as ptrs::PluggableTransport<TcpStream>>::name();
+        assert_eq!(pt_name, Obfs4PT::NAME);
+
+        let cb_name = <obfs4::ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
+        assert_eq!(cb_name, Obfs4PT::NAME);
+
+        let sb_name =
+            <obfs4::ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
+        assert_eq!(sb_name, Obfs4PT::NAME);
+
+        let ct_name =
+            <obfs4::Client as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
+        assert_eq!(ct_name, Obfs4PT::NAME);
+
+        let st_name = <obfs4::Server as ptrs::ServerTransport<TcpStream>>::method_name();
+        assert_eq!(st_name, Obfs4PT::NAME);
+    }
+}

@@ -1,6 +1,9 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
-    obfs4::framing::{FrameError, Messages},
+    obfs4::{
+        constants::MESSAGE_OVERHEAD,
+        framing::{FrameError, Messages},
+    },
 };
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -10,7 +13,7 @@ use crypto_secretbox::{
 };
 use rand::prelude::*;
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
@@ -138,7 +141,7 @@ impl Decoder for EncryptingCodec {
             let mut length = src.get_u16();
 
             // De-obfuscate the length field
-            let length_mask = self.decoder.drbg.uint64() as u16;
+            let length_mask = self.decoder.drbg.length_mask();
             trace!(
                 "decoding {length:04x}^{length_mask:04x} {:04x}B",
                 length ^ length_mask
@@ -208,6 +211,9 @@ impl Decoder for EncryptingCodec {
             return Err(e.into());
         }
         let plaintext = res?;
+        if plaintext.len() < MESSAGE_OVERHEAD {
+            return Err(FrameError::InvalidMessage);
+        }
 
         // Clean up and prepare for the next frame
         //
@@ -215,10 +221,13 @@ impl Decoder for EncryptingCodec {
         self.decoder.next_length = 0;
         src.advance(next_len);
 
-        trace!("decoded: {next_len}B src:{}B", src.remaining());
-        let msg = Messages::try_parse(&mut BytesMut::from(plaintext.as_slice()))?;
-
-        Ok(Some(msg))
+        debug!("decoding {next_len}B src:{}B", src.remaining());
+        match Messages::try_parse(&mut BytesMut::from(plaintext.as_slice())) {
+            Ok(Messages::Padding(_)) => Ok(None),
+            Ok(m) => Ok(Some(m)),
+            Err(FrameError::UnknownMessageType(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -281,16 +290,21 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
         let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
-        trace!("[encode] finished encrypting");
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
-        let length_mask: u16 = self.encoder.drbg.uint64() as u16;
-        trace!(
-            "encoded {length}B, {length:04x}^{length_mask:04x} {:04x}",
+        let length_mask: u16 = self.encoder.drbg.length_mask();
+        debug!(
+            "encoding➡️ {length}B, {length:04x}^{length_mask:04x} {:04x}",
             length ^ length_mask
         );
         length ^= length_mask;
+
+        trace!(
+            "prng_ciphertext: {}{}",
+            hex::encode(length.to_be_bytes()),
+            hex::encode(&ciphertext)
+        );
 
         // Write the length and payload to the buffer.
         dst.extend_from_slice(&length.to_be_bytes()[..]);

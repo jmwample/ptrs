@@ -129,7 +129,7 @@ impl Args {
             let begin = i;
 
             // Read the key.
-            let (offset, key) = index_unescaped(&params[i..], vec!['=', ';'])?;
+            let (offset, key) = index_unescaped(&params[i..], vec!['=', ',', ';'])?;
 
             i += offset;
             // End of string or no equals sign?
@@ -144,7 +144,7 @@ impl Args {
             i += 1;
 
             // Read the value.
-            let (offset, value) = index_unescaped(&params[i..], vec![';'])?;
+            let (offset, value) = index_unescaped(&params[i..], vec![',', ';'])?;
 
             i += offset;
             if key.is_empty() {

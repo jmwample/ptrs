@@ -159,6 +159,18 @@ impl Drbg {
         ret
     }
 
+    /// returns a random u16 selected in the same way as the golang implementation
+    /// of obfs4 which takes the high bits when casting to u16.
+    pub(crate) fn length_mask(&mut self) -> u16 {
+        let ret: u64 = {
+            self.hash.write(&self.ofb[..]);
+            self.hash.finish().to_be()
+        };
+        self.ofb = ret.to_be_bytes();
+
+        (ret >> 48) as u16
+    }
+
     /// Returns a uniformly distributed random integer [0, 1 << 63).
     pub fn int63(&mut self) -> i64 {
         let mut ret = self.uint64();

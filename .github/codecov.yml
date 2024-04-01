@@ -3,6 +3,5 @@ ignore:
   - doc/
   - internal/
   - target/
-  - crates/obfs4/src/bin/fwd/*
   - crates/obfs4/src/test_utils/*
-  - crates/lyrebird/*
+  - crates/lyrebird/src/**/main.rs

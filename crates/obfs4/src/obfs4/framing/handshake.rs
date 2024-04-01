@@ -5,7 +5,7 @@ use crate::{
     },
     obfs4::{
         constants::*,
-        handshake::{get_epoch_hour, make_pad, Authcode, AUTHCODE_LENGTH},
+        handshake::{get_epoch_hour, make_hs_pad, Authcode, AUTHCODE_LENGTH},
     },
     Result,
 };
@@ -72,7 +72,7 @@ impl ServerHandshakeMessage {
         //    epoch.
 
         // Generate the padding
-        let pad: &[u8] = &make_pad(self.pad_len)?;
+        let pad: &[u8] = &make_hs_pad(self.pad_len)?;
 
         // Write Y, AUTH, P_S, M_S.
         let mut params = vec![];
@@ -117,6 +117,7 @@ impl ClientHandshakeMessage {
     }
 
     pub fn get_public(&mut self) -> PublicKey {
+        trace!("repr: {}", hex::encode(self.repres));
         match self.pubkey {
             Some(pk) => pk,
             None => {
@@ -154,7 +155,7 @@ impl ClientHandshakeMessage {
         //    epoch.
 
         // Generate the padding
-        let pad = make_pad(self.pad_len)?;
+        let pad = make_hs_pad(self.pad_len)?;
 
         // Write X, P_C, M_C
         let mut params = vec![];

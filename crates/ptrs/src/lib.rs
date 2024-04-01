@@ -23,44 +23,51 @@ mod helpers;
 pub use helpers::*;
 pub mod orport;
 
-pub trait PluggableTransport<T>
+pub trait PluggableTransport<InRW>
 where
-    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type ClientBuilder: ClientBuilderByTypeInst<T>;
-    type ServerBuilder: ServerBuilder<T>;
-    // type Client: ClientTransport<T, E>;
-    // type Server: ServerTransport<T>;
+    type ClientBuilder: ClientBuilder<InRW>;
+    type ServerBuilder: ServerBuilder<InRW>;
 
+    /// Returns a string identifier for this transport
     fn name() -> String;
 
-    // fn client_builder() -> <<Self as PluggableTransport<T,E>>::Client as ClientTransport<T, E>>::Builder;
-    fn client_builder() -> <Self as PluggableTransport<T>>::ClientBuilder;
+    fn client_builder() -> <Self as PluggableTransport<InRW>>::ClientBuilder;
 
-    // fn server_builder() -> <<Self as PluggableTransport<T,E>>::Server as ServerTransport<T>>::Builder;
-    fn server_builder() -> <Self as PluggableTransport<T>>::ServerBuilder;
+    fn server_builder() -> <Self as PluggableTransport<InRW>>::ServerBuilder;
 }
 
 // ================================================================ //
 //                            Client                                //
 // ================================================================ //
 
+/// Client Transport Builder
 // Struct builder, passed by type and then built from default for each client
 // with params baked in as builder pattern.
-pub trait ClientBuilderByTypeInst<T>: Default + Clone
+pub trait ClientBuilder<InRW>: Default + Clone
 where
-    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type Error: std::error::Error + Send + Sync;
-    type ClientPT: ClientTransport<T, Self::Error>;
+    type ClientPT: ClientTransport<InRW, Self::Error>;
     type Transport;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
+    /// Returns a string identifier for this transport
+    fn method_name() -> String;
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ClientPT;
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
     fn options(&mut self, opts: &args::Args) -> Result<&mut Self, Self::Error>;
+
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
 
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.
@@ -75,24 +82,16 @@ where
     ///
     /// Leaving this out will mean the PT uses a sane default.
     fn v6_bind_addr(&mut self, addr: SocketAddrV6) -> Result<&mut Self, Self::Error>;
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
-    fn build(&self) -> Self::ClientPT;
-
-    fn method_name() -> String;
 }
 
-/// Client Transport trait1
+/// Client Transport
 pub trait ClientTransport<InRW, InErr>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     type OutRW: AsyncRead + AsyncWrite + Send + Unpin;
     type OutErr: std::error::Error + Send + Sync;
-    type Builder: ClientBuilderByTypeInst<InRW>;
+    type Builder: ClientBuilder<InRW>;
 
     /// Create a pluggable transport connection given a future that will return
     /// a Read/Write object that can be used as the underlying socket for the
@@ -103,6 +102,7 @@ where
     /// (pre-existing/pre-connected) Read/Write object as the underlying socket.
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
 
+    /// Returns a string identifier for this transport
     fn method_name() -> String;
 }
 
@@ -110,9 +110,9 @@ where
 //                            Server                                //
 // ================================================================ //
 
-/// Server Transport trait1 - try using objects so we can accept and then
-/// handshake (proxy equivalent of accept) as separate steps by the transport
-/// user.
+/// Server Transport
+// try using objects so we can accept and then handshake (proxy equivalent of
+// accept) as separate steps by the transport user.
 pub trait ServerTransport<InRW>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
@@ -130,23 +130,40 @@ where
     /// needs internal mutability across multiple threads concurrently.
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>>;
 
+    /// Returns a string identifier for this transport
     fn method_name() -> String;
 }
 
-pub trait ServerBuilder<T>: Default
+/// Server Transport builder interface
+pub trait ServerBuilder<InRW>: Default
 where
-    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type ServerPT: ServerTransport<T>;
+    type ServerPT: ServerTransport<InRW>;
     type Error: std::error::Error;
     type Transport;
 
-    /// A path where the launched PT can store state.
-    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
+    /// Returns a string identifier for this transport
+    fn method_name() -> String;
+
+    /// Builds a new PtCommonParameters.
+    ///
+    /// **Errors**
+    /// If a required field has not been initialized.
+    fn build(&self) -> Self::ServerPT;
 
     /// Pluggable transport attempts to parse and validate options from a string,
     /// typically using ['parse_smethod_args'].
     fn options(&mut self, opts: &args::Args) -> Result<&mut Self, Self::Error>;
+
+    /// Returns a string or parameters that can be used by a ['ClientBuilder']
+    /// in the `options(...)` function to properly establish a connection with
+    /// this server based on the configuration of the server when this method
+    /// is called.
+    fn get_client_params(&self) -> String;
+
+    /// A path where the launched PT can store state.
+    fn statefile_location(&mut self, path: &str) -> Result<&mut Self, Self::Error>;
 
     /// The maximum time we should wait for a pluggable transport binary to
     /// report successful initialization. If `None`, a default value is used.
@@ -161,14 +178,6 @@ where
     ///
     /// Leaving this out will mean the PT uses a sane default.
     fn v6_bind_addr(&mut self, addr: SocketAddrV6) -> Result<&mut Self, Self::Error>;
-
-    /// Builds a new PtCommonParameters.
-    ///
-    /// **Errors**
-    /// If a required field has not been initialized.
-    fn build(&self) -> Self::ServerPT;
-
-    fn method_name() -> String;
 }
 
 // ================================================================ //

@@ -15,8 +15,8 @@ pub fn get_epoch_hour() -> u64 {
         / 3600
 }
 
-pub fn make_pad(pad_len: usize) -> Result<Vec<u8>> {
-    trace!("[make_pad] generating {pad_len}B");
+pub fn make_hs_pad(pad_len: usize) -> Result<Vec<u8>> {
+    trace!("[make_hs_pad] generating {pad_len}B");
     let mut pad = vec![u8::default(); pad_len];
     rand::thread_rng()
         .try_fill_bytes(&mut pad)

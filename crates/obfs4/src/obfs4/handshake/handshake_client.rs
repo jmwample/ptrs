@@ -8,7 +8,7 @@ use crate::{
 };
 
 use rand::Rng;
-use tracing::trace;
+use tracing::{debug, trace};
 
 /// materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
@@ -102,17 +102,29 @@ where
     let xy = state.my_sk.diffie_hellman(&their_pk);
     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
 
+    trace!("x {} y {}", hex::encode(their_pk), hex::encode(my_public));
+
     let (key_seed, authcode) = ntor_derive(&xy, &xb, node_pubkey, &my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))?;
 
+    trace!(
+        "seed: {} auth: {}",
+        hex::encode(key_seed.as_slice()),
+        hex::encode(authcode)
+    );
     let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
 
-    let okay: bool = (authcode.ct_eq(&auth)
-        & ct::bool_to_choice(xy.was_contributory())
-        & ct::bool_to_choice(xb.was_contributory()))
-    .into();
+    let auth_okay: bool = authcode.ct_eq(&auth).into();
+    let okay = auth_okay & xy.was_contributory() & xb.was_contributory();
 
     if !okay {
+        debug!(
+            "{} {} {}",
+            auth_okay,
+            xy.was_contributory(),
+            xb.was_contributory()
+        );
+        debug!("{} != {}", hex::encode(auth), hex::encode(authcode));
         return Err(Error::BadCircHandshakeAuth);
     }
 
@@ -121,6 +133,7 @@ where
     }
 
     let remainder = msg.as_ref()[n..].to_vec();
+    trace!("remainder length: {}", remainder.len());
 
     Ok((keygen, remainder))
 }
@@ -168,17 +181,22 @@ fn try_parse(
         Err(RelayHandshakeError::EAgain)?
     }
 
-    let repres_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
-    let server_repres = PublicRepresentative::from(repres_bytes);
-    let server_auth: [u8; AUTHCODE_LENGTH] =
-        buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH].try_into()?;
-
     // derive the server mark
     let mut key = state.materials.node_pubkey.pk.as_bytes().to_vec();
     key.append(&mut state.materials.node_pubkey.id.as_bytes().to_vec());
     let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
     h.reset(); // disambiguate reset() implementations Mac v digest
-    h.update(server_repres.as_bytes().as_ref());
+
+    let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+    h.update(&r_bytes);
+
+    // clear the inconsistent elligator2 bits of the representative after
+    // using the wire format for deriving the mark
+    r_bytes[31] &= 0x3f;
+    let server_repres = PublicRepresentative::from(r_bytes);
+    let server_auth: [u8; AUTHCODE_LENGTH] =
+        buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH].try_into()?;
+
     let server_mark = h.finalize_reset().into_bytes()[..MARK_LENGTH].try_into()?;
 
     //attempt to find the mark + MAC
@@ -205,6 +223,8 @@ fn try_parse(
         hex::encode(mac_received)
     );
     if mac_calculated.ct_eq(mac_received).into() {
+        let mut r_bytes = server_repres.to_bytes();
+        r_bytes[31] &= 0x3f;
         return Ok((
             ServerHandshakeMessage::new(server_repres, server_auth, state.epoch_hr.clone()),
             pos + MARK_LENGTH + MAC_LENGTH,
