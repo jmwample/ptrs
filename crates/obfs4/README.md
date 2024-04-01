@@ -71,11 +71,9 @@ use ptrs::{ServerBuilder, ServerTransport};
 ### Loose Ends:
 
 - [X] server / client compatibility test go-to-rust and rust-to-go.
-- [ ] end-to-end socks proxy
 - [ ] length distribution things
 - [ ] iat mode handling
-- [ ] tracking resets / injections / replays
-
+- [ ] double check the bit randomization and clearing for high two bits in the `dalek` representative
 
 ## Performance
 

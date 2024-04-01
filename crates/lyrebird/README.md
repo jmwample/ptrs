@@ -120,5 +120,7 @@ fwd -a "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuB
 ## Potential Features
 
 - [ ] geoip for obvious signs of censorship
-- [ ] double check the bit randomization and clearing for high two bits in the `dalek` representative
+- [ ] tracking resets / injections / replays
+- [ ] tunnel metrics - throughput / bytes-per-tunnel / etc.
+- [ ] socks proxy handler in fwd
 
