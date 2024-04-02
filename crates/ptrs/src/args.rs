@@ -262,15 +262,17 @@ impl Opts {
     /// escaped with a backslash."
     ///
     /// Example:
-    /// ```
+    /// ```ignore
+    /// # use std::collections::HashMap;
+    /// use ptrs::{args, args::{Opts, Args}};
     /// let input = "scramblesuit:key=banana;automata:rule=110;automata:depth=3";
     /// let mut expected = HashMap::new();
-    /// expected.insert!(String::from("scramblesuit"), args!{"key"=> vec!["banana"]};
-    /// expected.insert!(String::from("automata"), args!{"rule"=> vec!["110"], "depth" => vec!["3"]};
+    /// expected.insert(String::from("scramblesuit"), args!{"key"=> vec!["banana"]});
+    /// expected.insert(String::from("automata"), args!{"rule"=> vec!["110"], "depth" => vec!["3"]});
     ///
     /// match Opts::parse_server_transport_options(input) {
     ///     Ok(map) => assert_eq!(map, expected),
-    ///     Err(e) => panic!(e),
+    ///     Err(e) => panic!("{}", e),
     /// }
     ///
     /// ```

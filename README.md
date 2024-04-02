@@ -1,13 +1,13 @@
 # Pluggable Transports in Rust (PTRS)
 
 <p>
-  <a href="https://github.com/jmwample/o7/actions/workflows/rust.yml">
-    <img src="https://github.com/jmwample/o7/actions/workflows/rust.yml/badge.svg?branch=main" alt="Build Status">
-  <a href="https://codecov.io/gh/jmwample/o7" >
-    <img src="https://codecov.io/gh/jmwample/o7/graph/badge.svg?token=0lMlrA32xd"/>
+  <a href="https://github.com/jmwample/ptrs/actions/workflows/rust.yml">
+    <img src="https://github.com/jmwample/ptrs/actions/workflows/rust.yml/badge.svg?branch=main" alt="Build Status">
+  <a href="https://codecov.io/gh/jmwample/ptrs" >
+    <img src="https://codecov.io/gh/jmwample/ptrs/graph/badge.svg?token=0lMlrA32xd"/>
   </a>
-  <a href="https://deps.rs/repo/github/jmwample/o7">
-    <img src="https://deps.rs/repo/github/jmwample/o7/status.svg">
+  <a href="https://deps.rs/repo/github/jmwample/ptrs">
+    <img src="https://deps.rs/repo/github/jmwample/ptrs/status.svg">
   </a>
   <a href="https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license">
     <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License: MIT/Apache 2.0">
@@ -45,7 +45,7 @@ Things to keep an eye on:
 Dual licensing under both MIT and Apache-2.0 is the currently accepted standard by the Rust language
 community and has been used for both the compiler and many public libraries since (see
 [Why dual MIT/ASL2license?](https://doc.rust-lang.org/1.6.0/complement-project-faq.html#why-dual-mitasl2-license)).
-In order to match the community standards, o7 is using the dual MIT+Apache-2.0 license.
+In order to match the community standards, ptrs is using the dual MIT+Apache-2.0 license.
 
 ## Contributing
 

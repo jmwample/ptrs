@@ -140,7 +140,7 @@ pub(crate) fn get_proxy_url() -> Result<Option<Url>, Error> {
 ///
 /// From `pt-spec.txt 3.5`:
 ///
-/// ```
+/// ```txt
 ///    On the client side, arguments are passed via the authentication
 ///    fields that are part of the SOCKS protocol.
 ///

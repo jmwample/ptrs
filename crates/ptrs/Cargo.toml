@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "Interdaces and utilities supporting pluggable transport implementations"
 keywords = ["tor", "censorship", "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
-repository = "https://github.com/jmwample/o7"
+repository = "https://github.com/jmwample/ptrs"
 
 
 [features]

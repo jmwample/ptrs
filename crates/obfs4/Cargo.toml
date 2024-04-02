@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "Pure rust implementation of the obfs4 pluggable transport"
 keywords = ["tor", "censorship", "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
-repository = "https://github.com/jmwample/o7"
+repository = "https://github.com/jmwample/ptrs"
 
 [features]
 default = []
