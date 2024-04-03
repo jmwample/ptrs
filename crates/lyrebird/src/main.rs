@@ -83,7 +83,7 @@
 
 #![allow(unused, dead_code)]
 
-use obfs4::{obfs4::ClientBuilder, Obfs4PT};
+use obfs4::{ClientBuilder, Obfs4PT};
 use ptrs::{error, info, warn};
 use ptrs::{ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
 

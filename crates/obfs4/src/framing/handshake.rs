@@ -3,10 +3,8 @@ use crate::{
         curve25519::{PublicKey, PublicRepresentative},
         HmacSha256,
     },
-    obfs4::{
-        constants::*,
-        handshake::{get_epoch_hour, make_hs_pad, Authcode, AUTHCODE_LENGTH},
-    },
+    constants::*,
+    handshake::{get_epoch_hour, make_hs_pad, Authcode, AUTHCODE_LENGTH},
     Result,
 };
 

@@ -1,10 +1,8 @@
 #![doc = include_str!("../README.md")]
 
-
-
 // use tokio_util::udp::UdpFramed;
-use tokio::net::UdpSocket;
 use std::marker::PhantomData;
+use tokio::net::UdpSocket;
 
 /// o7 Transport base name
 pub const OBFS4_NAME: &str = "o7";
@@ -21,5 +19,3 @@ pub struct Transport<T> {
 impl<T> Transport<T> {
     pub const NAME: &'static str = OBFS4_NAME;
 }
-
-

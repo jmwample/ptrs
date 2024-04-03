@@ -5,11 +5,21 @@
 // #![allow(dead_code)]
 // #![allow(warnings)]
 
-pub mod obfs4;
-
+pub mod client;
 pub mod common;
-pub mod stream;
-pub mod traits;
+pub mod server;
+
+pub mod framing;
+pub mod proto;
+pub use client::{Client, ClientBuilder};
+pub use server::{Server, ServerBuilder};
+
+pub(crate) mod constants;
+pub(crate) mod handshake;
+pub(crate) mod sessions;
+
+#[cfg(test)]
+mod testing;
 
 mod pt;
 pub use pt::{Obfs4PT, Transport};
@@ -38,9 +48,9 @@ pub mod dev {
     mod test {
         use super::*;
         use crate::common::curve25519::StaticSecret;
-        use crate::obfs4::constants::*;
-        use crate::obfs4::handshake::Obfs4NtorSecretKey;
-        use crate::obfs4::{ClientBuilder, ServerBuilder};
+        use crate::constants::*;
+        use crate::handshake::Obfs4NtorSecretKey;
+        use crate::{ClientBuilder, ServerBuilder};
         use ptrs::ServerBuilder as _;
 
         use ptrs::args::Args;

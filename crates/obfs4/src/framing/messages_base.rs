@@ -1,4 +1,4 @@
-use crate::obfs4::framing::{self, FrameError};
+use crate::framing::{self, FrameError};
 
 // TODO: drbg for size sampling
 //common::drbg,

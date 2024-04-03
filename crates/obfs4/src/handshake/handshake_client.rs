@@ -4,7 +4,7 @@ use crate::{
         curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
-    obfs4::framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
+    framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
 };
 
 use ptrs::{debug, trace};

@@ -4,8 +4,8 @@ use tor_llcrypto::pk::rsa::RSA_ID_LEN;
 
 use crate::{
     common::{curve25519::REPRESENTATIVE_LENGTH, drbg},
-    obfs4::framing,
-    obfs4::handshake::AUTHCODE_LENGTH,
+    framing,
+    handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;

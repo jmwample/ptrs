@@ -21,7 +21,7 @@
 // mod crypto;
 // use crypto::CryptoExtension;
 
-use crate::obfs4::{
+use crate::{
     constants::*,
     framing::{FrameError, MESSAGE_OVERHEAD},
 };
@@ -143,7 +143,7 @@ impl Messages {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::obfs4::framing::*;
+    use crate::framing::*;
     use crate::test_utils::init_subscriber;
 
     use rand::prelude::*;

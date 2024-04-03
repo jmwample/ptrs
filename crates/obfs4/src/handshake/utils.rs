@@ -1,4 +1,4 @@
-use crate::{obfs4::constants::*, Result};
+use crate::{constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

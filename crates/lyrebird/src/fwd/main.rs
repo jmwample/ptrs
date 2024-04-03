@@ -6,7 +6,7 @@
 //! ` [client] <---> [fwd\_client] <====> [fwd\_server] <---> [target] `
 //!
 //! ⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
-//! - interface subject to change at any time 
+//! - interface subject to change at any time
 //! - Not production ready
 //!   - do not rely on this for any security critical applications
 //!
@@ -84,20 +84,20 @@
 //!     about tunnel failures and bytes transferred.
 //!   - find a way to apply a rate limit to copy bidirectional
 //!   - use the better copy interactive for bidirectional copy
-#![allow(unused, dead_code)]
+#![allow(unused)]
 
 use futures::Future;
-use obfs4::{obfs4::ClientBuilder, Obfs4PT};
-use ptrs::{args::Args, ClientTransport, PluggableTransport, ServerBuilder, ServerTransport};
+use obfs4::Obfs4PT;
+use ptrs::{args::Args, PluggableTransport, ServerBuilder, ServerTransport};
 use ptrs::{debug, error, info, warn};
 
 use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
-use fast_socks5::{
-    server::{DenyAuthentication, SimpleUserPassword},
-    util::target_addr::TargetAddr,
-    AuthenticationMethod,
-};
+use clap::{Parser, Subcommand};
+// use fast_socks5::{
+//     server::{DenyAuthentication, SimpleUserPassword},
+//     util::target_addr::TargetAddr,
+//     AuthenticationMethod,
+// };
 use safelog::sensitive;
 use tokio::{
     io::{copy_bidirectional, AsyncRead, AsyncWrite, AsyncWriteExt},
@@ -107,14 +107,11 @@ use tokio::{
 };
 use tokio::{net::ToSocketAddrs, task::JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::Level;
 use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use std::{
-    env,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     str::FromStr,
-    sync::Arc,
 };
 
 mod backend;
@@ -125,11 +122,6 @@ const U4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9000);
 const U6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000);
 
 const DEV_ARG: &str = "dev";
-
-/// Error defined to denote a failure to get the bridge line
-#[derive(Debug, thiserror::Error)]
-#[error("Error while obtaining bridge line data")]
-struct BridgeLineParseError;
 
 #[derive(Parser)]
 #[command(author, version, long_about = None, about="Generalized client and server for transparently proxying traffic over PTs.")]
@@ -197,8 +189,8 @@ fn ingest_args(cli_args: &CliArgs) -> Option<Args> {
         None => None,
         #[cfg(debug_assertions)]
         Some(a) if a == DEV_ARG => match &cli_args.mode {
-            Mode::Client { dst } => Args::from_str(obfs4::dev::CLIENT_ARGS).ok(),
-            Mode::Server(backend) => Args::from_str(obfs4::dev::SERVER_ARGS).ok(),
+            Mode::Client { dst: _ } => Args::from_str(obfs4::dev::CLIENT_ARGS).ok(),
+            Mode::Server(_backend) => Args::from_str(obfs4::dev::SERVER_ARGS).ok(),
         },
         Some(a) => Args::from_str(a).ok(),
     }
@@ -215,8 +207,8 @@ async fn main() -> Result<()> {
     let listen_addr = match &args.laddr {
         Some(a) => a,
         None => match &args.mode {
-            Mode::Client { dst } => "[::]:9000",
-            Mode::Server(backend) => "[::]:9001",
+            Mode::Client { dst: _ } => "[::]:9000",
+            Mode::Server(_backend) => "[::]:9001",
         },
     };
 
@@ -299,7 +291,7 @@ async fn client_setup<A: ToSocketAddrs>(
 
     let mut listeners = Vec::new();
 
-    debug!("client building with {:?}", params);
+    debug!("({obfs4_name}) client building with {:?}", params);
     let builder = Obfs4PT::client_builder();
     let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
 
@@ -325,7 +317,7 @@ async fn client_setup<A: ToSocketAddrs>(
             if let Err(e) = res {
                 warn!("listener failed: {e}");
             }
-            info!("{running}/{total_len} listeners running");
+            info!("({obfs4_name}) {running}/{total_len} listeners running");
         }
 
         // if all listeners exit then we can send the tx signal.
@@ -380,7 +372,7 @@ where
 /// and reliability before passing to this layer.
 async fn client_handle_connection<In, C>(
     mut conn: In,
-    mut builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C> + 'static,
+    builder: impl ptrs::ClientBuilder<TcpStream, ClientPT = C> + 'static,
     remote_addr: SocketAddr,
     client_addr: SocketAddr,
 ) -> Result<()>
@@ -456,7 +448,10 @@ where
         builder.build()
     };
 
-    info!("client params: \"{}\"", builder.get_client_params());
+    info!(
+        "({obfs4_name}) client params: \"{}\"",
+        builder.get_client_params()
+    );
 
     let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
     listeners.push(server_listen_loop::<TcpStream, _, _>(
@@ -483,7 +478,7 @@ where
             if let Err(e) = res {
                 warn!("listener failed: {e}");
             }
-            info!("{running}/{total_len} listeners running");
+            info!("({obfs4_name}) {running}/{total_len} listeners running");
         }
 
         // if all listeners exit then we can send the tx signal.
@@ -522,7 +517,7 @@ where
                 break
             }
             res = listener.accept() => {
-                let (mut conn, client_addr) = match res {
+                let (conn, client_addr) = match res {
                     Err(e) => {
                        error!("{method_name} closing listener - failed to accept tcp connection {e}");
                        break;
@@ -544,7 +539,7 @@ where
 }
 
 async fn server_handle_connection<In, S, B>(
-    mut conn: In,
+    conn: In,
     server: S,
     backend: B,
     client_addr: SocketAddr,
@@ -559,7 +554,7 @@ where
     <S as ptrs::ServerTransport<In>>::OutRW: Send + Sync + 'static,
     B: Backend + Clone + Send + Sync,
 {
-    let mut pt_conn = server
+    let pt_conn = server
         .reveal(conn)
         .await
         .context("server handshake failed")?;

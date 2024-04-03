@@ -1,4 +1,4 @@
-use crate::{obfs4::Server, test_utils::init_subscriber, Result};
+use crate::{crate::Server, test_utils::init_subscriber, Result};
 
 use ptrs::{debug, trace};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
