@@ -1,4 +1,4 @@
-use crate::{crate::Server, test_utils::init_subscriber, Result};
+use crate::{test_utils::init_subscriber, Result, Server};
 
 use ptrs::{debug, trace};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

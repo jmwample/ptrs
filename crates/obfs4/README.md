@@ -12,7 +12,7 @@ An implementation of obfs4 in pure rust.
 
 To install, add the following to your project's Cargo.toml:
 
-```
+```toml ignore
 [dependencies]
 obfs4 = "0.1.0"
 ```
