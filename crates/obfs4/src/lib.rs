@@ -1,4 +1,4 @@
-#![doc = include_str!("../../../doc/crate.md")]
+#![doc = include_str!("../README.md")]
 
 // #![feature(trait_alias)]
 

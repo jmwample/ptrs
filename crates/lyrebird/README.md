@@ -10,6 +10,11 @@
 This crates contains multiple binary exceutables designed specifically to work
 with and pluggable transport library implementing the ['ptrs'] interface.
 
+⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
+- interface subject to change at any time 
+- Not production ready
+  - do not rely on this for any security critical applications
+
 
 ## Lyrebird Pluggable Transport Bridge
 

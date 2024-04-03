@@ -1,9 +1,12 @@
 # Obfs4 - The obfourscator - Pluggable Transport
 
 
-An implementation of obfs4 in pure rust
+An implementation of obfs4 in pure rust. 
 
-
+⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
+- interface subject to change at any time 
+- Not production ready
+  - do not rely on this for any security critical applications
 
 ## Installation
 

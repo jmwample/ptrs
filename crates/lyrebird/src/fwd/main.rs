@@ -1,4 +1,83 @@
-//! Forward Proxy
+//! # Forward proxy
+//!
+//! Simple Forward proxy implementation for testing pluggable transports
+//! and meeting basic censorship circumvention proxy needs.
+//!
+//! ` [client] <---> [fwd\_client] <====> [fwd\_server] <---> [target] `
+//!
+//! ⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
+//! - interface subject to change at any time 
+//! - Not production ready
+//!   - do not rely on this for any security critical applications
+//!
+//!
+//! Usage info:
+//!
+//! ```txt
+//! Generalized forward proxy client and server for transparently proxying traffic over PTs.
+//!
+//! Usage: fwd [OPTIONS] [LADDR] <COMMAND>
+//!
+//! Commands:
+//!   client  Run as client forward proxy, initiating pluggable transport connection
+//!   server  Run as server, terminating the pluggable transport protocol
+//!   help    Print this message or the help of the given subcommand(s)
+//!
+//! Arguments:
+//!   [LADDR]  Listen address, defaults to "[::]:9000" for client, "[::]:9001" for server
+//!
+//! Options:
+//!   -a, --args <ARGS>            Transport argument string
+//!   -s, --state-dir <DIR>        Path to a directory where launch state is located.
+//!   -l, --log-level <LOG_LEVEL>  Log Level (ERROR/WARN/INFO/DEBUG/TRACE) [default: INFO]
+//!   -x, --unsafe-logging         Disable the address scrubber on logging
+//!   -h, --help                   Print help
+//!   -V, --version                Print version
+//! ```
+//!
+//! Examples
+//!
+//!
+//! ```sh
+//! fwd -s ./state/ server fwd "127.0.0.1:5201"
+//! ```
+//!
+//! ```sh
+//! fwd -a "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0" -l DEBUG 127.0.0.1:9000 client 127.0.0.1:9001
+//! ```
+//!
+//! ### Installation
+//!
+//! The `fwd` binary is co-located within the `lyrebird` crate, to install:
+//!
+//! ```sh
+//! # install all binaries within the lyrebird crate (`lyrebird`, and `fwd`)
+//! cargo install lyrebird
+//!
+//! # install only the `fwd` binary
+//! cargo install lyrebird --bin fwd
+//! ```
+//!
+//! This installs in the configured Rust location (i.e. `$HOME/.cargo/bin`). You may
+//! wish to copy `./fwd` to a permanent location (e.g. `/usr/local/bin`).
+//!
+//! ### Tips and tricks
+//!
+//!  * On modern Linux systems it is possible to have fwd bind to reserved
+//!    ports (<=1024) even when not running as root by granting the
+//!    `CAP_NET_BIND_SERVICE` capability with setcap:
+//!
+//!    `# setcap 'cap_net_bind_service=+ep' /usr/local/bin/fwd`
+//!
+//!
+//! ## Potential Features
+//!
+//! - [ ] geoip for obvious signs of censorship
+//! - [ ] tracking resets / injections / replays
+//! - [ ] tunnel metrics - throughput / bytes-per-tunnel / etc.
+//! - [ ] socks proxy handler in fwd
+//!
+//! ---
 //!
 //! TODO: (priority: after mvp)
 //!   - use tunnel_manager for managing proxy connections so we can track metrics
