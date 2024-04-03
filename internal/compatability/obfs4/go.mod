@@ -15,6 +15,7 @@ require (
 	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/quic-go/quic-go v0.40.1 // indirect
+	github.com/refraction-networking/ed25519 v0.1.2 // indirect
 	github.com/refraction-networking/utls v1.6.3 // indirect
 	gitlab.com/yawning/edwards25519-extra v0.0.0-20231005122941-2149dcafc266 // indirect
 	gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel v0.0.0-20240220175603-399c24557a18 // indirect
