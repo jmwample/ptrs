@@ -77,7 +77,7 @@ safelog = { version = "0.3.5" }
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
 hex-literal = "0.4.1"
-tor-basic-utils = "0.8.0"
+tor-basic-utils = "0.17.0"
 
 # o5 pqc test
 pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
