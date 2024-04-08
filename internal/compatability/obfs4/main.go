@@ -95,6 +95,7 @@ func clientSetup(listenAddr, dstAddr string) (launched bool, listeners []net.Lis
 
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
+		log.Fatalf("failed to listen for tcp on %s: %s", listenAddr, err)
 		return
 	}
 
@@ -171,6 +172,7 @@ func serverSetup(listenAddr string, handler Backend) (launched bool, listeners [
 
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
+		log.Fatalf("failed to listen for tcp on %s: %s", listenAddr, err)
 		return
 	}
 
@@ -230,6 +232,7 @@ func main() {
 	// Determine if this is a client or server, initialize the common state.
 	args := parseArgs()
 
+	// set global for unsage logging -_-
 	unsafeLogging = args.unsafeLogging
 
 	var ptListeners []net.Listener
@@ -239,13 +242,14 @@ func main() {
 		os.Exit(-1)
 	}
 
-	Infof("%s launched", getVersion())
-
 	// Do the managed pluggable transport protocol configuration.
 	if args.isClient {
+		Infof("%s launching as Client", getVersion())
+
 		Infof("%s initializing client transport listeners", execName)
 		launched, ptListeners = clientSetup(args.listenAddr.String(), args.clientConfig.dst.String())
 	} else {
+		Infof("%s launching as Server", getVersion())
 
 		handler, err := makeBackend(args.serverConfig.backendType, args.serverConfig.backendArg)
 		if err != nil {

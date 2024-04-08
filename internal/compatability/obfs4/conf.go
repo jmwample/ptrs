@@ -116,6 +116,7 @@ func parseArgs() CliArgs {
 	}
 
 	cliArgs := CliArgs{}
+	cliArgs.unsafeLogging = unsafeLogging
 
 	var modePosition = 0
 	switch flag.NArg() {
@@ -123,11 +124,6 @@ func parseArgs() CliArgs {
 		flag.Usage()
 		os.Exit(1)
 	case 1:
-		if cliArgs.isClient {
-			cliArgs.listenAddr = &net.TCPAddr{net.IPv4zero, 9000, ""}
-		} else {
-			cliArgs.listenAddr = &net.TCPAddr{net.IPv4zero, 9001, ""}
-		}
 		if !slices.Contains(validCmds, flag.Args()[0]) {
 			fmt.Println("expected 'server' or 'client' subcommand\n")
 			os.Exit(1)
@@ -212,6 +208,14 @@ func parseArgs() CliArgs {
 	default:
 		fmt.Println("expected 'server' or 'client' subcommands - (shouldn't be possible)\n")
 		os.Exit(1)
+	}
+
+	if cliArgs.listenAddr == nil {
+		if cliArgs.isClient {
+			cliArgs.listenAddr = &net.TCPAddr{net.IPv4zero, 9000, ""}
+		} else {
+			cliArgs.listenAddr = &net.TCPAddr{net.IPv4zero, 9001, ""}
+		}
 	}
 
 	l := slog.Level(0)
