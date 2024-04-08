@@ -1,4 +1,4 @@
-use crate::obfs4::{framing::*, proto::IAT};
+use crate::{framing::*, proto::IAT};
 
 use tokio::io::AsyncWrite;
 use tokio::time;

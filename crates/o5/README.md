@@ -4,8 +4,14 @@ A randomizing look like nothing pluggable transport library, spiritually a succe
 to `obfs4`.
 
 
+⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
+- protocol under development
+- interface subject to change at any time 
+- Not production ready
+  - do not rely on this for any security critical applications
 
-changes from obfs4:
+
+## Changes from obfs4:
 
 
 * adds `Kyber1024` to the Key exchange making it hybrid `Kyber1024X25519` (or `Kyber1024X`)
@@ -23,11 +29,11 @@ changes from obfs4:
     - handshake complete frame type 
 
 
-Goals
+### Goals
 * Stick closer to Codec / Framed implementation for all packets (hadshake included)
 * use the tor/arti ntor v3 implementation
 
 
-Features to keep
+### Features to keep
 - once a session is established, unrecognized frame types are ignored
 

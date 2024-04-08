@@ -1,5 +1,4 @@
-use anyhow::{Context, Result};
-use clap::Parser;
+use anyhow::Result;
 use futures::Future;
 use ptrs::{info, warn};
 use safelog::sensitive;
@@ -70,7 +69,7 @@ impl Backend for BackendArc {
         match self.0.as_ref() {
             Backends::Echo => server_echo_connection(conn, client_addr).await?,
             Backends::Fwd { dst } => server_fwd_connection(conn, dst.parse()?, client_addr).await?,
-            Backends::Socks { auth } => todo!("not yet implemented"),
+            Backends::Socks { auth: _ } => todo!("not yet implemented"),
         }
 
         Ok(())
@@ -107,7 +106,7 @@ where
     Ok(())
 }
 
-async fn server_echo_connection<In>(mut conn: In, client_addr: SocketAddr) -> Result<()>
+async fn server_echo_connection<In>(conn: In, client_addr: SocketAddr) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
@@ -131,7 +130,7 @@ where
     Ok(())
 }
 
-async fn server_socks_handle<In>(mut conn: In, client_addr: SocketAddr) -> Result<()>
+async fn server_socks_handle<In>(conn: In, client_addr: SocketAddr) -> Result<()>
 where
     // the provided In must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,

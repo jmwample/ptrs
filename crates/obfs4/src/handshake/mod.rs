@@ -10,12 +10,9 @@ use crate::{
             ServerHandshake,
         },
     },
-    obfs4::{
-        constants::*,
-        framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},
-        Server,
-    },
-    Error, Result,
+    constants::*,
+    framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},
+    Error, Result, Server,
 };
 
 use std::borrow::Borrow;

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    client::ClientBuilder,
     common::{
         colorize,
         curve25519::{PublicKey, StaticSecret},
@@ -9,15 +10,11 @@ use crate::{
         replay_filter::{self, ReplayFilter},
         HmacSha256,
     },
-    obfs4::{
-        client::ClientBuilder,
-        constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
-        handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
-        proto::{MaybeTimeout, Obfs4Stream, IAT},
-        sessions::Session,
-    },
-    stream::Stream,
+    constants::*,
+    framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
+    handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
+    proto::{MaybeTimeout, Obfs4Stream, IAT},
+    sessions::Session,
     Error, Result,
 };
 use ptrs::args::Args;

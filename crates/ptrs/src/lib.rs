@@ -1,10 +1,4 @@
-//! # Pluggable Transports in Rust
-//!
-//! Traits and tools useful when building pluggable transports in rust.
-//!
-//! ```
-//! // TODO: example using passthrough transport
-//! ```
+#![doc = include_str!("../README.md")]
 
 use std::{
     net::{SocketAddrV4, SocketAddrV6},

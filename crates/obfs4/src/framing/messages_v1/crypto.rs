@@ -1,5 +1,5 @@
 use super::MessageTypes;
-use crate::obfs4::framing::{FrameError, Message, MessageType};
+use crate::framing::{FrameError, Message, MessageType};
 
 #[derive(PartialEq, Debug)]
 pub enum CryptoExtension {
@@ -59,7 +59,7 @@ mod tests {
     use pqc_kyber::*;
 
     use crate::common::curve25519::{PublicKey, Representable};
-    use crate::obfs4::handshake::Obfs4NtorSecretKey;
+    use crate::handshake::Obfs4NtorSecretKey;
 
     type Result<T> = std::result::Result<T, Error>;
 

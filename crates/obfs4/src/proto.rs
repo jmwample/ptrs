@@ -3,7 +3,9 @@ use crate::{
         drbg,
         probdist::{self, WeightedDist},
     },
-    obfs4::{constants::*, framing, sessions::Session},
+    constants::*,
+    framing,
+    sessions::Session,
     Error, Result,
 };
 

@@ -177,7 +177,7 @@ impl Drbg {
 
         // This is a safe unwrap as we bit-mask to below overflow
         // ret &= (1<<63) -1;
-        ret &= <i64 as TryInto<u64>>::try_into(i64::max_value()).unwrap();
+        ret &= <i64 as TryInto<u64>>::try_into(i64::MAX).unwrap();
         i64::try_from(ret).unwrap()
     }
 
@@ -260,23 +260,23 @@ mod test {
     /// Make sure bitmasks, overflows, and type assertions work the way I think they do.
     #[test]
     fn conversions() {
-        let mut u64_max = u64::max_value();
+        let mut u64_max = u64::MAX;
         <u64 as TryInto<i64>>::try_into(u64_max).unwrap_err();
 
-        u64_max &= <i64 as TryInto<u64>>::try_into(i64::max_value()).unwrap();
+        u64_max &= <i64 as TryInto<u64>>::try_into(i64::MAX).unwrap();
         let i: i64 = u64_max.try_into().unwrap();
-        // println!("{i:x}, {:x}", i64::max_value());
-        assert_eq!(i, i64::max_value());
+        // println!("{i:x}, {:x}", i64::MAX);
+        assert_eq!(i, i64::MAX);
 
-        let mut u64_max = u64::max_value();
+        let mut u64_max = u64::MAX;
         u64_max &= (1 << 63) - 1;
         let i: i64 = u64_max.try_into().unwrap();
-        assert_eq!(i, i64::max_value());
+        assert_eq!(i, i64::MAX);
         assert_eq!(i, i64::MAX);
 
         let u64_max: u64 = (1 << 63) - 1;
         let i: i64 = u64_max.try_into().unwrap();
-        assert_eq!(i, i64::max_value());
+        assert_eq!(i, i64::MAX);
         assert_eq!(i, i64::MAX);
     }
 

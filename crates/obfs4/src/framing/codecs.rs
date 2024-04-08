@@ -1,9 +1,7 @@
 use crate::{
     common::drbg::{self, Drbg, Seed},
-    obfs4::{
-        constants::MESSAGE_OVERHEAD,
-        framing::{FrameError, Messages},
-    },
+    constants::MESSAGE_OVERHEAD,
+    framing::{FrameError, Messages},
 };
 
 use bytes::{Buf, BufMut, BytesMut};

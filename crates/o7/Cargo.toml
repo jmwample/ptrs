@@ -2,5 +2,26 @@
 name = "o7"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
+rust-version = "1.70"
+license = "MIT OR Apache-2.0"
+description = "Pure rust implementation of the obfs4 pluggable transport"
+keywords = ["tor", "censorship", "pluggable", "transports"]
+categories = ["network-programming", "cryptography"]
+repository = "https://github.com/jmwample/ptrs"
+
+[features]
+default = []
+debug = ["ptrs/debug"]
+
+[lib]
+name = "o7"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+## Local
+ptrs = { path="../ptrs", version="0.1.0" }
+
+## Networking tools
+tokio = { version = "1.33", features = ["io-util", "rt-multi-thread", "net", "rt", "macros", "sync", "signal", "time", "fs"] }
+tokio-util = { version = "0.7.10", features = ["codec", "io", "net"]}

@@ -1,14 +1,38 @@
 package main
 
 import (
+	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/netip"
 	"sync"
 
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/transports/base"
 )
 
 type Backend func(f base.ServerFactory, conn net.Conn)
+
+func makeBackend(t, a string) (Backend, error) {
+
+	switch t {
+	case "echo":
+		return serverEchoHandler, nil
+	case "fwd":
+		addrport, err := netip.ParseAddrPort(a)
+		if err != nil {
+			log.Fatalf("specified fwd handler with invalid Addr:Port dst (%s): %s", a, err)
+		}
+		addr := net.TCPAddrFromAddrPort(addrport)
+		return makeServerFwdBackend(addr), nil
+
+	case "socks":
+		return nil, fmt.Errorf("not yet implemented")
+	default:
+		return nil, fmt.Errorf("unknown backend name: %s", t)
+	}
+
+}
 
 func serverEchoHandler(f base.ServerFactory, conn net.Conn) {
 	defer conn.Close()

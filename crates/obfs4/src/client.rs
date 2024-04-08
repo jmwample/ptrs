@@ -2,15 +2,11 @@
 
 use crate::{
     common::{colorize, HmacSha256},
-    obfs4::{
-        constants::*,
-        framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-        handshake::Obfs4NtorPublicKey,
-        proto::{MaybeTimeout, Obfs4Stream, IAT},
-        sessions,
-    },
-    stream::Stream,
-    Error, Result,
+    constants::*,
+    framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
+    handshake::Obfs4NtorPublicKey,
+    proto::{MaybeTimeout, Obfs4Stream, IAT},
+    sessions, Error, Result,
 };
 
 use bytes::{Buf, BufMut, BytesMut};

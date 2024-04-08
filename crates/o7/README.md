@@ -2,6 +2,13 @@
 
 Experimental randomizing look-like-nothing pluggable transport library in the spirit of obfs4.
 
+⚠️  🚧 WARNING This crate is still under construction 🚧 ⚠️
+- experimental protocol under development
+- interface subject to change at any time 
+- Not production ready
+  - do not rely on this for any security critical applications
+
+
 ### Features for o7
 
 * Fully Encrypted

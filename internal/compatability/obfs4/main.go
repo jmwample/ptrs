@@ -31,12 +31,8 @@ package main
 
 import (
 	"errors"
-	"flag"
-	"fmt"
 	"log"
-	"log/slog"
 	"net"
-	"net/netip"
 	"os"
 	"path"
 	"syscall"
@@ -53,12 +49,12 @@ import (
 )
 
 const (
-	obfs4proxyVersion = "0.0.9-dev"
-	obfs4proxyLogFile = "obfs4proxy.log"
-	fwdProxyAddr      = ":9001"
-	fwdProxyPort      = 9001
-	clientConnectAddr = "127.0.0.1:9001"
-	clientListenAddr  = "127.0.0.1:9000"
+	obfs4proxyVersion = "0.0.16-dev"
+	obfs4proxyLogFile = "obfs4fwd.log"
+	// fwdProxyAddr      = ":9001"
+	// fwdProxyPort      = 9001
+	// clientConnectAddr = "127.0.0.1:9001"
+	// clientListenAddr  = "127.0.0.1:9000"
 )
 
 const (
@@ -77,7 +73,7 @@ var iatMode = "0"
 
 var termMon *termMonitor
 
-func clientSetup() (launched bool, listeners []net.Listener) {
+func clientSetup(listenAddr, dstAddr string) (launched bool, listeners []net.Listener) {
 	name := "obfs4"
 
 	obfsTransport := obfs4.Transport{}
@@ -97,12 +93,13 @@ func clientSetup() (launched bool, listeners []net.Listener) {
 		log.Fatalf("failed to parse obfs4 args")
 	}
 
-	ln, err := net.Listen("tcp", clientListenAddr)
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
+		log.Fatalf("failed to listen for tcp on %s: %s", listenAddr, err)
 		return
 	}
 
-	go clientAcceptLoop(cf, ln, parsedArgs)
+	go clientAcceptLoop(cf, ln, parsedArgs, dstAddr)
 
 	Infof("%s registered listener: %s", name, elideAddr(ln.Addr().String()))
 	listeners = append(listeners, ln)
@@ -111,7 +108,7 @@ func clientSetup() (launched bool, listeners []net.Listener) {
 	return
 }
 
-func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any) {
+func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any, dst string) {
 	defer ln.Close()
 	for {
 		conn, err := ln.Accept()
@@ -126,16 +123,16 @@ func clientAcceptLoop(cf base.ClientFactory, ln net.Listener, args any) {
 			continue
 		}
 		Debugf("accepted new connection: %s", elideAddr(conn.RemoteAddr().String()))
-		go clientHandler(cf, conn, args)
+		go clientHandler(cf, conn, args, dst)
 	}
 }
 
-func clientHandler(cf base.ClientFactory, conn net.Conn, args any) {
+func clientHandler(cf base.ClientFactory, conn net.Conn, args any, dst string) {
 	defer conn.Close()
 
 	name := cf.Transport().Name()
 	addrStr := elideAddr(conn.RemoteAddr().String())
-	remote, err := cf.Dial("tcp", clientConnectAddr, net.Dial, args)
+	remote, err := cf.Dial("tcp", dst, net.Dial, args)
 	if err != nil {
 		Errorf("%s(%s) handshake failed: %s", name, addrStr, err)
 		return
@@ -150,7 +147,7 @@ func clientHandler(cf base.ClientFactory, conn net.Conn, args any) {
 	}
 }
 
-func serverSetup(handler Backend) (launched bool, listeners []net.Listener) {
+func serverSetup(listenAddr string, handler Backend) (launched bool, listeners []net.Listener) {
 	name := "obfs4"
 
 	args := pt.Args{}
@@ -173,8 +170,9 @@ func serverSetup(handler Backend) (launched bool, listeners []net.Listener) {
 		return false, nil
 	}
 
-	ln, err := net.Listen("tcp", fwdProxyAddr)
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
+		log.Fatalf("failed to listen for tcp on %s: %s", listenAddr, err)
 		return
 	}
 
@@ -224,37 +222,19 @@ func serverAcceptLoop(f base.ServerFactory, ln net.Listener, handler Backend) er
 	}
 }
 
-func getVersion() string {
-	return fmt.Sprintf("obfs4proxy-%s", obfs4proxyVersion)
-}
-
 func main() {
 	var err error
 	// Initialize the termination state monitor as soon as possible.
 	termMon = newTermMonitor()
 
-	// Handle the command line arguments.
 	_, execName := path.Split(os.Args[0])
-	showVer := flag.Bool("version", false, "Print version and exit")
-	logLevelStr := flag.String("log-level", "ERROR", "Log level (ERROR/WARN/INFO/DEBUG)")
-	isClient := flag.Bool("client", false, "set this if client")
-	fwdDst := flag.String("fwd", "", "use the transparent forward proxy backend `-fwd=\"<addr:port>\"`")
-	flag.BoolVar(&unsafeLogging, "x", false, "Enable unsafe logging")
-	flag.Parse()
-
-	if *showVer {
-		fmt.Printf("%s\n", getVersion())
-		os.Exit(0)
-	}
-
-	var level *slog.Level
-	if level, err = parseLevel(*logLevelStr); err != nil {
-		log.Fatalf("[ERROR]: %s failed to set log level: %s", execName, err)
-	}
-	_ = slog.SetLogLoggerLevel(*level)
-	Infof("log level set to %s", *logLevelStr)
-
+	// Handle the command line arguments.
 	// Determine if this is a client or server, initialize the common state.
+	args := parseArgs()
+
+	// set global for unsage logging -_-
+	unsafeLogging = args.unsafeLogging
+
 	var ptListeners []net.Listener
 	var launched bool
 	if err = transports.Init(); err != nil {
@@ -262,26 +242,22 @@ func main() {
 		os.Exit(-1)
 	}
 
-	Infof("%s launched", getVersion())
-
 	// Do the managed pluggable transport protocol configuration.
-	if *isClient {
-		Infof("%s initializing client transport listeners", execName)
-		launched, ptListeners = clientSetup()
-	} else {
+	if args.isClient {
+		Infof("%s launching as Client", getVersion())
 
-		handler := serverEchoHandler
-		if *fwdDst != "" {
-			addrport, err := netip.ParseAddrPort(*fwdDst)
-			if err != nil {
-				log.Fatalf("specified fwd handler with invalid Addr:Port dst (%s): %s", *fwdDst, err)
-			}
-			addr := net.TCPAddrFromAddrPort(addrport)
-			handler = makeServerFwdBackend(addr)
+		Infof("%s initializing client transport listeners", execName)
+		launched, ptListeners = clientSetup(args.listenAddr.String(), args.clientConfig.dst.String())
+	} else {
+		Infof("%s launching as Server", getVersion())
+
+		handler, err := makeBackend(args.serverConfig.backendType, args.serverConfig.backendArg)
+		if err != nil {
+			log.Fatalf("unable to initialize backed: %s", err)
 		}
 
 		Infof("%s initializing server transport listeners", execName)
-		launched, ptListeners = serverSetup(handler)
+		launched, ptListeners = serverSetup(args.listenAddr.String(), handler)
 	}
 	if !launched {
 		// Initialization failed, the client or server setup routines should

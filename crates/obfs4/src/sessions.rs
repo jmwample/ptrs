@@ -7,16 +7,14 @@ use crate::{
         colorize, discard, drbg,
         ntor_arti::{ClientHandshake, RelayHandshakeError, ServerHandshake},
     },
-    obfs4::{
-        constants::*,
-        framing,
-        handshake::{
-            CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
-            SHSMaterials,
-        },
-        proto::{O4Stream, Obfs4Stream, IAT},
-        server::Server,
+    constants::*,
+    framing,
+    handshake::{
+        CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
+        SHSMaterials,
     },
+    proto::{O4Stream, Obfs4Stream, IAT},
+    server::Server,
     Error, Result,
 };
 
