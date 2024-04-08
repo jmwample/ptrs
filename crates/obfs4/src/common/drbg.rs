@@ -177,7 +177,7 @@ impl Drbg {
 
         // This is a safe unwrap as we bit-mask to below overflow
         // ret &= (1<<63) -1;
-        ret &= <i64 as TryInto<u64>>::try_into(i64::max_value()).unwrap();
+        ret &= <i64 as TryInto<u64>>::try_into(i64::MAX).unwrap();
         i64::try_from(ret).unwrap()
     }
 
