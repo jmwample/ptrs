@@ -1,7 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-
-
 pub mod client;
 pub mod common;
 pub mod server;
@@ -28,7 +26,6 @@ pub const OBFS4_NAME: &str = "obfs4";
 
 #[cfg(test)]
 pub(crate) mod test_utils;
-
 
 #[cfg(debug_assertions)]
 pub mod dev {

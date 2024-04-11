@@ -6,7 +6,8 @@ use crate::framing::{self, FrameError};
 // use futures::sink::{Sink, SinkExt};
 
 use tokio_util::bytes::{Buf, BufMut};
-use tracing::trace;
+
+use ptrs::trace;
 
 pub(crate) const MESSAGE_OVERHEAD: usize = 2 + 1;
 pub(crate) const MAX_MESSAGE_PAYLOAD_LENGTH: usize =
@@ -25,11 +26,21 @@ pub trait Message {
 
 /// Frames are:
 /// ```txt
-///   type      u8;               // MessageType
-///   length    u16               // Length of the payload (Big Endian).
-///   payload   [u8; length];     // Data payload.
-///   padding   [0_u8; pad_len];  // Padding.
+///    +-----
+///    | type      u8;               // Message Type
+/// M1 | length    u16               // Message Length (Big Endian).
+///    | payload   [u8; length];     // Message Data
+///    +-----
+///    ...      //  (optional) more messages M2, M3 ...
+///    +-----
+///    | type      \x00   // minimum padding is 3 bytes (type=\x00  + u16 pad_len=\x00\x00)
+/// PAD| pad_len    u16
+///    | padding   [0u8; pad_len];
+///    +-----
 /// ```
+///
+/// Frames must always be composed of COMPLETE mesages, i.e. a message should
+/// never be split across multiple frames.
 pub fn build_and_marshall<T: BufMut>(
     dst: &mut T,
     pt: MessageType,
@@ -62,16 +73,3 @@ pub fn build_and_marshall<T: BufMut>(
     }
     Ok(())
 }
-
-/*
- * pub async fn send_payload<S, T>(sink: &mut S, buf: &T) -> Result<(), <S as Sink<Bytes>>::Error>
-where
-    S: Sink<Bytes> + Unpin,
-    T: AsRef<[u8]>,
-{
-    let mut m = BytesMut::new();
-    Messages::Payload(buf.as_ref().to_vec()).marshall(&mut m)?;
-
-    sink.send(m.freeze()).await
-}
-*/

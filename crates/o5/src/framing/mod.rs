@@ -55,9 +55,6 @@ pub use codecs::EncryptingCodec as Obfs4Codec;
 pub(crate) mod handshake;
 pub use handshake::*;
 
-// mod frame_builder;
-// pub use frame_builder::FrameBuilder;
-
 /// MaximumSegmentLength is the length of the largest possible segment
 /// including overhead.
 pub(crate) const MAX_SEGMENT_LENGTH: usize = 1500 - (40 + 12);
