@@ -11,9 +11,9 @@ use crate::{
         HmacSha256,
     },
     constants::*,
-    framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
-    handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
-    proto::{MaybeTimeout, Obfs4Stream, IAT},
+    framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
+    handshake::{O5NtorPublicKey, O5NtorSecretKey},
+    proto::{MaybeTimeout, O5Stream, IAT},
     sessions::Session,
     Error, Result,
 };
@@ -37,7 +37,7 @@ const STATE_FILENAME: &str = "obfs4_state.json";
 pub struct ServerBuilder<T> {
     pub iat_mode: IAT,
     pub statefile_path: Option<String>,
-    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) identity_keys: O5NtorSecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
     // pub(crate) drbg: Drbg, // TODO: build in DRBG
     _stream_type: PhantomData<T>,
@@ -45,7 +45,7 @@ pub struct ServerBuilder<T> {
 
 impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
-        let identity_keys = Obfs4NtorSecretKey::getrandom();
+        let identity_keys = O5NtorSecretKey::getrandom();
         Self {
             iat_mode: IAT::Off,
             statefile_path: None,
@@ -196,7 +196,7 @@ impl JsonServerState {
 }
 
 pub(crate) struct RequiredServerState {
-    pub(crate) private_key: Obfs4NtorSecretKey,
+    pub(crate) private_key: O5NtorSecretKey,
     pub(crate) drbg_seed: drbg::Drbg,
     pub(crate) iat_mode: IAT,
 }
@@ -225,7 +225,7 @@ impl TryFrom<&Args> for RequiredServerState {
         };
 
         let secret_key = StaticSecret::from(sk);
-        let private_key = Obfs4NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
+        let private_key = O5NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
 
         Ok(RequiredServerState {
             private_key,
@@ -242,7 +242,7 @@ pub struct ServerInner {
     pub(crate) handshake_timeout: Option<tokio::time::Duration>,
     pub(crate) iat_mode: IAT,
     pub(crate) biased: bool,
-    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) identity_keys: O5NtorSecretKey,
 
     pub(crate) replay_filter: ReplayFilter,
     // pub(crate) metrics: Metrics,
@@ -258,17 +258,17 @@ impl Deref for Server {
 impl Server {
     pub fn new(sec: [u8; KEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
         let sk = StaticSecret::from(sec);
-        let pk = Obfs4NtorPublicKey {
+        let pk = O5NtorPublicKey {
             pk: PublicKey::from(&sk),
             id: id.into(),
         };
 
-        let identity_keys = Obfs4NtorSecretKey { pk, sk };
+        let identity_keys = O5NtorSecretKey { pk, sk };
 
         Self::new_from_key(identity_keys)
     }
 
-    pub(crate) fn new_from_key(identity_keys: Obfs4NtorSecretKey) -> Self {
+    pub(crate) fn new_from_key(identity_keys: O5NtorSecretKey) -> Self {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
@@ -289,22 +289,22 @@ impl Server {
         // so we can use the regular dalek_x25519 key generation.
         let sk = StaticSecret::random_from_rng(rng);
 
-        let pk = Obfs4NtorPublicKey {
+        let pk = O5NtorPublicKey {
             pk: PublicKey::from(&sk),
             id: id.into(),
         };
 
-        let identity_keys = Obfs4NtorSecretKey { pk, sk };
+        let identity_keys = O5NtorSecretKey { pk, sk };
 
         Self::new_from_key(identity_keys)
     }
 
     pub fn getrandom() -> Self {
-        let identity_keys = Obfs4NtorSecretKey::getrandom();
+        let identity_keys = O5NtorSecretKey::getrandom();
         Self::new_from_key(identity_keys)
     }
 
-    pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<T>(self, stream: T) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

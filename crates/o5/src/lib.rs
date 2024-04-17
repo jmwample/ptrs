@@ -17,7 +17,7 @@ pub(crate) mod sessions;
 mod testing;
 
 mod pt;
-pub use pt::{Obfs4PT, Transport};
+pub use pt::{O5PT, Transport};
 
 mod error;
 pub use error::{Error, Result};

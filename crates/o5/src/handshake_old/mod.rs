@@ -200,7 +200,7 @@ fn h_verify(d: &[u8]) -> DigestVal {
 /// the client's public key (B), and the shared verification string.
 fn kdf_msgkdf(
     xb: &curve25519::SharedSecret,
-    relay_public: &Obfs4NtorPublicKey,
+    relay_public: &O5NtorPublicKey,
     client_public: &curve25519::PublicKey,
     verification: &[u8],
 ) -> EncodeResult<(EncKey, DigestWriter<Sha256>)> {
@@ -238,8 +238,8 @@ fn kdf_msgkdf(
 pub(crate) struct Obfs4NtorClient;
 
 impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
-    type KeyType = Obfs4NtorPublicKey;
-    type StateType = Obfs4NtorHandshakeState;
+    type KeyType = O5NtorPublicKey;
+    type StateType = O5NtorHandshakeState;
     type KeyGen = Obfs4NtorKeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
@@ -251,7 +251,7 @@ impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
     /// with the message to send.
     fn client1<R: RngCore + CryptoRng, M: Borrow<[NtorV3Extension]>>(
         rng: &mut R,
-        key: &Obfs4NtorPublicKey,
+        key: &O5NtorPublicKey,
         extensions: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
         let mut message = Vec::new();
@@ -287,7 +287,7 @@ impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
 pub(crate) struct Obfs4NtorServer;
 
 impl crate::common::ntor_arti::ServerHandshake for Obfs4NtorServer {
-    type KeyType = Obfs4NtorSecretKey;
+    type KeyType = O5NtorSecretKey;
     type KeyGen = Obfs4NtorKeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
@@ -322,7 +322,7 @@ impl crate::common::ntor_arti::ServerHandshake for Obfs4NtorServer {
 /// Contains a single curve25519 ntor onion key, and the relay's ed25519
 /// identity.
 #[derive(Clone, Debug)]
-pub(crate) struct Obfs4NtorPublicKey {
+pub(crate) struct O5NtorPublicKey {
     /// The relay's identity.
     pub(crate) id: Ed25519Identity,
     /// The Bridge's identity key.
@@ -332,15 +332,15 @@ pub(crate) struct Obfs4NtorPublicKey {
 }
 
 /// Secret key information used by a relay for the ntor v3 handshake.
-pub(crate) struct Obfs4NtorSecretKey {
+pub(crate) struct O5NtorSecretKey {
     /// The relay's public key information
-    pk: Obfs4NtorPublicKey,
+    pk: O5NtorPublicKey,
     /// The secret onion key.
     sk: curve25519::StaticSecret,
 }
 
-impl Obfs4NtorSecretKey {
-    /// Construct a new Obfs4NtorSecretKey from its components.
+impl O5NtorSecretKey {
+    /// Construct a new O5NtorSecretKey from its components.
     #[allow(unused)]
     pub(crate) fn new(
         sk: curve25519::StaticSecret,
@@ -349,7 +349,7 @@ impl Obfs4NtorSecretKey {
         id: Ed25519Identity,
     ) -> Self {
         Self {
-            pk: Obfs4NtorPublicKey { id, pk, rp },
+            pk: O5NtorPublicKey { id, pk, rp },
             sk,
         }
     }
@@ -379,7 +379,7 @@ impl Obfs4NtorSecretKey {
             break
         }
 
-        let pk = Obfs4NtorPublicKey {
+        let pk = O5NtorPublicKey {
             pk: pk1,
             id: id.into(),
             rp,
@@ -400,9 +400,9 @@ impl Obfs4NtorSecretKey {
 ///
 /// The client needs to hold this state between when it sends its part
 /// of the handshake and when it receives the relay's reply.
-pub(crate) struct Obfs4NtorHandshakeState {
+pub(crate) struct O5NtorHandshakeState {
     /// The public key of the relay we're communicating with.
-    relay_public: Obfs4NtorPublicKey, // B, ID.
+    relay_public: O5NtorPublicKey, // B, ID.
     /// Our ephemeral secret key for this handshake.
     my_sk: curve25519::StaticSecret, // x
     /// Our ephemeral public key for this handshake.
@@ -436,10 +436,10 @@ impl KeyGenerator for Obfs4NtorKeyGenerator {
 /// and a message to send to the relay.
 fn client_handshake_obfs4<R: RngCore + CryptoRng>(
     rng: &mut R,
-    relay_public: &Obfs4NtorPublicKey,
+    relay_public: &O5NtorPublicKey,
     client_msg: &[u8],
     verification: &[u8],
-) -> EncodeResult<(Obfs4NtorHandshakeState, Vec<u8>)> {
+) -> EncodeResult<(O5NtorHandshakeState, Vec<u8>)> {
     let my_sk = curve25519::StaticSecret::random_from_rng(rng);
     client_handshake_obfs4_no_keygen(relay_public, client_msg, verification, my_sk)
 }
@@ -447,11 +447,11 @@ fn client_handshake_obfs4<R: RngCore + CryptoRng>(
 /// As `client_handshake_obfs4`, but don't generate an ephemeral DH
 /// key: instead take that key an arguments `my_sk`.
 fn client_handshake_obfs4_no_keygen(
-    relay_public: &Obfs4NtorPublicKey,
+    relay_public: &O5NtorPublicKey,
     client_msg: &[u8],
     verification: &[u8],
     my_sk: curve25519::StaticSecret,
-) -> EncodeResult<(Obfs4NtorHandshakeState, Vec<u8>)> {
+) -> EncodeResult<(O5NtorHandshakeState, Vec<u8>)> {
     let my_public = curve25519::PublicKey::from(&my_sk);
     let bx = my_sk.diffie_hellman(&relay_public.pk);
 
@@ -473,7 +473,7 @@ fn client_handshake_obfs4_no_keygen(
     message.write(&encrypted_msg)?;
     message.write(&msg_mac)?;
 
-    let state = Obfs4NtorHandshakeState {
+    let state = O5NtorHandshakeState {
         relay_public: relay_public.clone(),
         my_sk,
         my_public,
@@ -519,7 +519,7 @@ fn server_handshake_obfs4<RNG: CryptoRng + RngCore, REPLY: MsgReply>(
     rng: &mut RNG,
     reply_fn: &mut REPLY,
     message: &[u8],
-    keys: &[Obfs4NtorSecretKey],
+    keys: &[O5NtorSecretKey],
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, Obfs4NtorXofReader)> {
     let secret_key_y = curve25519::StaticSecret::random_from_rng(rng);
@@ -531,7 +531,7 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
     reply_fn: &mut REPLY,
     secret_key_y: &curve25519::StaticSecret,
     message: &[u8],
-    keys: &[Obfs4NtorSecretKey],
+    keys: &[O5NtorSecretKey],
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, Obfs4NtorXofReader)> {
     // Decode the message.
@@ -658,7 +658,7 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
 /// On success, return the server's reply to our original encrypted message,
 /// and an `XofReader` to use in generating circuit keys.
 fn client_handshake_obfs4_part2(
-    state: &Obfs4NtorHandshakeState,
+    state: &O5NtorHandshakeState,
     relay_handshake: &[u8],
     verification: &[u8],
 ) -> Result<(Vec<u8>, Obfs4NtorXofReader)> {

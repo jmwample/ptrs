@@ -50,7 +50,7 @@ mod messages_v1;
 pub use messages_v1::{MessageTypes, Messages};
 
 mod codecs;
-pub use codecs::EncryptingCodec as Obfs4Codec;
+pub use codecs::EncryptingCodec as O5Codec;
 
 pub(crate) mod handshake;
 pub use handshake::*;

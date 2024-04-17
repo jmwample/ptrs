@@ -33,9 +33,9 @@ fn make_fake_ephem_key(bytes: &[u8]) -> EphemeralSecret {
 fn test_obfs4_roundtrip() -> Result<()> {
     let mut rng = rand::thread_rng();
 
-    let relay_private = Obfs4NtorSecretKey::generate_for_test(&mut rng);
-    let x = Obfs4NtorSecretKey::generate_for_test(&mut rng);
-    let y = Obfs4NtorSecretKey::generate_for_test(&mut rng);
+    let relay_private = O5NtorSecretKey::generate_for_test(&mut rng);
+    let x = O5NtorSecretKey::generate_for_test(&mut rng);
+    let y = O5NtorSecretKey::generate_for_test(&mut rng);
 
     let mut sid = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut sid);
@@ -73,14 +73,14 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
     let relay_secret = StaticSecret::random_from_rng(rng);
     let relay_public = PublicKey::from(&relay_secret);
     let relay_identity = RsaIdentity::from_bytes(&[12; 20]).unwrap();
-    let relay_ntpk = Obfs4NtorPublicKey {
+    let relay_ntpk = O5NtorPublicKey {
         id: relay_identity,
         pk: relay_public,
     };
     let hs_materials = CHSMaterials::new(relay_ntpk, "c-xxx".into());
-    let (state, cmsg) = Obfs4NtorHandshake::client1(&hs_materials, &())?;
+    let (state, cmsg) = O5NtorHandshake::client1(&hs_materials, &())?;
 
-    let relay_ntsk = Obfs4NtorSecretKey {
+    let relay_ntsk = O5NtorSecretKey {
         pk: relay_ntpk,
         sk: relay_secret,
     };
@@ -95,7 +95,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
         .server(&mut |_: &()| Some(()), &shs_materials, &cmsg)
         .unwrap();
 
-    let (_extensions, ckeygen) = Obfs4NtorHandshake::client2(state, smsg)?;
+    let (_extensions, ckeygen) = O5NtorHandshake::client2(state, smsg)?;
 
     let skeys = skeygen.expand(55)?;
     let ckeys = ckeygen.expand(55)?;
@@ -116,11 +116,11 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let expected_auth = "dc71f8ded2e56f829f1b944c1e94357fa8b7987f10211a017e2d1f2455092917";
 
     let sk: StaticSecret = b_sk.into();
-    let pk = Obfs4NtorPublicKey {
+    let pk = O5NtorPublicKey {
         id: RsaIdentity::from_bytes(&id).unwrap(),
         pk: (&sk).into(),
     };
-    let relay_sk = Obfs4NtorSecretKey { pk, sk };
+    let relay_sk = O5NtorSecretKey { pk, sk };
     let server = Server::new_from_key(relay_sk.clone());
 
     let x: StaticSecret = x_sk.into();
@@ -165,12 +165,12 @@ fn test_ntor_v1_testvec() -> Result<()> {
     let keys = hex!("0c62dee7f48893370d0ef896758d35729867beef1a5121df80e00f79ed349af39b51cae125719182f19d932a667dae1afbf2e336e6910e7822223e763afad0a13342157969dc6b79");
 
     let sk: StaticSecret = b_sk.into();
-    let pk = Obfs4NtorPublicKey {
+    let pk = O5NtorPublicKey {
         id: RsaIdentity::from_bytes(&id).unwrap(),
         pk: (&sk).into(),
         rp: (&sk).into(),
     };
-    let relay_sk = Obfs4NtorSecretKey { pk, sk };
+    let relay_sk = O5NtorSecretKey { pk, sk };
 
     let x: StaticSecret = x_sk.into();
     let y: StaticSecret = y_sk.into();
@@ -209,20 +209,20 @@ fn failing_handshakes() {
     let wrong_public = PublicKey::from([16_u8; 32]);
     let relay_identity = RsaIdentity::from_bytes(&[12; 20]).unwrap();
     let wrong_identity = RsaIdentity::from_bytes(&[13; 20]).unwrap();
-    let relay_ntpk = Obfs4NtorPublicKey {
+    let relay_ntpk = O5NtorPublicKey {
         id: relay_identity,
         pk: relay_public,
     };
-    let relay_ntsk = Obfs4NtorSecretKey {
+    let relay_ntsk = O5NtorSecretKey {
         pk: relay_ntpk.clone(),
         sk: relay_secret,
     };
 
-    let wrong_ntpk1 = Obfs4NtorPublicKey {
+    let wrong_ntpk1 = O5NtorPublicKey {
         id: wrong_identity,
         pk: relay_public,
     };
-    let wrong_ntpk2 = Obfs4NtorPublicKey {
+    let wrong_ntpk2 = O5NtorPublicKey {
         id: relay_identity,
         pk: wrong_public,
     };
@@ -232,11 +232,11 @@ fn failing_handshakes() {
     // If the client uses the wrong keys, the relay should reject the
     // handshake.
     let mut hs_materials = CHSMaterials::new(wrong_ntpk1.clone(), "c-xxx".into());
-    let (_, handshake1) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
+    let (_, handshake1) = O5NtorHandshake::client1(&hs_materials, &()).unwrap();
     hs_materials.node_pubkey = wrong_ntpk2;
-    let (_, handshake2) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
+    let (_, handshake2) = O5NtorHandshake::client1(&hs_materials, &()).unwrap();
     hs_materials.node_pubkey = relay_ntpk;
-    let (st3, handshake3) = Obfs4NtorHandshake::client1(&hs_materials, &()).unwrap();
+    let (st3, handshake3) = O5NtorHandshake::client1(&hs_materials, &()).unwrap();
 
     let shs_materials = [SHSMaterials::new(
         &relay_ntsk,
@@ -255,7 +255,7 @@ fn failing_handshakes() {
         .server(&mut |_: &()| Some(()), &shs_materials, &handshake3)
         .unwrap();
     smsg[60] ^= 7;
-    let ans3 = Obfs4NtorHandshake::client2(st3, smsg);
+    let ans3 = O5NtorHandshake::client2(st3, smsg);
     assert!(ans3.is_err());
 }
 
@@ -300,7 +300,7 @@ fn about_half() -> Result<()> {
 fn keypair() -> Result<()> {
     let mut rng = rand::thread_rng();
     for _ in 0..1_000 {
-        let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
+        let kp = O5NtorSecretKey::generate_for_test(&mut rng);
 
         let pk = kp.pk.pk.to_bytes();
         let repres: Option<curve25519::PublicRepresentative> = (&kp.sk).into();

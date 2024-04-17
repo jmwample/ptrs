@@ -26,7 +26,7 @@ use digest::XofReader;
 #[test]
 fn test_obfs4_roundtrip() {
     let mut rng = rand::thread_rng();
-    let relay_private = Obfs4NtorSecretKey::generate_for_test(&mut testing_rng());
+    let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
 
     let verification = &b"shared secret"[..];
     let client_message = &b"Hello. I am a client. Let's be friends!"[..];
@@ -70,7 +70,7 @@ fn test_obfs4_roundtrip() {
 #[test]
 fn test_obfs4_roundtrip_highlevel() {
     let mut rng = rand::thread_rng();
-    let relay_private = Obfs4NtorSecretKey::generate_for_test(&mut testing_rng());
+    let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
 
     let (c_state, c_handshake) =
         Obfs4NtorClient::client1(&mut rng, &relay_private.pk, &[]).unwrap();
@@ -92,7 +92,7 @@ fn test_obfs4_roundtrip_highlevel() {
 #[test]
 fn test_obfs4_roundtrip_highlevel_cc() {
     let mut rng = rand::thread_rng();
-    let relay_private = Obfs4NtorSecretKey::generate_for_test(&mut testing_rng());
+    let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
 
     let client_exts = vec![NtorV3Extension::RequestCongestionControl];
     let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
@@ -136,8 +136,8 @@ fn test_obfs4_testvec() {
     let verification = hex!("78797a7a79");
     let server_message = hex!("486f6c61204d756e646f");
 
-    let identity_public = Obfs4NtorPublicKey { pk: B, id, rp: None };
-    let identity_private = Obfs4NtorSecretKey {
+    let identity_public = O5NtorPublicKey { pk: B, id, rp: None };
+    let identity_private = O5NtorSecretKey {
         sk: b,
         pk: identity_public.clone(),
     };
@@ -229,7 +229,7 @@ fn about_half() -> Result<()> {
 fn keypair() -> Result<()> {
     let mut rng = rand::thread_rng();
     for _ in 0..1_000 {
-        let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
+        let kp = O5NtorSecretKey::generate_for_test(&mut rng);
 
         let pk = kp.pk.pk.to_bytes();
         let repres = kp.pk.rp;

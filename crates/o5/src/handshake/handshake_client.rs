@@ -13,13 +13,13 @@ use rand::Rng;
 /// materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct HandshakeMaterials {
-    pub(crate) node_pubkey: Obfs4NtorPublicKey,
+    pub(crate) node_pubkey: O5NtorPublicKey,
     pub(crate) pad_len: usize,
     pub(crate) session_id: String,
 }
 
 impl HandshakeMaterials {
-    pub(crate) fn new(node_pubkey: Obfs4NtorPublicKey, session_id: String) -> Self {
+    pub(crate) fn new(node_pubkey: O5NtorPublicKey, session_id: String) -> Self {
         HandshakeMaterials {
             node_pubkey,
             session_id,

@@ -1,3 +1,5 @@
+use crate::framing::FrameError;
+
 use std::array::TryFromSliceError;
 use std::string::FromUtf8Error;
 use std::{fmt::Display, str::FromStr};
@@ -39,7 +41,7 @@ pub enum Error {
     },
     HandshakeErr(RelayHandshakeError),
 
-    Obfs4Framing(crate::framing::FrameError),
+    O5Framing(FrameError),
 }
 
 impl Display for Error {
@@ -66,7 +68,7 @@ impl Display for Error {
             }
             Error::HandshakeErr(err) => write!(f, "handshake failed or unable to complete: {err}"),
 
-            Error::Obfs4Framing(e) => write!(f, "obfs4 framing error: {e}"),
+            Error::O5Framing(e) => write!(f, "obfs4 framing error: {e}"),
         }
     }
 }
@@ -156,9 +158,9 @@ impl From<InvalidLength> for Error {
     }
 }
 
-impl From<crate::framing::FrameError> for Error {
-    fn from(e: crate::framing::FrameError) -> Self {
-        Error::Obfs4Framing(e)
+impl From<FrameError> for Error {
+    fn from(e: FrameError) -> Self {
+        Error::O5Framing(e)
     }
 }
 

@@ -3,9 +3,9 @@
 use crate::{
     common::{colorize, HmacSha256},
     constants::*,
-    framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    handshake::Obfs4NtorPublicKey,
-    proto::{MaybeTimeout, Obfs4Stream, IAT},
+    framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
+    handshake::O5NtorPublicKey,
+    proto::{MaybeTimeout, O5Stream, IAT},
     sessions, Error, Result,
 };
 
@@ -106,7 +106,7 @@ impl ClientBuilder {
     pub fn build(&self) -> Client {
         Client {
             iat_mode: self.iat_mode,
-            station_pubkey: Obfs4NtorPublicKey {
+            station_pubkey: O5NtorPublicKey {
                 id: self.station_id.into(),
                 pk: self.station_pubkey.into(),
             },
@@ -130,7 +130,7 @@ impl fmt::Display for ClientBuilder {
 /// Client implementing the obfs4 protocol.
 pub struct Client {
     iat_mode: IAT,
-    station_pubkey: Obfs4NtorPublicKey,
+    station_pubkey: O5NtorPublicKey,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 
@@ -140,7 +140,7 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
@@ -156,7 +156,7 @@ impl Client {
     pub async fn establish<'a, T, E>(
         self,
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
-    ) -> Result<Obfs4Stream<T>>
+    ) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,

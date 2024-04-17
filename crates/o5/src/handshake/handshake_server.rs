@@ -15,7 +15,7 @@ use std::time::Instant;
 
 #[derive(Clone)]
 pub(crate) struct HandshakeMaterials {
-    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) identity_keys: O5NtorSecretKey,
     pub(crate) session_id: String,
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
@@ -28,7 +28,7 @@ impl<'a> HandshakeMaterials {
     }
 
     pub fn new<'b>(
-        identity_keys: &'b Obfs4NtorSecretKey,
+        identity_keys: &'b O5NtorSecretKey,
         session_id: String,
         len_seed: [u8; SEED_LENGTH],
     ) -> Self

@@ -10,10 +10,10 @@ use crate::{
     constants::*,
     framing,
     handshake::{
-        CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey, Obfs4NtorSecretKey,
+        CHSMaterials, O5Keygen, O5NtorHandshake, O5NtorPublicKey, O5NtorSecretKey,
         SHSMaterials,
     },
-    proto::{O4Stream, Obfs4Stream, IAT},
+    proto::{O4Stream, O5Stream, IAT},
     server::Server,
     Error, Result,
 };
@@ -70,7 +70,7 @@ impl Session {
 // ================================================================ //
 
 pub(crate) struct ClientSession<S: ClientSessionState> {
-    node_pubkey: Obfs4NtorPublicKey,
+    node_pubkey: O5NtorPublicKey,
     session_id: [u8; SESSION_ID_LEN],
     iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
@@ -141,7 +141,7 @@ impl<S: ClientSessionState> ClientSession<S> {
 }
 
 pub fn new_client_session(
-    station_pubkey: Obfs4NtorPublicKey,
+    station_pubkey: O5NtorPublicKey,
     iat_mode: IAT,
 ) -> ClientSession<Initialized> {
     let mut session_id = [0u8; SESSION_ID_LEN];
@@ -171,7 +171,7 @@ impl ClientSession<Initialized> {
         self,
         mut stream: T,
         deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<T>>
+    ) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -207,7 +207,7 @@ impl ClientSession<Initialized> {
 
         // post-handshake state updates
         session.set_session_id(keygen.session_id());
-        let mut codec: framing::Obfs4Codec = keygen.into();
+        let mut codec: framing::O5Codec = keygen.into();
 
         let res = codec.decode(&mut remainder);
         if let Ok(Some(framing::Messages::PrngSeed(seed))) = res {
@@ -226,18 +226,18 @@ impl ClientSession<Initialized> {
         codec.handshake_complete();
         let o4 = O4Stream::new(stream, codec, Session::Client(session_state));
 
-        Ok(Obfs4Stream::from_o4(o4))
+        Ok(O5Stream::from_o4(o4))
     }
 
     async fn complete_handshake<T>(
         mut stream: T,
         materials: CHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<(BytesMut, impl Obfs4Keygen)>
+    ) -> Result<(BytesMut, impl O5Keygen)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let (state, chs_message) = Obfs4NtorHandshake::client1(&materials, &())?;
+        let (state, chs_message) = O5NtorHandshake::client1(&materials, &())?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
@@ -263,7 +263,7 @@ impl ClientSession<Initialized> {
                 buf.len()
             );
 
-            match Obfs4NtorHandshake::client2(state.clone(), &buf[..n]) {
+            match O5NtorHandshake::client2(state.clone(), &buf[..n]) {
                 Ok(r) => return Ok(r),
                 Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => continue,
                 Err(e) => {
@@ -311,7 +311,7 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 
 pub(crate) struct ServerSession<S: ServerSessionState> {
     // fixed by server
-    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) identity_keys: O5NtorSecretKey,
     pub(crate) biased: bool,
     // pub(crate) server: &'a Server,
 
@@ -392,7 +392,7 @@ impl ServerSession<Initialized> {
         server: &Server,
         mut stream: T,
         deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<T>>
+    ) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -433,7 +433,7 @@ impl ServerSession<Initialized> {
 
         // post handshake state updates
         session.set_session_id(keygen.session_id());
-        let mut codec: framing::Obfs4Codec = keygen.into();
+        let mut codec: framing::O5Codec = keygen.into();
 
         // mark session as Established
         let session_state: ServerSession<Established> = session.transition(Established {});
@@ -441,7 +441,7 @@ impl ServerSession<Initialized> {
         codec.handshake_complete();
         let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
 
-        Ok(Obfs4Stream::from_o4(o4))
+        Ok(O5Stream::from_o4(o4))
     }
 }
 
@@ -454,7 +454,7 @@ impl Server {
         mut stream: T,
         materials: SHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<impl Obfs4Keygen>
+    ) -> Result<impl O5Keygen>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

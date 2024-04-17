@@ -1,7 +1,7 @@
 use crate::{
     constants::*,
-    handshake::Obfs4NtorPublicKey,
-    proto::{Obfs4Stream, IAT},
+    handshake::O5NtorPublicKey,
+    proto::{O5Stream, IAT},
     Error, OBFS4_NAME,
 };
 use ptrs::{args::Args, FutureResult as F};
@@ -21,7 +21,7 @@ use tokio::{
     net::TcpStream,
 };
 
-pub type Obfs4PT = Transport<TcpStream>;
+pub type O5PT = Transport<TcpStream>;
 
 #[derive(Debug, Default)]
 pub struct Transport<T> {
@@ -136,7 +136,7 @@ where
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
                 trace!("cert string: {}", &cert_strs);
-                let ntor_pk = Obfs4NtorPublicKey::from_str(&cert_strs)?;
+                let ntor_pk = O5NtorPublicKey::from_str(&cert_strs)?;
                 let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
                 let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
                 (pk, id)
@@ -156,7 +156,7 @@ where
 
                 let pk = <[u8; 32]>::from_hex(public_key_strs)
                     .map_err(|e| format!("malformed public key: {e}"))?;
-                // Obfs4NtorPublicKey::new(pk, node_id)
+                // O5NtorPublicKey::new(pk, node_id)
                 (pk, id)
             }
         };
@@ -213,7 +213,7 @@ where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
 {
-    type OutRW = Obfs4Stream<InRW>;
+    type OutRW = O5Stream<InRW>;
     type OutErr = Error;
     type Builder = crate::ClientBuilder;
 
@@ -234,7 +234,7 @@ impl<InRW> ptrs::ServerTransport<InRW> for crate::Server
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type OutRW = Obfs4Stream<InRW>;
+    type OutRW = O5Stream<InRW>;
     type OutErr = Error;
     type Builder = crate::ServerBuilder<InRW>;
 
@@ -254,21 +254,21 @@ mod test {
 
     #[test]
     fn check_name() {
-        let pt_name = <Obfs4PT as ptrs::PluggableTransport<TcpStream>>::name();
-        assert_eq!(pt_name, Obfs4PT::NAME);
+        let pt_name = <O5PT as ptrs::PluggableTransport<TcpStream>>::name();
+        assert_eq!(pt_name, O5PT::NAME);
 
         let cb_name = <crate::ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
-        assert_eq!(cb_name, Obfs4PT::NAME);
+        assert_eq!(cb_name, O5PT::NAME);
 
         let sb_name =
             <crate::ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
-        assert_eq!(sb_name, Obfs4PT::NAME);
+        assert_eq!(sb_name, O5PT::NAME);
 
         let ct_name =
             <crate::Client as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
-        assert_eq!(ct_name, Obfs4PT::NAME);
+        assert_eq!(ct_name, O5PT::NAME);
 
         let st_name = <crate::Server as ptrs::ServerTransport<TcpStream>>::method_name();
-        assert_eq!(st_name, Obfs4PT::NAME);
+        assert_eq!(st_name, O5PT::NAME);
     }
 }

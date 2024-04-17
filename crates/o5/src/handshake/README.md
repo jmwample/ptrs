@@ -51,7 +51,7 @@ pub(crate) const T_EXPAND: &[u8; 35] = b"ntor-curve25519-sha256-1:key_expand";
 fn ntor_derive(
     xy: &SharedSecret,
     xb: &SharedSecret,
-    server_pk: &Obfs4NtorPublicKey,
+    server_pk: &O5NtorPublicKey,
     x: &PublicKey,
     y: &PublicKey,
 ) -> EncodeResult<(NtorHkdfKeyGenerator, Authcode)> {

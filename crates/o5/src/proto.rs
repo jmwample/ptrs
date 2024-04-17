@@ -85,7 +85,7 @@ impl MaybeTimeout {
 }
 
 #[pin_project]
-pub struct Obfs4Stream<T>
+pub struct O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -94,12 +94,12 @@ where
     s: O4Stream<T>,
 }
 
-impl<T> Obfs4Stream<T>
+impl<T> O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     pub(crate) fn from_o4(o4: O4Stream<T>) -> Self {
-        Obfs4Stream {
+        O5Stream {
             // s: Arc::new(Mutex::new(o4)),
             s: o4,
         }
@@ -112,7 +112,7 @@ where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     #[pin]
-    pub stream: Framed<T, framing::Obfs4Codec>,
+    pub stream: Framed<T, framing::O5Codec>,
 
     pub length_dist: probdist::WeightedDist,
     pub iat_dist: probdist::WeightedDist,
@@ -127,7 +127,7 @@ where
     pub(crate) fn new(
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
-        codec: framing::Obfs4Codec,
+        codec: framing::O5Codec,
         session: Session,
     ) -> O4Stream<T> {
         let stream = Framed::new(inner, codec);
@@ -334,7 +334,7 @@ where
     }
 }
 
-impl<T> AsyncWrite for Obfs4Stream<T>
+impl<T> AsyncWrite for O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -358,7 +358,7 @@ where
     }
 }
 
-impl<T> AsyncRead for Obfs4Stream<T>
+impl<T> AsyncRead for O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {

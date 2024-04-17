@@ -31,7 +31,7 @@ fn encode_decode() -> Result<()> {
     let mut key_material = [0_u8; KEY_MATERIAL_LENGTH];
     rand::thread_rng().fill(&mut key_material[..]);
 
-    let mut codec = Obfs4Codec::new(key_material, key_material);
+    let mut codec = O5Codec::new(key_material, key_material);
 
     let mut b = bytes::BytesMut::with_capacity(LENGTH_LENGTH + MESSAGE_OVERHEAD + message.len());
     let mut input = BytesMut::new();
@@ -63,7 +63,7 @@ async fn oversized_flow() -> Result<()> {
     let key_material = [0_u8; KEY_MATERIAL_LENGTH];
 
     let mut b = bytes::BytesMut::with_capacity(2_usize.pow(13));
-    let mut codec = Obfs4Codec::new(key_material, key_material);
+    let mut codec = O5Codec::new(key_material, key_material);
     let mut src = Bytes::from(oversized_messsage);
     let res = codec.encode(&mut src, &mut b);
 
@@ -99,7 +99,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     let msg_s = msg.clone();
 
     tokio::spawn(async move {
-        let codec = Obfs4Codec::new(key_material, key_material);
+        let codec = O5Codec::new(key_material, key_material);
         let message = &msg_s;
 
         let (mut sink, mut input) = codec.framed(s).split();
@@ -121,7 +121,7 @@ async fn try_flow(key_material: [u8; KEY_MATERIAL_LENGTH], msg: Vec<u8>) -> Resu
     let mut message = BytesMut::new();
     build_and_marshall(&mut message, MessageTypes::Payload.into(), &msg, 0)?;
 
-    let client_codec = Obfs4Codec::new(key_material, key_material);
+    let client_codec = O5Codec::new(key_material, key_material);
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
 
     c_sink.send(&mut message).await.expect("client send failed");
@@ -161,9 +161,9 @@ async fn double_encode_decode() -> Result<()> {
     let mut pkt2 = pkt1.clone();
 
     let key_material = random_key_material();
-    let client_codec = Obfs4Codec::new(key_material, key_material);
+    let client_codec = O5Codec::new(key_material, key_material);
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
-    let server_codec = Obfs4Codec::new(key_material, key_material);
+    let server_codec = O5Codec::new(key_material, key_material);
     let (mut s_sink, mut s_stream) = server_codec.framed(s).split::<Bytes>();
 
     c_sink.send(&mut pkt1).await.expect("client send failed");

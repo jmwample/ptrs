@@ -17,15 +17,15 @@ use tokio_util::codec::{Decoder, Encoder};
 
 const MAX: usize = 8 * 1024 * 1024;
 
-struct Obfs4Codec {}
+struct O5Codec {}
 
-impl Obfs4Codec {
+impl O5Codec {
     fn new() -> Self {
         Self {}
     }
 }
 
-impl Decoder for Obfs4Codec {
+impl Decoder for O5Codec {
     type Item = String;
     type Error = std::io::Error;
 
@@ -80,7 +80,7 @@ impl Decoder for Obfs4Codec {
     }
 }
 
-impl Encoder<String> for Obfs4Codec {
+impl Encoder<String> for O5Codec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: String, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
@@ -112,7 +112,7 @@ async fn framing_flow() -> Result<()> {
     let (c, s) = tokio::io::duplex(16 * 1024);
 
     tokio::spawn(async move {
-        let codec = Obfs4Codec::new();
+        let codec = O5Codec::new();
 
         let (mut sink, mut input) = codec.framed(s).split();
 
@@ -123,7 +123,7 @@ async fn framing_flow() -> Result<()> {
     });
 
     let message = "Hello there";
-    let client_codec = Obfs4Codec::new();
+    let client_codec = O5Codec::new();
     let (mut c_sink, mut c_stream) = client_codec.framed(c).split();
 
     c_sink

@@ -59,7 +59,7 @@ mod tests {
     use pqc_kyber::*;
 
     use crate::common::curve25519::{PublicKey, Representable};
-    use crate::handshake::Obfs4NtorSecretKey;
+    use crate::handshake::O5NtorSecretKey;
 
     type Result<T> = std::result::Result<T, Error>;
 
@@ -91,7 +91,7 @@ mod tests {
 
     struct Kyber1024XIdentityKeys {
         pub kyber1024: pqc_kyber::Keypair,
-        pub x25519: Obfs4NtorSecretKey,
+        pub x25519: O5NtorSecretKey,
     }
 
     impl Kyber1024XIdentityKeys {
@@ -99,19 +99,19 @@ mod tests {
             let mut rng = rand::thread_rng();
 
             Kyber1024XIdentityKeys {
-                x25519: Obfs4NtorSecretKey::getrandom(),
+                x25519: O5NtorSecretKey::getrandom(),
                 kyber1024: pqc_kyber::keypair(&mut rng).expect("kyber1024 key generation failed"),
             }
         }
 
         fn from_random<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
             Kyber1024XIdentityKeys {
-                x25519: Obfs4NtorSecretKey::getrandom(),
+                x25519: O5NtorSecretKey::getrandom(),
                 kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
             }
         }
 
-        fn from_x25519<R: CryptoRng + RngCore>(keys: Obfs4NtorSecretKey, rng: &mut R) -> Self {
+        fn from_x25519<R: CryptoRng + RngCore>(keys: O5NtorSecretKey, rng: &mut R) -> Self {
             Kyber1024XIdentityKeys {
                 x25519: keys,
                 kyber1024: pqc_kyber::keypair(rng).expect("kyber1024 key generation failed"),
