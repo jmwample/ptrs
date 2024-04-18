@@ -23,14 +23,14 @@ use crate::{
 use hex_literal::hex;
 use tor_basic_utils::test_rng::testing_rng;
 
-fn make_fake_ephem_key(bytes: &[u8]) -> EphemeralSecret {
+fn make_fake_ephem_key(bytes: &[u8]) -> curve25519::EphemeralSecret {
     assert_eq!(bytes.len(), 32);
     let rng = FakePRNG::new(bytes);
-    EphemeralSecret::random_from_rng(rng)
+    curve25519::EphemeralSecret::random_from_rng(rng)
 }
 
 #[test]
-fn test_obfs4_roundtrip() -> Result<()> {
+fn test_o5_roundtrip() -> Result<()> {
     let mut rng = rand::thread_rng();
 
     let relay_private = O5NtorSecretKey::generate_for_test(&mut rng);
@@ -50,14 +50,14 @@ fn test_obfs4_roundtrip() -> Result<()> {
         session_id: "s-yyy".into(),
     };
 
-    let (state, create_msg) = client_handshake_obfs4_no_keygen(x.sk, chs_materials).unwrap();
+    let (state, create_msg) = client_handshake_o5_no_keygen(x.sk, chs_materials).unwrap();
 
     let ephem = make_fake_ephem_key(&y.sk.as_bytes()[..]);
     let (s_keygen, created_msg) = server
-        .server_handshake_obfs4_no_keygen(ephem, &create_msg[..], shs_materials)
+        .server_handshake_o5_no_keygen(ephem, &create_msg[..], shs_materials)
         .unwrap();
 
-    let (c_keygen, _) = client_handshake2_obfs4(created_msg, &state)?;
+    let (c_keygen, _) = client_handshake2_o5(created_msg, &state)?;
 
     let c_keys = c_keygen.expand(72)?;
     let s_keys = s_keygen.expand(72)?;
@@ -68,7 +68,7 @@ fn test_obfs4_roundtrip() -> Result<()> {
 
 // Same as previous test, but use the higher-level APIs instead.
 #[test]
-fn test_obfs4_roundtrip_highlevel() -> Result<()> {
+fn test_o5_roundtrip_highlevel() -> Result<()> {
     let rng = testing_rng();
     let relay_secret = StaticSecret::random_from_rng(rng);
     let relay_public = PublicKey::from(&relay_secret);
@@ -106,7 +106,7 @@ fn test_obfs4_roundtrip_highlevel() -> Result<()> {
 }
 
 #[test]
-fn test_obfs4_testvec_compat() -> Result<()> {
+fn test_o5_testvec_compat() -> Result<()> {
     init_subscriber();
     let b_sk = hex!("a83fdd04eb9ed77a2b38d86092a09a1cecfb93a7bdec0da35e542775b2e7af6e");
     let x_sk = hex!("308ff4f3a0ebe8c1a93bcd40d67e3eec6b856aa5c07ef6d5a3d3cedf13dcf150");
@@ -130,17 +130,17 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let shs_materials =
         SHSMaterials::new(&server.identity_keys, "s-yyy".into(), [0u8; SEED_LENGTH]);
 
-    let (state, create_msg) = client_handshake_obfs4_no_keygen(x, chs_materials).unwrap();
+    let (state, create_msg) = client_handshake_o5_no_keygen(x, chs_materials).unwrap();
 
     let (s_keygen, created_msg) = server
-        .server_handshake_obfs4_no_keygen(
+        .server_handshake_o5_no_keygen(
             make_fake_ephem_key(&y_sk[..]), // convert the StaticSecret to an EphemeralSecret for api to allow from hex
             &create_msg[..],
             shs_materials,
         )
         .unwrap();
 
-    let (c_keygen, auth) = client_handshake2_no_auth_check_obfs4(created_msg, &state)?;
+    let (c_keygen, auth) = client_handshake2_no_auth_check_o5(created_msg, &state)?;
     let seed = c_keygen.seed.clone();
 
     let c_keys = c_keygen.expand(72)?;
@@ -176,10 +176,10 @@ fn test_ntor_v1_testvec() -> Result<()> {
     let y: StaticSecret = y_sk.into();
 
     let (state, create_msg) =
-        client_handshake_obfs4_no_keygen((&x).into(), x, &relay_sk.pk).unwrap();
+        client_handshake_o5_no_keygen((&x).into(), x, &relay_sk.pk).unwrap();
     assert_eq!(&create_msg[..], &client_handshake[..]);
 
-    let (s_keygen, created_msg) = server_handshake_obfs4_no_keygen(
+    let (s_keygen, created_msg) = server_handshake_o5_no_keygen(
         (&y).into(),
         make_fake_ephem_key(&y_sk[..]), // convert the StaticSecret to an EphemeralSecret for api to allow from hex
         &create_msg[..],
@@ -189,7 +189,7 @@ fn test_ntor_v1_testvec() -> Result<()> {
 
     assert_eq!(&created_msg[..], &server_handshake[..]);
 
-    let c_keygen = client_handshake2_obfs4(created_msg, &state)?;
+    let c_keygen = client_handshake2_o5(created_msg, &state)?;
 
     let c_keys = c_keygen.expand(keys.len())?;
     let s_keys = s_keygen.expand(keys.len())?;
