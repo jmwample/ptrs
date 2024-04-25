@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        curve25519::{PublicKey, PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
@@ -89,9 +89,9 @@ pub(super) fn client_handshake_o5_no_keygen(
     materials: HandshakeMaterials,
 ) -> Result<(O5NtorHandshakeState, Vec<u8>)> {
     let my_public = curve25519::PublicKey::from(&my_sk);
-    let bx = my_sk.diffie_hellman(&relay_public.pk);
+    let bx = my_sk.diffie_hellman(&materials.node_pubkey.pk);
 
-    let (enc_key, mut mac) = kdf_msgkdf(&bx, relay_public, &my_public, verification)?;
+    let (enc_key, mut mac) = kdf_msgkdf(&bx, materials.node_pubkey, &my_public, verification)?;
 
     //encrypted_msg = ENC(ENC_K1, CM)
     // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
@@ -161,10 +161,10 @@ pub(crate) fn client_handshake_obfs4_no_keygen(
 //     relay_handshake: &[u8],
 //     verification: &[u8],
 // ) -> Result<(Vec<u8>, NtorV3XofReader)> {
-pub(super) fn client_handshake2_o5<T>(
+pub(super) fn client_handshake_o5_part2<T>(
     msg: T,
     state: &O5NtorHandshakeState,
-) -> Result<(NtorHkdfKeyGenerator, Vec<u8>)>
+) -> Result<(O5NtorKeyGenerator, Vec<u8>)>
 where
     T: AsRef<[u8]>,
 {
@@ -237,67 +237,11 @@ where
     }
 }
 
-// /// Complete a client handshake, returning a key generator on success.
-// pub(super) fn client_handshake2_obfs4<T>(
-//     msg: T,
-//     state: &O5NtorHandshakeState,
-// ) -> Result<(NtorHkdfKeyGenerator, Vec<u8>)>
-// where
-//     T: AsRef<[u8]>,
-// {
-//     // try to parse the message as an incoming server handshake.
-//     let (mut shs_msg, n) = try_parse(&msg, state)?;
-// 
-//     let their_pk = shs_msg.server_pubkey();
-//     let auth: Authcode = shs_msg.server_auth();
-// 
-//     let node_pubkey = &state.materials.node_pubkey;
-//     let my_public: PublicKey = (&state.my_sk).into();
-// 
-//     let xy = state.my_sk.diffie_hellman(&their_pk);
-//     let xb = state.my_sk.diffie_hellman(&node_pubkey.pk);
-// 
-//     trace!("x {} y {}", hex::encode(their_pk), hex::encode(my_public));
-// 
-//     let (key_seed, authcode) = ntor_derive(&xy, &xb, node_pubkey, &my_public, &their_pk)
-//         .map_err(into_internal!("Error deriving keys"))?;
-// 
-//     trace!(
-//         "seed: {} auth: {}",
-//         hex::encode(key_seed.as_slice()),
-//         hex::encode(authcode)
-//     );
-//     let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
-// 
-//     let auth_okay: bool = authcode.ct_eq(&auth).into();
-//     let okay = auth_okay & xy.was_contributory() & xb.was_contributory();
-// 
-//     if !okay {
-//         debug!(
-//             "{} {} {}",
-//             auth_okay,
-//             xy.was_contributory(),
-//             xb.was_contributory()
-//         );
-//         debug!("{} != {}", hex::encode(auth), hex::encode(authcode));
-//         return Err(Error::BadCircHandshakeAuth);
-//     }
-// 
-//     if msg.as_ref().len() < n {
-//         return Err(RelayHandshakeError::BadServerHandshake.into());
-//     }
-// 
-//     let remainder = msg.as_ref()[n..].to_vec();
-//     trace!("remainder length: {}", remainder.len());
-// 
-//     Ok((keygen, remainder))
-// }
-
 #[cfg(test)]
 pub(crate) fn client_handshake2_no_auth_check_obfs4<T>(
     msg: T,
     state: &O5NtorHandshakeState,
-) -> Result<(NtorHkdfKeyGenerator, Authcode)>
+) -> Result<(O5NtorKeyGenerator, Authcode)>
 where
     T: AsRef<[u8]>,
 {
@@ -316,7 +260,7 @@ where
     let (key_seed, authcode) = ntor_derive(&xy, &xb, node_pubkey, &my_public, &their_pk)
         .map_err(into_internal!("Error deriving keys"))?;
 
-    let keygen = NtorHkdfKeyGenerator::new(key_seed, true);
+    let keygen = O5NtorKeyGenerator::new(key_seed, true);
 
     Ok((keygen, authcode))
 }

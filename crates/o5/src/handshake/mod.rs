@@ -226,9 +226,9 @@ fn kdf_msgkdf(
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
     msg_kdf.write(xb)?;
-    msg_kdf.write(&relay_public.id)?;
+    msg_kdf.write(&materials.node_pubkey.id)?;
     msg_kdf.write(client_public)?;
-    msg_kdf.write(&relay_public.pk)?;
+    msg_kdf.write(&materials.node_pubkey.pk)?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
     let mut r = msg_kdf.take().finalize_xof();
@@ -241,8 +241,8 @@ fn kdf_msgkdf(
     {
         mac.write(&T_MSGMAC)?;
         mac.write(&Encap(&mac_key[..]))?;
-        mac.write(&relay_public.id)?;
-        mac.write(&relay_public.pk)?;
+        mac.write(&materials.node_pubkey.id)?;
+        mac.write(&materials.node_pubkey.pk)?;
         mac.write(client_public)?;
     }
 
@@ -700,14 +700,16 @@ mod test {
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_public = O5NtorPublicKey { pk: B, id };
+        let materials = CHSMaterials{
+            node_pubkey: O5NtorPublicKey { pk: B, id },
+        };
         let relay_private = O5NtorSecretKey {
             sk: b,
-            pk: relay_public.clone(),
+            pk: materials.node_pubkey.clone(),
         };
 
         let (state, client_handshake) =
-            client_handshake_o5_no_keygen(&relay_public, &client_message, &verification, x)
+            client_handshake_o5_no_keygen(&materials.node_pubkey, &client_message, &verification, x)
                 .unwrap();
 
         assert_eq!(client_handshake[..], hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2f8307a2bc1870b00b828bb74dbb8fd88e632a6375ab3bcd1ae706aaa8b6cdd1d252fe9ae91264c91d4ecb8501f79d0387e34ad8ca0f7c995184f7d11d5da4f463bebd9151fd3b47c180abc9e044d53565f04d82bbb3bebed3d06cea65db8be9c72b68cd461942088502f67")[..]);
