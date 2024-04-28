@@ -12,7 +12,8 @@ mod skip;
 pub use skip::discard;
 
 pub mod drbg;
-// pub mod ntor;
+pub(crate) mod delay;
+
 pub mod ntor_arti;
 pub mod probdist;
 pub mod replay_filter;
