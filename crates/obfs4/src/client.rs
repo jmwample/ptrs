@@ -140,7 +140,7 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
@@ -156,7 +156,7 @@ impl Client {
     pub async fn establish<'a, T, E>(
         self,
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
-    ) -> Result<Obfs4Stream<T>>
+    ) -> Result<Obfs4Stream>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,
