@@ -28,8 +28,7 @@ bench = false
 
 [dependencies]
 ## internal crates
-# ptrs = { path="../ptrs", version="0.1.0" }
-ptrs = { version="0.1.0" }
+ptrs = { path="../ptrs", version="0.1.0" }
 obfs4 = { path="../obfs4", version="0.1.0" }
 
 # shared deps
