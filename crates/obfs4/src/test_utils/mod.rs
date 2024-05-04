@@ -1,4 +1,3 @@
-#![cfg(test)]
 #![allow(dead_code)]
 
 mod fake_prng;
