@@ -1,4 +1,3 @@
-
 pub(crate) struct FakePRNG<'a> {
     bytes: &'a [u8],
 }
