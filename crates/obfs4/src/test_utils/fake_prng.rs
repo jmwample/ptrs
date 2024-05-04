@@ -1,3 +1,4 @@
+
 pub(crate) struct FakePRNG<'a> {
     bytes: &'a [u8],
 }
@@ -18,10 +19,14 @@ impl<'a> rand_core::RngCore for FakePRNG<'a> {
         Ok(())
     }
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        assert!(dest.len() <= self.bytes.len());
-
-        dest.copy_from_slice(&self.bytes[0..dest.len()]);
-        self.bytes = &self.bytes[dest.len()..];
+        // assert!(dest.len() <= self.bytes.len(), "dst:{} > have:{}", dest.len(), self.bytes.len());
+        if dest.len() > self.bytes.len() {
+            let mut rng = rand::thread_rng();
+            rng.fill_bytes(dest);
+        } else {
+            dest.copy_from_slice(&self.bytes[0..dest.len()]);
+            self.bytes = &self.bytes[dest.len()..];
+        }
     }
 }
 impl rand_core::CryptoRng for FakePRNG<'_> {}
