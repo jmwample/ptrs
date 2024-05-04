@@ -3,12 +3,12 @@ use crate::{
         delay, drbg, probdist::{self, WeightedDist}
     },
     constants::*,
-    framing::{self, Message},
+    framing,
     sessions::Session,
     Error, Result,
 };
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BytesMut, Bytes};
 use futures::{sink::Sink, stream::Stream};
 use pin_project::pin_project;
 use ptrs::trace;
@@ -103,7 +103,7 @@ impl Obfs4Stream {
 pub(crate) struct O4Stream {
     #[pin]
     // pub stream: Framed<T, framing::Obfs4Codec>,
-    pub stream: Box<dyn Sink<Messages, Error=()>>,
+    pub stream: Box<dyn Sink<BytesMut, Error=()> + Send + Unpin>,
 
     pub length_dist: probdist::WeightedDist,
     pub iat_dist: probdist::WeightedDist,
@@ -121,7 +121,7 @@ impl O4Stream {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let stream: Box<dyn Sink<Messages, Error=()>> = match session.get_iat_mode() {
+        let stream: Box<dyn Sink<BytesMut, Error=()>+Send+Unpin> = match session.get_iat_mode() {
             IAT::Off => Box::new(Framed::new(inner, codec)),
             IAT::Enabled | IAT::Paranoid => {
                 let f = Framed::new(inner, codec);
@@ -296,7 +296,7 @@ impl AsyncWrite for Obfs4Stream {
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         let this = self.project();
-        this.s.poll_flush(cx)
+        Sink::poll_flush(this.s, cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
@@ -318,19 +318,19 @@ impl AsyncRead for Obfs4Stream {
 
 impl Sink<Messages> for O4Stream {
     type Error = ();
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
         todo!();
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Messages) -> StdResult<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, _item: Messages) -> StdResult<(), Self::Error> {
         todo!();
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
         todo!();
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
         todo!();
     }
 }
