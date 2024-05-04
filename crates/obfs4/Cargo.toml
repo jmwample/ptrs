@@ -20,8 +20,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ## Local
-# ptrs = { path="../ptrs", version="0.1.0" }
-ptrs = { version="0.1.0" }
+ptrs = { path="../ptrs", version="0.1.0" }
+
 
 ## PRNG
 getrandom = "0.2.11"
