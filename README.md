@@ -14,10 +14,8 @@
   </a>
 </p>
 
-
 This repository contains multiple related crates implementing the lyrebird (obfs4) library,
 lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
-
 
 
 |                 Crate                    |   Description  | Crates.io | Docs |
@@ -26,12 +24,10 @@ lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 | [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) |
 | [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) |
 
-
 ## MSRV
 
 The planned Minimum Supported Rust Version (MSRV) is 1.60, however there is no
 current testing to ensure that this is working currently.
-
 
 MSRV can be changed in the future, but it will be done with a minor version bump.
 
@@ -40,7 +36,6 @@ MSRV can be changed in the future, but it will be done with a minor version bump
 Things to keep an eye on:
 
 - [ ] PR implementating elligator2 for the `dalek` ed25519 library. [PR Here](https://github.com/dalek-cryptography/ptrs/pull/612)
-
 
 ## Open Source License
 
@@ -53,3 +48,14 @@ In order to match the community standards, ptrs is using the dual MIT+Apache-2.0
 
 Contributions, Issues, and Pull Requests are welcome!
 
+## Potential logos?
+
+These logos were generated using DALLE-3
+
+<div style="display:inline-block;">
+<img src="doc/dalle3/DALLE_crab_logo_1.webp" alt="logo 1"  width="200">
+<img src="doc/dalle3/DALLE_crab_logo_2.webp" alt="logo 2"  width="200">
+<img src="doc/dalle3/DALLE_crab_logo_3.webp" alt="logo 3"  width="200">
+<img src="doc/dalle3/DALLE_crab_logo_4.webp" alt="logo 4"  width="200">
+<img src="doc/dalle3/DALLE_crab_logo_5.webp" alt="logo 5"  width="200">
+</div>
