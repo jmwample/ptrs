@@ -54,10 +54,10 @@ tokio-util = { version = "0.7.10", features = ["codec", "io"]}
 bytes = "1.5.0"
 
 ## ntor_arti
-tor-cell = "0.17.0"
-tor-llcrypto = "0.17.0"
-tor-error = "0.17.0"
-tor-bytes = "0.17.0"
+tor-cell = "0.18.0"
+tor-llcrypto = "0.18.0"
+tor-error = "0.18.0"
+tor-bytes = "0.18.0"
 cipher = "0.4.4"
 zeroize = "1.7.0"
 thiserror = "1.0.56"
@@ -78,7 +78,7 @@ safelog = { version = "0.3.5" }
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
 hex-literal = "0.4.1"
-tor-basic-utils = "0.17.0"
+tor-basic-utils = "0.18.0"
 
 # o5 pqc test
 pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
