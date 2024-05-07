@@ -1,5 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+// unexpected_cfgs are used to disable incomplete / WIP features and tests. This is
+// not an error for this library.
+#![allow(unexpected_cfgs)]
+
 mod framing;
 // mod handshake;
 // mod transport;
