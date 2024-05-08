@@ -7,9 +7,71 @@ mod framing;
 // mod handshake;
 // mod transport;
 
+
+
 #[cfg(test)]
 #[allow(unused)]
-mod tests {
+mod ml_kem_tests {
+    use ml_kem::*;
+    use x25519_dalek::{EphemeralSecret, PublicKey};
+    use anyhow::{anyhow, Context, Result};
+
+
+    struct Kyber1024XKeypair {}
+
+    impl Kyber1024XKeypair {
+        fn new() -> Result<Self> {
+            todo!()
+        }
+    }
+
+    #[test]
+    fn it_works() -> Result<()>  {
+        let mut rng = rand::thread_rng();
+
+        // --- Generate Keypair (Alice) ---
+        // x25519
+        let alice_secret = EphemeralSecret::random_from_rng(&mut rng);
+        let alice_public = PublicKey::from(&alice_secret);
+        // kyber
+        let (alice_kyber_dk, alice_kyber_ek) =  MlKem1024::generate(&mut rng);
+
+        // --- alice -> bob (public keys) ---
+        // alice sends bob the public key for her kyber1024 keypair with her
+        // x25519 key appended to the end.
+        let mut kyber1024x_pubkey = alice_public.as_bytes().to_vec();
+        kyber1024x_pubkey.extend_from_slice(&alice_kyber_ek.as_bytes());
+
+        assert_eq!(kyber1024x_pubkey.len(), 1600);
+
+        // --- Generate Keypair (Bob) ---
+        // x25519
+        let bob_secret = EphemeralSecret::random_from_rng(&mut rng);
+        let bob_public = PublicKey::from(&bob_secret);
+
+        // (Imagine) upon receiving the kyberx25519 public key bob parses them
+        // into their respective structs from bytes
+
+        // Bob encapsulates a shared secret using Alice's public key
+        let (ciphertext, shared_secret_bob) = alice_kyber_ek.encapsulate(&mut rng).unwrap();
+        let bob_shared_secret = bob_secret.diffie_hellman(&alice_public);
+
+        // // Alice decapsulates a shared secret using the ciphertext sent by Bob
+        let shared_secret_alice = alice_kyber_dk.decapsulate(&ciphertext).unwrap();
+        let alice_shared_secret = alice_secret.diffie_hellman(&bob_public);
+
+        assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
+        assert_eq!(shared_secret_bob, shared_secret_alice);
+        println!("{} ?= {}", hex::encode(shared_secret_bob), hex::encode(shared_secret_alice));
+
+        Ok(())
+    }
+}
+
+/*
+#[cfg(test)]
+#[allow(unused)]
+mod pqc_kyber_tests {
     use pqc_kyber::*;
     use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -72,3 +134,4 @@ mod tests {
         Ok(())
     }
 }
+*/

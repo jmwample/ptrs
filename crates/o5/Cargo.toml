@@ -19,5 +19,9 @@ x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reus
 zeroize = "1.7.0"
 
 [dev-dependencies]
+hex = "0.4.3"
+anyhow = "1.0"
+
 # o5 pqc test
-pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
+# pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
+ml-kem = "0.1.0"
