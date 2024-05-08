@@ -35,7 +35,7 @@ MSRV can be changed in the future, but it will be done with a minor version bump
 
 Things to keep an eye on:
 
-- [ ] PR implementating elligator2 for the `dalek` ed25519 library. [PR Here](https://github.com/dalek-cryptography/ptrs/pull/612)
+- [ ] PR implementating elligator2 for the `dalek` ed25519 library. [PR Here](https://github.com/dalek-cryptography/curve25519-dalek/pull/612)
 
 ## Open Source License
 
