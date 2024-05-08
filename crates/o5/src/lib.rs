@@ -7,15 +7,12 @@ mod framing;
 // mod handshake;
 // mod transport;
 
-
-
 #[cfg(test)]
 #[allow(unused)]
 mod ml_kem_tests {
+    use anyhow::{anyhow, Context, Result};
     use ml_kem::*;
     use x25519_dalek::{EphemeralSecret, PublicKey};
-    use anyhow::{anyhow, Context, Result};
-
 
     struct Kyber1024XKeypair {}
 
@@ -26,7 +23,7 @@ mod ml_kem_tests {
     }
 
     #[test]
-    fn it_works() -> Result<()>  {
+    fn it_works() -> Result<()> {
         let mut rng = rand::thread_rng();
 
         // --- Generate Keypair (Alice) ---
@@ -34,7 +31,7 @@ mod ml_kem_tests {
         let alice_secret = EphemeralSecret::random_from_rng(&mut rng);
         let alice_public = PublicKey::from(&alice_secret);
         // kyber
-        let (alice_kyber_dk, alice_kyber_ek) =  MlKem1024::generate(&mut rng);
+        let (alice_kyber_dk, alice_kyber_ek) = MlKem1024::generate(&mut rng);
 
         // --- alice -> bob (public keys) ---
         // alice sends bob the public key for her kyber1024 keypair with her
@@ -62,7 +59,11 @@ mod ml_kem_tests {
 
         assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
         assert_eq!(shared_secret_bob, shared_secret_alice);
-        println!("{} ?= {}", hex::encode(shared_secret_bob), hex::encode(shared_secret_alice));
+        println!(
+            "{} ?= {}",
+            hex::encode(shared_secret_bob),
+            hex::encode(shared_secret_alice)
+        );
 
         Ok(())
     }
