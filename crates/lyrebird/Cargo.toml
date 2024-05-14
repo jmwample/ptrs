@@ -35,7 +35,7 @@ obfs4 = { path="../obfs4", version="0.1.0" }
 
 # fwd deps
 anyhow = "1.0"
-clap = { version = "4.4.7", features = ["derive"]}
+clap = { version = "4.4", features = ["derive"]}
 fast-socks5 = "0.9.1"
 futures = "0.3.29"
 safelog = "0.3.5"
