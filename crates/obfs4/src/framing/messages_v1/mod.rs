@@ -1,6 +1,6 @@
 //! Version 1 of the Protocol Messagess to be included in constructed frames.
 //!
-//! ## Compatability concerns:
+//! ## Compatibility concerns:
 //!
 //! Server - when operating as a server we may want to support clients using v0
 //! as well as clients using v1. In order to accomplish this the server can

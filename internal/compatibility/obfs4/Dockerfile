@@ -1,7 +1,7 @@
 
 FROM golang:bullseye as go-builder
 WORKDIR /usr/src/obfs4-go
-COPY internal/compatability/obfs4/ .
+COPY internal/compatibility/obfs4/ .
 RUN ls
 RUN go mod tidy
 RUN go build -o fwd_go .
