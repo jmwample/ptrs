@@ -7,8 +7,8 @@ use tokio::net::TcpStream;
 
 use std::net::SocketAddr;
 use std::ops::Deref;
-use std::sync::Arc;
 use std::pin::Pin;
+use std::sync::Arc;
 
 pub(crate) trait Backend {
     /// The provided In must be usable as a connection in an async context.
@@ -71,7 +71,6 @@ impl BackendArc {
     }
 }
 
-
 impl Deref for BackendArc {
     type Target = Backends;
     fn deref(&self) -> &Self::Target {
@@ -80,7 +79,11 @@ impl Deref for BackendArc {
 }
 
 impl Backend for BackendArc {
-    fn handle<In>(&self, conn: In, client_addr: SocketAddr) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
+    fn handle<In>(
+        &self,
+        conn: In,
+        client_addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
     where
         In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
