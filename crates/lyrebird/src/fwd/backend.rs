@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use std::net::SocketAddr;
 use std::ops::Deref;
+use std::pin::Pin;
 use std::sync::Arc;
 
 pub(crate) trait Backend {
@@ -15,7 +16,8 @@ pub(crate) trait Backend {
         &self,
         conn: In,
         client_addr: SocketAddr,
-    ) -> impl Future<Output = Result<()>> + Send + Sync
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
+    // ) -> impl Future<Output = Result<()>> + Send + Sync
     where
         In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static;
 }
@@ -54,15 +56,8 @@ impl Backends {
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct BackendArc(Arc<Backends>);
 
-impl Deref for BackendArc {
-    type Target = Backends;
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-impl Backend for BackendArc {
-    async fn handle<In>(&self, conn: In, client_addr: SocketAddr) -> Result<()>
+impl BackendArc {
+    async fn handle_internal<In>(&self, conn: In, client_addr: SocketAddr) -> Result<()>
     where
         In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
@@ -73,6 +68,26 @@ impl Backend for BackendArc {
         }
 
         Ok(())
+    }
+}
+
+impl Deref for BackendArc {
+    type Target = Backends;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl Backend for BackendArc {
+    fn handle<In>(
+        &self,
+        conn: In,
+        client_addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
+    where
+        In: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    {
+        Box::pin(self.handle_internal(conn, client_addr))
     }
 }
 

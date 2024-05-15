@@ -590,13 +590,14 @@ mod design_tests {
                 <<B as ServerBuilder<T>>::ServerPT as ServerTransport<T>>::OutErr,
             >,
         >,
-        Box<dyn std::error::Error>,
+        Box<dyn std::error::Error + Send + Sync>,
     >
     where
         T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
         B: ServerBuilder<T>,
         B::ServerPT: ServerTransport<T>,
         B::Error: std::error::Error + 'static,
+        <B as ServerBuilder<T>>::Error: std::error::Error + Send + Sync,
     {
         Ok(pt_builder
             .statefile_location("./")?

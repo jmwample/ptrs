@@ -254,34 +254,35 @@ async fn transfer_512k_x1() -> Result<()> {
     let (mut r, mut w) = tokio::io::split(o4c_stream);
 
     tokio::spawn(async move {
-        let msg = [0_u8; 1024 * 512];
-        w.write_all(&msg)
-            .await
-            .unwrap_or_else(|_| panic!("failed on write"));
-        w.flush().await.unwrap();
+        let expected_total = 1024 * 512;
+        let mut buf = vec![0_u8; 1024 * 513];
+        let mut received: usize = 0;
+        let mut i = 0;
+        while received < expected_total {
+            debug!("client read: {i} / {received}");
+            tokio::select! {
+                res = r.read(&mut buf) => {
+                    received += res.unwrap();
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(2000)) => {
+                    panic!("client failed to read after {i} iterations: timeout");
+                }
+            }
+            i += 1;
+        }
+
+        assert_eq!(
+            received, expected_total,
+            "incorrect amount received {received} != {expected_total}"
+        );
     });
 
-    let expected_total = 1024 * 512;
-    let mut buf = vec![0_u8; 1024 * 1024];
-    let mut received: usize = 0;
-    let mut i = 0;
-    while received < expected_total {
-        debug!("client read: {i} / {received}");
-        tokio::select! {
-            res = r.read(&mut buf) => {
-                received += res?;
-            }
-            _ = tokio::time::sleep(std::time::Duration::from_millis(2000)) => {
-                panic!("client failed to read after {i} iterations: timeout");
-            }
-        }
-        i += 1;
-    }
+    let msg = [0_u8; 1024 * 512];
+    w.write_all(&msg)
+        .await
+        .unwrap_or_else(|_| panic!("failed on write"));
+    w.flush().await?;
 
-    assert_eq!(
-        received, expected_total,
-        "incorrect amount received {received} != {expected_total}"
-    );
     Ok(())
 }
 

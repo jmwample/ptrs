@@ -81,7 +81,11 @@ pub fn make_state_dir() -> Result<String, Error> {
 /// Feature #15435 adds a new env var for determining if Tor keeps stdin
 /// open for use in termination detection.
 pub fn pt_should_exit_on_stdin_close() -> bool {
-    env::var(constants::EXIT_ON_STDIN_CLOSE).is_ok_and(|v| v == "1")
+    if let Ok(v) = env::var(constants::EXIT_ON_STDIN_CLOSE) {
+        v == "1"
+    } else {
+        false
+    }
 }
 
 // ================================================================ //
@@ -175,11 +179,15 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
             return Err(to_io_other("proxy URI has a path defined "));
         }
     }
-    if spec.query().is_some_and(|s| !s.is_empty()) {
-        return Err(to_io_other("proxy URI has a query defined"));
+    if spec.query().is_some() {
+        if !spec.query().unwrap().is_empty() {
+            return Err(to_io_other("proxy URI has a query defined"));
+        }
     }
-    if spec.fragment().is_some_and(|s| !s.is_empty()) {
-        return Err(to_io_other("proxy URI has a fragment defined"));
+    if spec.fragment().is_some() {
+        if !spec.fragment().unwrap().is_empty() {
+            return Err(to_io_other("proxy URI has a fragment defined"));
+        }
     }
     if spec.port().is_none() {
         return Err(to_io_other("proxy URI lacks a port"));
@@ -195,8 +203,12 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
                 if username.is_empty() || username.len() > 255 {
                     return Err(to_io_other("proxy URI specified a invalid SOCKS5 username"));
                 }
-                if passwd.is_none() || passwd.is_some_and(|p| p.is_empty() || p.len() > 255) {
+                if passwd.is_none() {
                     return Err(to_io_other("proxy URI specified a invalid SOCKS5 password"));
+                } else if let Some(p) = passwd {
+                    if p.is_empty() || p.len() > 255 {
+                        return Err(to_io_other("proxy URI specified a invalid SOCKS5 password"));
+                    }
                 }
             }
         }
@@ -450,11 +462,15 @@ mod test {
 
         env::set_var(constants::CLIENT_TRANSPORTS, "trebuchet");
         env::remove_var(constants::SERVER_TRANSPORTS);
-        assert!(is_client().is_ok_and(|is_client| is_client));
+        let c = is_client();
+        assert!(c.is_ok());
+        assert!(c.unwrap());
 
         env::remove_var(constants::CLIENT_TRANSPORTS);
         env::set_var(constants::SERVER_TRANSPORTS, "trebuchet1");
-        assert!(is_client().is_ok_and(|is_client| !is_client));
+        let c = is_client();
+        assert!(c.is_ok());
+        assert!(!c.unwrap());
 
         env::set_var(constants::CLIENT_TRANSPORTS, "trebuchet2");
         env::set_var(constants::SERVER_TRANSPORTS, "trebuchet2");
@@ -617,7 +633,9 @@ mod test {
     #[test]
     fn validate_url() -> Result<(), Error> {
         env::remove_var(constants::PROXY);
-        assert!(get_proxy_url().is_ok_and(|url| url.is_none()));
+        let url = get_proxy_url();
+        assert!(url.is_ok());
+        assert!(url.unwrap().is_none());
 
         let bad_url = vec![
             "asdals;kdmma",

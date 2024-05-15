@@ -36,7 +36,7 @@ pub(crate) struct Established;
 /// The session broke due to something like a timeout, reset, lost connection, etc.
 trait Fault {}
 
-pub enum Session {
+pub(crate) enum Session {
     Client(ClientSession<Established>),
     Server(ServerSession<Established>),
 }
@@ -140,7 +140,7 @@ impl<S: ClientSessionState> ClientSession<S> {
     }
 }
 
-pub fn new_client_session(
+pub(crate) fn new_client_session(
     station_pubkey: Obfs4NtorPublicKey,
     iat_mode: IAT,
 ) -> ClientSession<Initialized> {

@@ -18,18 +18,23 @@ This repository contains multiple related crates implementing the lyrebird (obfs
 lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 
 
-|                 Crate                    |   Description  | Crates.io | Docs |
--------------------------------------------|----------------|-----------|------|
-| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) |
-| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) |
-| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) |
+|                 Crate                    |   Description  | Crates.io | Docs | MSRV |
+-------------------------------------------|----------------|-----------|------|------|
+| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) | 1.63 |
+| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) | 1.70 |
+| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) | 1.70 |
 
 ## MSRV
 
-The planned Minimum Supported Rust Version (MSRV) is 1.60, however there is no
-current testing to ensure that this is working currently.
+The Minimum Supported Rust Versions (MSRV) for the various crates are listed above.
+These are ensured by test and build steps in the CI pipeline. 
 
 MSRV can be changed in the future, but it will be done with a minor version bump.
+We will not increase MSRV on PATCH releases, though downstream dependencies might.
+
+We won't increase MSRV just because we can: we'll only do so when we have a
+reason. (We don't guarantee that you'll agree with our reasoning; only that
+it will exist.)
 
 ## Related
 
