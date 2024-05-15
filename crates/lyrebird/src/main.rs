@@ -316,7 +316,7 @@ async fn client_accept_loop<C>(
 ) -> Result<()>
 where
     // the provided client builder should build the C ClientTransport.
-    C: ptrs::ClientTransport<TcpStream, std::io::Error> + 'static,
+    C: ptrs::ClientTransport<TcpStream, std::io::Error> + Send + 'static,
 {
     let pt_name = C::method_name();
     loop {
@@ -351,7 +351,7 @@ where
     // the provided T must be usable as a connection in an async context
     In: AsyncRead + AsyncWrite + Send + Unpin,
     // the provided client builder should build the C ClientTransport.
-    C: ptrs::ClientTransport<TcpStream, std::io::Error>,
+    C: ptrs::ClientTransport<TcpStream, std::io::Error> + Send,
 {
     let mut config: fast_socks5::server::Config<SimpleUserPassword> =
         fast_socks5::server::Config::default();

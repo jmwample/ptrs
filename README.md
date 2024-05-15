@@ -18,11 +18,11 @@ This repository contains multiple related crates implementing the lyrebird (obfs
 lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 
 
-|                 Crate                    |   Description  | Crates.io | Docs |
--------------------------------------------|----------------|-----------|------|
-| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) |
-| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) |
-| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) |
+|                 Crate                    |   Description  | Crates.io | Docs | MSRV |
+-------------------------------------------|----------------|-----------|------|------|
+| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) | 1.63 |
+| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) | 1.70 |
+| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) | 1.70 |
 
 ## MSRV
 

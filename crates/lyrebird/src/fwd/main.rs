@@ -336,7 +336,7 @@ async fn client_accept_loop<C>(
 ) -> Result<()>
 where
     // the provided client builder should build the C ClientTransport.
-    C: ptrs::ClientTransport<TcpStream, std::io::Error> + 'static,
+    C: ptrs::ClientTransport<TcpStream, std::io::Error> + Send + 'static,
 {
     let pt_name = C::method_name();
     let builder = builder.options(&params)?;
