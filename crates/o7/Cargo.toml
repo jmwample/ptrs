@@ -24,4 +24,4 @@ ptrs = { path="../ptrs", version="0.1.0" }
 
 ## Networking tools
 tokio = { version = "1.33", features = ["io-util", "rt-multi-thread", "net", "rt", "macros", "sync", "signal", "time", "fs"] }
-tokio-util = { version = "0.7.10", features = ["codec", "io", "net"]}
+# tokio-util = { version = "0.7.10", features = ["codec", "io", "net"]}

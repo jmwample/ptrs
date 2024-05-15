@@ -13,7 +13,7 @@ rand = { version="0.8.5", features=["getrandom"]}
 rand_core = "0.6.4"
 
 subtle = "2.5.0"
-x25519-dalek = { version = "2", features = ["static_secrets", "getrandom", "reusable_secrets", "elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "elligator2-ntor"}
+x25519-dalek = { version = "2.0.1", features = ["static_secrets", "getrandom", "reusable_secrets", "elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "elligator2-ntor"}
 
 # ntor_arti
 zeroize = "1.7.0"
