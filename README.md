@@ -26,10 +26,15 @@ lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 
 ## MSRV
 
-The planned Minimum Supported Rust Version (MSRV) is 1.60, however there is no
-current testing to ensure that this is working currently.
+The Minimum Supported Rust Versions (MSRV) for the various crates are listed above.
+These are ensured by test and build steps in the CI pipeline. 
 
 MSRV can be changed in the future, but it will be done with a minor version bump.
+We will not increase MSRV on PATCH releases, though downstream dependencies might.
+
+We won't increase MSRV just because we can: we'll only do so when we have a
+reason. (We don't guarantee that you'll agree with our reasoning; only that
+it will exist.)
 
 ## Related
 
