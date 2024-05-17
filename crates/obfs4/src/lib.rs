@@ -35,7 +35,7 @@ pub const OBFS4_NAME: &str = "obfs4";
 #[cfg(test)]
 pub(crate) mod test_utils;
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub mod dev {
     /// Pre-generated / shared key for use while running in debug mode.
     pub const DEV_PRIV_KEY: &[u8; 32] = b"0123456789abcdeffedcba9876543210";

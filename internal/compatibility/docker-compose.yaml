@@ -1,0 +1,31 @@
+services:
+  client:
+    image: debian:bullseye-slim
+    networks:
+      - trial
+
+  client-proxy:
+    image: obfs4-compat
+    command: fwd_go -l DEBUG -x client
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    networks:
+      - trial
+
+  server-proxy:
+    image: obfs4-compat
+    command: fwd_go -l DEBUG -x server echo
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    networks:
+      - trial
+
+  server:
+    image: debian:bullseye-slim
+    networks:
+      - trial
+
+networks:
+  trial:
