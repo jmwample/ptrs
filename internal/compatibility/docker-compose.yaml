@@ -1,31 +1,52 @@
 services:
   client:
     image: debian:bullseye-slim
+    tty: true
+    command: bash
     networks:
       - trial
+    links:
+      - client-proxy
 
   client-proxy:
     image: obfs4-compat
-    command: fwd_go -l DEBUG -x client
+    command: fwd_rs -a dev -x -l debug client server-proxy:9001
     build:
       context: ../../
       dockerfile: Dockerfile
     networks:
       - trial
+    expose:
+      - 9000
+    links:
+      - server-proxy
+    depends_on:
+      server-proxy:
+        condition: service_started
 
   server-proxy:
     image: obfs4-compat
-    command: fwd_go -l DEBUG -x server echo
+    command: fwd_rs -a dev -x -l debug server echo
     build:
       context: ../../
       dockerfile: Dockerfile
+    expose:
+      - 9001
     networks:
       - trial
+    links:
+      - server
+
 
   server:
     image: debian:bullseye-slim
+    tty: true
+    command: bash
     networks:
       - trial
+    expose:
+      - 4443
 
 networks:
   trial:
+    driver: bridge

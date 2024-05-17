@@ -10,7 +10,7 @@ FROM rust:bullseye as rs-builder
 WORKDIR /usr/src/fwd
 COPY . .
 RUN cargo update
-RUN cd crates/lyrebird && cargo install --path . --force
+RUN cd crates/lyrebird && cargo install --path . --force --debug
 
 FROM debian:bullseye-slim
 COPY --from=rs-builder /usr/local/cargo/bin/fwd /usr/local/bin/fwd_rs
