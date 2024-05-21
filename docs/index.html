@@ -37,6 +37,7 @@
 
         <h3>Every byte explained and reproduced</h3>
 
+        <!-- Open All -->
         <div class="outerblock">
             <p>
                 In this demonstration a client connects to a server,
@@ -55,6 +56,7 @@
             </p>
         </div>
 
+        <!-- IAT Mode Switch -->
         <div class="rec-outer">
             <div class="rec-horiz", style="overflow-y: hidden;">
                 <div class="open-close-all" style="float:left; margin-top: 5px;">
@@ -87,6 +89,7 @@ Paranoid = throw performance out the window and sample
             </div>
         </div>
 
+        <!-- Server Identity Key & ID Generation -->
         <div class="rec-outer">
             <div class="calculation server">
                 <div class="rec-label">Server Identity Key & ID Generation</div>
@@ -154,6 +157,7 @@ pub:
             </div>
         </div>
 
+        <!-- Client Key Exchange Generation -->
         <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Key Exchange Generation</div>
@@ -204,10 +208,22 @@ pub:
     62:54
 </code></pre>
                     </codesample>
+                    <p>
+                        One of the central design goals of Obfs4 is to make
+                        every packet entirely indistinguishable from uniform
+                        random. In order to achieve this we need a way of
+                        encoding the public key in a way that doesn't retain
+                        any of the structure or computational distinguishers.
+                        To do so we use the <a href="https://elligator.org/">Elligator2</a>
+                        encoding scheme. The calculated Elligator2 "Representative" is:
+
+                    <pre class="ind2"><tt class="longboi"
+                        >f4d05df78ec6f67ac104319963cac09764ba890f892528169dcbbfdb1666a7bd</tt></pre>
                 </div>
             </div>
         </div>
 
+        <!-- Client Handshake -->
         <div class="rec-outer">
             <div class="record client">
                 <div class="rec-label">Client Handshake</div>
@@ -632,6 +648,7 @@ pub:
             </div>
         </div>
 
+        <!-- Server Session Key Generation -->
         <div class="rec-outer">
             <div class="calculation server">
                 <div class="rec-label">Server Session Key Generation</div>
@@ -686,6 +703,7 @@ pub:
             </div>
         </div>
 
+        <!-- Server Session Secrets Calc -->
         <div class="rec-outer">
             <div class="calculation server">
                 <div class="rec-label">Server Session Secrets Calc</div>
@@ -814,6 +832,7 @@ pub:
             </div>
         </div>
 
+        <!-- Server Handshake -->
         <div class="rec-outer">
             <div class="record server">
                 <div class="rec-label">Server Handshake</div>
@@ -1000,6 +1019,7 @@ pub:
             </div>
         </div>
 
+        <!-- Length Distribution Seed Message -->
         <div class="rec-outer">
             <div class="record server embedded">
                 <div class="rec-label">Length Distribution Seed Message</div>
@@ -1044,6 +1064,7 @@ pub:
             </div>
         </div>
 
+        <!-- Client Session Keys Calc -->
         <div class="rec-outer">
             <div class="calculation client">
                 <div class="rec-label">Client Session Keys Calc</div>
@@ -1094,6 +1115,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
+        <!-- Encrypted Frame -->
         <div class="rec-outer">
             <div class="record client">
                 <div class="rec-label">Encrypted Frame</div>
@@ -1202,6 +1224,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
+        <!-- Client Payload Message -->
         <div class="rec-outer">
             <div class="record client embedded">
                 <div class="rec-label">Client Payload Message</div>
@@ -1242,6 +1265,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
+        <!-- Encrypted Frame -->
         <div class="rec-outer">
             <div class="record server">
                 <div class="rec-label">Encrypted Frame</div>
@@ -1350,6 +1374,7 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
+        <!-- Server Payload Message -->
         <div class="rec-outer">
             <div class="record server embedded">
                 <div class="rec-label">Server Payload Message</div>
@@ -1390,11 +1415,13 @@ $ ./curve25519-mult client-ephemeral-private.key \
             </div>
         </div>
 
+        <!-- /// footer - code link -->
         <div class="outerblock">
             <p>The code for this project can be found
-                <a href="https://github.com/jmwample/o7/tree/site">on GitHub</a>.
+                <a href="https://github.com/jmwample/ptrs/tree/site">on GitHub</a>.
             </p>
         </div>
+        <!-- /// footer - inspiration links -->
         <div class="outerblock">
             <p>This page was inspired by the <a href="https://tls13.xargs.org/">TLS 1.X
                     Explained</a> sites and forked from <a href="https://github.com/syncsynchalt/illustrated-tls13">the
@@ -1402,7 +1429,6 @@ $ ./curve25519-mult client-ephemeral-private.key \
                     source</a>
                 written by <a href="https://twitter.com/xargsnotbombs">@XargsNotBombs</a>.</p>
         </div>
-
     </div>
 
     <div id="templates" style="display: none">
