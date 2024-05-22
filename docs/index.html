@@ -232,417 +232,105 @@ pub:
                     The session begins with the client saying "Hello".
                     The client provides information including the following:
                     <ul>
-                        <li>client random data (used later in the handshake)
-                        <li>a list of cipher suites that the client supports
-                        <li>a list of public keys that the server might find suitable for key exchange
-                        <li>protocol versions that the client can support
+                        <li>client ephemeral session public key representative
+                        <li>padding of random length between 4096 and 8192 bytes.
+                        <li>mark indicating that the client knows the servers Node ID
+                        <li>MAC value ensuring that the contents of the packet have not been modified.
                     </ul>
+                    While this will not typically fit in a single TCP packet, for the sake of this demonstration
+                    it will be presented as a single packet. Also, as the elligator2 representative
+                    is a deterministic transformation of the public key, session ephemeral keys should
+                    never be re-used, or the client handshake messages will begin with identical byte
+                    sequences.
                 </div>
                 <span class="record-data">
                     <span class="string">
-                        <span class="label">Record Header</span>
+                        <span class="label">Elligator2 Encoded Public Representative</span>
                         <span class="bytes">
-                            16 03 01 00 f8
+                            f4 d0 5d f7 8e c6 f6 7a c1 04 31 99 63 ca c0 97 64 ba 89 0f 89 25 28 16 9d cb bf db 16 66 a7 bd
                         </span>
                         <div class="explanation">
-                            TLS sessions are broken into the sending
-                            and receiving of "records", which are blocks
-                            of data with a type, a protocol version,
-                            and a length.
-                            <ul>
-                                <li><tt>16</tt> - type is 0x16 (handshake record)
-                                <li><tt>03 01</tt> - protocol version is "3,1" (also known as TLS 1.0)
-                                <li><tt>00 f8</tt> - 0xF8 (248) bytes of handshake message follows
-                            </ul>
-                            Interestingly the version in this record
-                            is "3,1" (TLS 1.0) instead of "3,4" (TLS 1.3).
-                            This is done for interoperability with earlier
-                            implementations.
+                            Each handshake message starts with the client's x255519 public key encoded using
+                            the Elligator2 encoding scheme.
                         </div>
                     </span>
 
                     <span class="string">
-                        <span class="label">Handshake Header</span>
+                        <span class="label">Padding</span>
                         <span class="bytes">
-                            01 00 00 f4
+                            e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 ea eb ec ed ee ef f0 f1 f2 f3 f4 f5 f6 f7 f8 f9 fa fb fc fd fe ff
                         </span>
                         <div class="explanation">
-                            Each handshake message starts with a type and a length.
+                            In obfs4 the client pads the handshake message with random bytes to a length between
+                            4096 and 8192 bytes. This padding is used to make the handshake message a non-uniform
+                            length such that the size of the first packet would be a strong indication of the
+                            specific protocol being used.
                             <ul>
-                                <li><tt>01</tt> - handshake message type 0x01 (client hello)
-                                <li><tt>00 00 f4</tt> - 0xF4 (244) bytes of client hello data follows
+                                <li><tt>e0 e1 ... fe ff</tt> - bytes drawn form prng source.
                             </ul>
                         </div>
                     </span>
 
                     <span class="string">
-                        <span class="label">Client Version</span>
+                        <span class="label">Steganographic Mark</span>
                         <span class="bytes">
-                            03 03
+                            13 02 13 03 13 01 00 ff 13 02 13 03 13 01 00 ff
                         </span>
                         <div class="explanation">
-                            A protocol version of "3,3" (meaning TLS 1.2)
-                            is given. Because middleboxes have been
-                            created and widely deployed that do not
-                            allow protocol versions that
-                            they do not recognize, the TLS 1.3 session
-                            must be disguised as a TLS 1.2 session.
-                            This field is no
-                            longer used for version negotiation and
-                            is hardcoded to the 1.2 version. Instead,
-                            version negotiation is performed using the
-                            "Supported Versions" extension below.
-                            <br /><br />
-                            The unusual version number ("3,3" representing
-                            TLS 1.2) is due to TLS 1.0 being a minor
-                            revision of the SSL 3.0 protocol. Therefore
-                            TLS 1.0 is represented by "3,1", TLS 1.1 is
-                            "3,2", and so on.
+                            As the obfs4 handshake is (ideally) indistinguishable from uniform random bytes,
+                            the client includes a steganographic mark in the handshake message to securely
+                            indicate that it wishes to establish a connection. The mark is an HMAC that
+                            uses the server's public key and node ID as hte key and
+                            the client's ephemeral public key as the message. While the HMAC-SHA256 would
+                            usually result in 32 bytes, only the first 16 bytes are used for the mark.
+
+                            <p></br>&emsp;<tt>HMAC-SHA256-128(ServerPubkey | NodeID, ClientPubkey)</tt>
+
+                            <codesample>
+                                <pre><code>import hmac
+import hashlib
+hmac_key = b'' + b''
+hmac_msg = b''
+h = hmac.new( hmac_key, hmac_msg, hashlib.sha256 )
+digest = h.hexdigest()
+print( digest[:len(digest)/2] )
+</code></pre>
+                            </codesample>
                         </div>
                     </span>
 
                     <span class="string">
-                        <span class="label">Client Random</span>
+                        <span class="label">Message Authentication</span>
                         <span class="bytes">
-                            00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e
-                            1f
+                            00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f
                         </span>
                         <div class="explanation">
-                            The client provides 32 bytes of random data. This data will be used later in the session.
-                            In this example we've made the random data a predictable string.
-                        </div>
-                    </span>
+                            In order to ensure that the contents of the handshake message have not been
+                            tampered with in transit, the client includes a second HMAC value using the same
+                            key as the steganographic mark, but covering the contents of the entire handshake
+                            message.
 
-                    <span class="string">
-                        <span class="label">Session ID</span>
-                        <span class="bytes">
-                            20 e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 ea eb ec ed ee ef f0 f1 f2 f3 f4 f5 f6 f7 f8 f9 fa fb fc fd
-                            fe
-                            ff
-                        </span>
-                        <div class="explanation">
-                            In previous versions of TLS the client could
-                            provide an ID of a previously negotiated
-                            session, which allows the server and client
-                            to skip the time and cost of negotiating new keys.
-                            <br /><br />
-                            In TLS 1.3 this "session resume" is done via the more flexible
-                            PSK (pre-shared keys) mechanism, so this
-                            field is no longer needed for that purpose.
-                            Instead, a non-empty value in this field is
-                            used to trigger "middlebox compatibility
-                            mode" which helps TLS 1.3 sessions to be
-                            disguised as resumed TLS 1.2 sessions. The
-                            client has generated random data to populate
-                            this field.
+                            Again the HMAC-SHA256 value is truncated to 16 bytes.
+
+                            <p> If ew consider the handshake so far to be <tt>[ X | PAD | MARK ]</tt> where:
                             <ul>
-                                <li><tt>20</tt> - 0x20 (32) bytes of session ID follow
-                                <li><tt>e0 e1 ... fe ff</tt> - fake session ID
+                                <li><tt>X</tt> - Elligator2 encoded public key
+                                <li><tt>PAD</tt> - padding bytes
+                                <li><tt>MARK</tt> - steganographic mark
                             </ul>
+
+                            <p>The message authentication is:
+                            <p>&emsp; <tt>HMAC-SHA256-128(serverIdentity | NodeID, X | PAD | MARK | E)</tt>
+                            <ul>
+                                <li><tt>E</tt> - string representation of the number of hours since the UNIX epoch
+                            </ul>
+                            <p> The inclusion of the time stamp in the HMAC makes it so that the server only ever
+                                accepts a given handshake message sent within a controlled number of hours. The server
+                                can then keep a record of the client public keys and handshakes that it has seen
+                                within that time window to prevent replay attacks.
                         </div>
                     </span>
 
-                    <span class="string">
-                        <span class="label">Cipher Suites</span>
-                        <span class="bytes">
-                            00 08 13 02 13 03 13 01 00 ff
-                        </span>
-                        <div class="explanation">
-                            The client provides an ordered list of which
-                            cipher suites it will support for encryption.
-                            The list is in the order preferred by the
-                            client, with highest preference first.
-                            <br /><br />
-                            In TLS 1.3 the list of possible cipher
-                            suites has been greatly reduced. All the
-                            remaining suites are AEAD algorithms which
-                            provide stronger encryption guarantees than
-                            many previous suites with an easier all-in-one
-                            implementation.
-                            <ul>
-                                <li><tt>00 08</tt> - 8 bytes of cipher suite data
-                                <li><tt>13 02</tt> - assigned value for <tt>TLS_AES_256_GCM_SHA384</tt>
-                                <li><tt>13 03</tt> - assigned value for <tt>TLS_CHACHA20_POLY1305_SHA256</tt>
-                                <li><tt>13 01</tt> - assigned value for <tt>TLS_AES_128_GCM_SHA256</tt>
-                                <li><tt>00 ff</tt> - assigned value for <tt>TLS_EMPTY_RENEGOTIATION_INFO_SCSV</tt>
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Compression Methods</span>
-                        <span class="bytes">
-                            01 00
-                        </span>
-                        <div class="explanation">
-                            Previous versions of TLS supported
-                            compression, which was found to leak
-                            information about the encrypted data allowing
-                            it to be read (see <a href="https://en.wikipedia.org/wiki/CRIME">CRIME</a>).
-                            <br /><br />
-                            TLS 1.3 no longer allows compression, so
-                            this field is always a single entry with
-                            the "null" compression method which performs
-                            no change to the data.
-                            <ul>
-                                <li><tt>01</tt> - 1 bytes of compression methods
-                                <li><tt>00</tt> - assigned value for "null" compression
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extensions Length</span>
-                        <span class="bytes">
-                            00 a3
-                        </span>
-                        <div class="explanation">
-                            The client has provided a list of optional
-                            extensions which the server can use to
-                            take action or enable new features.
-                            <ul>
-                                <li><tt>00 a3</tt> - the extensions will take 0xA3 (163) bytes of data
-                            </ul>
-                            Each extension will start with two bytes
-                            that indicate which extension it is, followed
-                            by a two-byte content length field, followed
-                            by the contents of the extension.
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Server Name</span>
-                        <span class="bytes">
-                            00 00 00 18 00 16 00 00 13 65 78 61 6d 70 6c 65 2e 75 6c 66 68 65 69 6d 2e 6e 65 74
-                        </span>
-                        <div class="explanation">
-                            The client has provided the name of the
-                            server it is contacting, also known as SNI
-                            (Server Name Indication).
-                            <br /><br />
-                            Without this extension an HTTPS server would
-                            not be able to provide service for multiple
-                            hostnames (virtual hosts) on a single IP address
-                            because it couldn't know which
-                            hostname's certificate to send until
-                            after the TLS session was negotiated and the
-                            HTTP request was made.
-                            <ul>
-                                <li><tt>00 00</tt> - assigned value for extension "server name"
-                                <li><tt>00 18</tt> - 0x18 (24) bytes of "server name" extension data follows
-                                <li><tt>00 16</tt> - 0x16 (22) bytes of first (and only) list entry follows
-                                <li><tt>00</tt> - list entry is type 0x00 "DNS hostname"
-                                <li><tt>00 13</tt> - 0x13 (19) bytes of hostname follows
-                                <li><tt>65 78 61 ... 6e 65 74</tt> - "example.ulfheim.net"
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - EC Point Formats</span>
-                        <span class="bytes">
-                            00 0b 00 04 03 00 01 02
-                        </span>
-                        <div class="explanation">
-                            The client has indicated that it supports receiving
-                            elliptic curve data points in the following compression formats:
-                            <ul>
-                                <li><tt>00 0b</tt> - assigned value for extension "ec point formats"
-                                <li><tt>00 04</tt> - 4 bytes of format types follow
-                                <li><tt>03</tt> - 3 bytes of format types follow
-                                <li><tt>00</tt> - assigned value for format "uncompressed"
-                                <li><tt>01</tt> - assigned value for format "ansiX962_compressed_prime"
-                                <li><tt>02</tt> - assigned value for format "ansiX962_compressed_char2"
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Supported Groups</span>
-                        <span class="bytes">
-                            00 0a 00 16 00 14 00 1d 00 17 00 1e 00 19 00 18 01 00 01 01 01 02 01 03 01 04
-                        </span>
-                        <div class="explanation">
-                            The client has indicated that it supports
-                            elliptic curve (EC) cryptography for ten curve types.
-                            To make this extension more generic for
-                            other cryptography types it calls these
-                            "supported groups" instead of "supported
-                            curves".
-                            <br /><br />
-                            This list is presented in descending order
-                            of the client's preference.
-                            <ul>
-                                <li><tt>00 0a</tt> - assigned value for extension "supported groups"
-                                <li><tt>00 16</tt> - 0x16 (22) bytes of "supported group" extension data follows
-                                <li><tt>00 14</tt> - 0x14 (20) bytes of data are in the curves list
-                                <li><tt>00 1d</tt> - assigned value for the curve "x25519"
-                                <li><tt>00 17</tt> - assigned value for the curve "secp256r1"
-                                <li><tt>00 1e</tt> - assigned value for the curve "x448"
-                                <li><tt>00 19</tt> - assigned value for the curve "secp521r1"
-                                <li><tt>00 18</tt> - assigned value for the curve "secp384r1"
-                                <li><tt>01 00</tt> - assigned value for the curve "ffdhe2048"
-                                <li><tt>01 01</tt> - assigned value for the curve "ffdhe3072"
-                                <li><tt>01 02</tt> - assigned value for the curve "ffdhe4096"
-                                <li><tt>01 03</tt> - assigned value for the curve "ffdhe6144"
-                                <li><tt>01 04</tt> - assigned value for the curve "ffdhe8192"
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Session Ticket</span>
-                        <span class="bytes">
-                            00 23 00 00
-                        </span>
-                        <div class="explanation">
-                            The client indicates it has no session ticket
-                            to provide for this connection.
-                            <ul>
-                                <li><tt>00 23</tt> - assigned value for extension "Session Ticket"
-                                <li><tt>00 00</tt> - 0 bytes of "Session Ticket" extension data follows
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Encrypt-Then-MAC</span>
-                        <span class="bytes">
-                            00 16 00 00
-                        </span>
-                        <div class="explanation">
-                            The client indicates it can support EtM, which prevents
-                            <a href="https://iacr.org/archive/crypto2001/21390309.pdf">certain vulnerabilities</a> in
-                            earlier versions of TLS. In
-                            TLS 1.3 this mechanism is always used, so this extension
-                            will have no effect in this session.
-                            <ul>
-                                <li><tt>00 16</tt> - assigned value for extension "Encrypt Then MAC"
-                                <li><tt>00 00</tt> - 0 bytes of "Encrypt Then MAC" extension data follows
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Extended Master Secret</span>
-                        <span class="bytes">
-                            00 17 00 00
-                        </span>
-                        <div class="explanation">
-                            The client indicates support for extra cryptographic operations
-                            which prevent vulnerabilities in earlier versions of TLS (see <a
-                                href="https://www.ietf.org/rfc/rfc7627.html">RFC 7627</a> for details).
-                            In TLS 1.3 the vulnerabilities are no longer present, so this extension
-                            will have no effect in this session.
-                            <ul>
-                                <li><tt>00 17</tt> - assigned value for extension "Extended Master Secret"
-                                <li><tt>00 00</tt> - 0 bytes of "Extended Master Secret" extension data follows
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Signature Algorithms</span>
-                        <span class="bytes">
-                            00 0d 00 1e 00 1c 04 03 05 03 06 03 08 07 08 08 08 09 08 0a 08 0b 08 04 08 05 08 06 04 01 05
-                            01
-                            06 01
-                        </span>
-                        <div class="explanation">
-                            This extension indicates which signature
-                            algorithms the client supports. This can
-                            influence the certificate that the server
-                            presents to the client, as well as the
-                            signature that is sent by the server in
-                            the CertificateVerify record.
-                            <br /><br />
-                            This list is presented in descending order
-                            of the client's preference.
-                            <ul>
-                                <li><tt>00 0d</tt> - assigned value for extension "Signature Algorithms"
-                                <li><tt>00 1e</tt> - 0x1E (30) bytes of "Signature Algorithms" extension data follows
-                                <li><tt>00 1c</tt> - 0x1C (28) bytes of data are in the following list of algorithms
-                                <li><tt>04 03</tt> - assigned value for ECDSA-SECP256r1-SHA256
-                                <li><tt>05 03</tt> - assigned value for ECDSA-SECP384r1-SHA384
-                                <li><tt>06 03</tt> - assigned value for ECDSA-SECP521r1-SHA512
-                                <li><tt>08 07</tt> - assigned value for ED25519
-                                <li><tt>08 08</tt> - assigned value for ED448
-                                <li><tt>08 09</tt> - assigned value for RSA-PSS-PSS-SHA256
-                                <li><tt>08 0a</tt> - assigned value for RSA-PSS-PSS-SHA384
-                                <li><tt>08 0b</tt> - assigned value for RSA-PSS-PSS-SHA512
-                                <li><tt>08 04</tt> - assigned value for RSA-PSS-RSAE-SHA256
-                                <li><tt>08 05</tt> - assigned value for RSA-PSS-RSAE-SHA384
-                                <li><tt>08 06</tt> - assigned value for RSA-PSS-RSAE-SHA512
-                                <li><tt>04 01</tt> - assigned value for RSA-PKCS1-SHA256
-                                <li><tt>05 01</tt> - assigned value for RSA-PKCS1-SHA384
-                                <li><tt>06 01</tt> - assigned value for RSA-PKCS1-SHA512
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Supported Versions</span>
-                        <span class="bytes">
-                            00 2b 00 03 02 03 04
-                        </span>
-                        <div class="explanation">
-                            The client indicates its support of TLS 1.3. This is the only indication in the
-                            Client Hello record that hints the client supports TLS 1.3, since
-                            for compatibility reasons it has otherwise pretended to be a TLS 1.2 connection
-                            attempt.
-                            <ul>
-                                <li><tt>00 2b</tt> - assigned value for extension "Supported Versions"
-                                <li><tt>00 03</tt> - 3 bytes of "Supported Versions" extension data follows
-                                <li><tt>02</tt> - 2 bytes of TLS versions follow
-                                <li><tt>03 04</tt> - assigned value for TLS 1.3
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - PSK Key Exchange Modes</span>
-                        <span class="bytes">
-                            00 2d 00 02 01 01
-                        </span>
-                        <div class="explanation">
-                            The client indicates the modes available
-                            for establishing keys from pre-shared keys
-                            (PSKs). Since we do not use PSKs in this
-                            session, this extension has no effect.
-                            <ul>
-                                <li><tt>00 2d</tt> - assigned value for extension "PSK Key Exchange Modes"
-                                <li><tt>00 02</tt> - 2 bytes of "PSK Key Exchange Modes" extension data follows
-                                <li><tt>01</tt> - 1 bytes of exchange modes follow
-                                <li><tt>01</tt> - assigned value for "PSK with (EC)DHE key establishment"
-                            </ul>
-                        </div>
-                    </span>
-
-                    <span class="string">
-                        <span class="label">Extension - Key Share</span>
-                        <span class="bytes">
-                            00 33 00 26 00 24 00 1d 00 20 35 80 72 d6 36 58 80 d1 ae ea 32 9a df 91 21 38 38 51 ed 21 a2
-                            8e
-                            3b 75 e9 65 d0 d2 cd 16 62 54
-                        </span>
-                        <div class="explanation">
-                            The client sends one or more ephemeral public keys
-                            using algorithm(s) that it thinks the server
-                            will support. This allows the
-                            rest of the handshake after the ClientHello
-                            and ServerHello messages to be encrypted,
-                            unlike previous protocol versions where the
-                            handshake was sent in the clear.
-                            <ul>
-                                <li><tt>00 33</tt> - assigned value for extension "Key Share"
-                                <li><tt>00 26</tt> - 0x26 (38) bytes of "Key Share" extension data follows
-                                <li><tt>00 24</tt> - 0x24 (36) bytes of key share data follows
-                                <li><tt>00 1d</tt> - assigned value for x25519 (key exchange via curve25519)
-                                <li><tt>00 20</tt> - 0x20 (32) bytes of public key follows
-                                <li><tt>35 80 ... 62 54</tt> - public key from the step "Client Key Exchange Generation"
-                            </ul>
-                        </div>
-                    </span>
 
                 </span>
             </div>
