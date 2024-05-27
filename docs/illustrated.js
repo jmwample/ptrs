@@ -175,6 +175,33 @@
         });
     };
 
+    ill.expandCollapsePadding = (btn, event) => {
+        ill.cancel(event);
+        btn = btn || document.getElementById('expandCollapsePadding');
+        if (!btn) return;
+
+        // check if we are expanding or collapsing
+        let action = btn.dataset['lblState'];
+
+        // toggle expanded / collapsed padding sections
+        [].forEach.call(document.querySelectorAll(".padding-long"), (el) => {
+            el.style.display = action === 'expand' ? '' : 'none';
+        });
+        [].forEach.call(document.querySelectorAll(".padding-short"), (el) => {
+            el.style.display = action === 'expand' ? 'none' : '';
+        });
+
+        // Update button text
+        let newButtonState = action === 'expand' ? 'collapse' : 'expand';
+        if (btn && btn.dataset['lblState'] !== newButtonState) {
+            // swap text w/ lbl-toggle, then swap state
+            let tmp = btn.textContent;
+            btn.textContent = btn.dataset['lblToggle'];
+            btn.dataset['lblToggle'] = tmp;
+            btn.dataset['lblState'] = newButtonState;
+        }
+    };
+
     /**
      * Open or close all elements on the page
      * @param {string} openOrClose - "open" or "close"

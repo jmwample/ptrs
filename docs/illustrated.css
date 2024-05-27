@@ -19,6 +19,13 @@
     --act-hov-btn9: hsl(21, 88%, 51%);
     --act-btn-shadow: hsl(25, 91%, 40%);
     --act-btn-border: hsl(33, 90%, 45%);
+
+    --pad-btn0: hsl(205, 96%, 54%);
+    --pad-btn9: hsl(195, 91%, 54%);
+    --pad-hov-btn0: hsl(200, 94%, 52%);
+    --pad-hov-btn9: hsl(190, 88%, 51%);
+    --pad-btn-shadow: hsl(195, 91%, 40%);
+    --pad-btn-border: hsl(203, 90%, 45%);
 }
 
 /* remove focus rings for non-keyboard users */
@@ -436,13 +443,13 @@ button.annotate-toggle {
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-size: 1em;
     padding: .4em 1.7em .45em;
-    text-shadow: 0 1px 1px var(--act-btn-shadow);
     border-radius: .5em;
     box-shadow: 1px 1px 1px rgba(0,0,0,0.3);
 
     color: #fff;
-    border: solid 1px var(--act-btn-border);
     background: linear-gradient(180deg, var(--act-btn0) 1%, var(--act-btn9) 100%);
+    text-shadow: 0 1px 1px var(--act-btn-shadow);
+    border: solid 1px var(--act-btn-border);
 }
 button.annotate-toggle:hover {
     text-decoration: none;
@@ -456,6 +463,17 @@ button.annotate-toggle:active {
 button#openCloseAll {
     margin-bottom: 0;
     min-width: 8em;
+}
+
+button#expandCollapsePadding {
+    padding: .4em 1.3em .45em;
+    background: linear-gradient(180deg, var(--pad-btn0) 1%, var(--pad-btn9) 100%);
+    text-shadow: 0 1px 1px var(--pad-btn-shadow);
+    border: solid 1px var(--pad-btn-border);
+}
+button#expandCollapsePadding:hover {
+
+    background: linear-gradient(180deg, var(--pad-hov-btn0) 1%, var(--pad-hov-btn9) 100%);
 }
 
 /***** print mode *****/
