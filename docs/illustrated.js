@@ -185,10 +185,10 @@
 
         // toggle expanded / collapsed padding sections
         [].forEach.call(document.querySelectorAll(".padding-long"), (el) => {
-            el.style.display = action === 'expand' ? 'block' : 'none';
+            el.style.display = action === 'expand' ? '' : 'none';
         });
         [].forEach.call(document.querySelectorAll(".padding-short"), (el) => {
-            el.style.display = action === 'expand' ? 'none' : 'block';
+            el.style.display = action === 'expand' ? 'none' : '';
         });
 
         // Update button text
