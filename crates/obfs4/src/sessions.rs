@@ -191,7 +191,7 @@ impl ClientSession<Initialized> {
         deadline: Option<Instant>,
     ) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
@@ -415,7 +415,7 @@ impl ServerSession<Initialized> {
         deadline: Option<Instant>,
     ) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         // set up for handshake
         let mut session = self.transition(ServerHandshaking {});

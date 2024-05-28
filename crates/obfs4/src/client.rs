@@ -142,7 +142,7 @@ impl Client {
     /// handshake timeout and then close the connection.
     pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin + 'a,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'a,
     {
         let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
 
@@ -158,7 +158,7 @@ impl Client {
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
     ) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin + 'a,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'a,
         E: std::error::Error + Send + Sync + 'static,
     {
         let stream = stream_fut.await.map_err(|e| Error::Other(Box::new(e)))?;

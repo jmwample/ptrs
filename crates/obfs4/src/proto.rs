@@ -8,8 +8,8 @@ use crate::{
     Error, Result,
 };
 
-use bytes::{Buf, BytesMut, Bytes};
-use futures::{sink::Sink, stream::Stream};
+use bytes::{Buf, BytesMut};
+use futures::{sink::Sink, stream::{Stream, StreamExt}};
 use pin_project::pin_project;
 use ptrs::trace;
 use sha2::{Digest, Sha256};
@@ -34,6 +34,8 @@ pub enum IAT {
     Enabled,
     Paranoid,
 }
+
+pub trait Transport<B,E,I>: Sink<B, Error=E> + Stream<Item=I> + Unpin + Send {}
 
 #[derive(Debug, Clone)]
 pub(crate) enum MaybeTimeout {
@@ -91,7 +93,7 @@ pub struct Obfs4Stream {
 }
 
 impl Obfs4Stream {
-    pub(crate) fn from_o4(o4: O4Stream) -> Self {
+    pub(crate) fn from_o4(o4: O4Stream<>) -> Self {
         Obfs4Stream {
             // s: Arc::new(Mutex::new(o4)),
             s: o4,
@@ -100,10 +102,13 @@ impl Obfs4Stream {
 }
 
 #[pin_project]
-pub(crate) struct O4Stream {
+pub(crate) struct O4Stream{
     #[pin]
     // pub stream: Framed<T, framing::Obfs4Codec>,
-    pub stream: Box<dyn Sink<BytesMut, Error=()> + Send + Unpin>,
+    // pub stream: Box<dyn Transport<BytesMut, IoError, Messages>>,
+    pub stream: Box<dyn Stream<Item=Messages> + Send + Unpin>,
+    #[pin]
+    pub sink: Box<dyn Sink<BytesMut, Error=IoError> + Send + Unpin>,
 
     pub length_dist: probdist::WeightedDist,
     pub iat_dist: probdist::WeightedDist,
@@ -116,18 +121,21 @@ impl O4Stream {
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
         codec: framing::Obfs4Codec,
-        session: Session,
+        mut session: Session,
     ) -> O4Stream
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        let stream: Box<dyn Sink<BytesMut, Error=()>+Send+Unpin> = match session.get_iat_mode() {
-            IAT::Off => Box::new(Framed::new(inner, codec)),
-            IAT::Enabled | IAT::Paranoid => {
-                let f = Framed::new(inner, codec);
-                Box::new(delay::DelayedSink::new(f, session.iat_duration_sampler()))
-            }
+        let delay_fn = match session.get_iat_mode() {
+            IAT::Off => || Duration::ZERO,
+            IAT::Enabled | IAT::Paranoid => session.iat_duration_sampler(),
         };
+        let (sink, stream) = Framed::new(inner, codec).split();
+        let sink = delay::DelayedSink::new(sink, delay_fn);
+
+        let sink: Box<dyn Sink<BytesMut, Error = IoError> + Send + Unpin> = Box::new(sink);
+        let stream: Box<dyn Stream<Item = Messages> + Send + Unpin> = Box::new(stream);
+
         let len_seed = session.len_seed();
 
         let mut hasher = Sha256::new();
@@ -150,6 +158,7 @@ impl O4Stream {
         );
 
         Self {
+            sink,
             stream,
             session,
             length_dist,
@@ -179,8 +188,9 @@ impl AsyncWrite for O4Stream {
         let mut this = self.as_mut().project();
 
         // determine if the stream is ready to send an event?
-        if futures::Sink::<&[u8]>::poll_ready(this.stream.as_mut(), cx) == Poll::Pending {
-            return Poll::Pending;
+        match futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx) {
+            Poll::Pending => return Poll::Pending,
+            _ => {}
         }
 
         // while we have bytes in the buffer write MAX_MESSAGE_PAYLOAD_LENGTH
@@ -202,8 +212,9 @@ impl AsyncWrite for O4Stream {
             out_buf.clear();
 
             // determine if the stream is ready to send more data. if not back off
-            if futures::Sink::<&[u8]>::poll_ready(this.stream.as_mut(), cx) == Poll::Pending {
-                return Poll::Ready(Ok(len_sent));
+            match futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx) {
+                Poll::Pending => return Poll::Ready(Ok(len_sent)),
+                _ => {}
             }
         }
 
@@ -211,7 +222,7 @@ impl AsyncWrite for O4Stream {
 
         let mut out_buf = BytesMut::new();
         payload.marshall(&mut out_buf)?;
-        this.stream.as_mut().start_send(out_buf)?;
+        this.sink.as_mut().start_send(out_buf)?;
 
         Poll::Ready(Ok(msg_len))
     }
@@ -219,7 +230,7 @@ impl AsyncWrite for O4Stream {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} flushing", self.session.id());
         let mut this = self.project();
-        match futures::Sink::<&[u8]>::poll_flush(this.stream.as_mut(), cx) {
+        match futures::Sink::<BytesMut>::poll_flush(this.sink.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
             Poll::Pending => Poll::Pending,
@@ -229,7 +240,7 @@ impl AsyncWrite for O4Stream {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), IoError>> {
         trace!("{} shutting down", self.session.id());
         let mut this = self.project();
-        match futures::Sink::<&[u8]>::poll_close(this.stream.as_mut(), cx) {
+        match futures::Sink::<BytesMut>::poll_close(this.sink.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
             Poll::Pending => Poll::Pending,
@@ -260,10 +271,7 @@ impl AsyncRead for O4Stream {
                             return Poll::Ready(Ok(()));
                         }
 
-                        match res.unwrap() {
-                            Ok(m) => m,
-                            Err(e) => Err(e)?,
-                        }
+                        res.unwrap()
                     }
                 }
             };
@@ -316,13 +324,13 @@ impl AsyncRead for Obfs4Stream {
     }
 }
 
-impl Sink<Messages> for O4Stream {
-    type Error = ();
+impl Sink<BytesMut> for O4Stream {
+    type Error = IoError;
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
         todo!();
     }
 
-    fn start_send(self: Pin<&mut Self>, _item: Messages) -> StdResult<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, _item: BytesMut) -> StdResult<(), Self::Error> {
         todo!();
     }
 
@@ -334,6 +342,20 @@ impl Sink<Messages> for O4Stream {
         todo!();
     }
 }
+
+impl Stream for O4Stream {
+    type Item = Messages;
+
+    // Required method
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>
+    ) -> Poll<Option<Self::Item>> {
+        todo!();
+    }
+}
+
+impl Transport<BytesMut, IoError, Messages> for O4Stream {}
 
 
 // TODO Apply pad_burst logic and IAT policy to Message assembly (probably as part of AsyncRead / AsyncWrite impl)

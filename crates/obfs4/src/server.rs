@@ -306,7 +306,7 @@ impl Server {
 
     pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);

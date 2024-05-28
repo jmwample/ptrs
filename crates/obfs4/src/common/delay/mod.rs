@@ -56,9 +56,11 @@ impl<Item, Si: Sink<Item>> Sink<Item> for DelayedSink<Si, Item> {
 
         let delay = (*s.delay_fn)();
 
-        s.sleep
-            .as_mut()
-            .reset(Instant::now() + delay);
+        if delay.is_zero() {
+            s.sleep
+                .as_mut()
+                .reset(Instant::now() + delay);
+        }
         Ok(())
     }
 
