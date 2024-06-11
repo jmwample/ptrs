@@ -187,12 +187,12 @@ fn try_parse(
     let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
     h.reset(); // disambiguate reset() implementations Mac v digest
 
-    let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+    let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
     h.update(&r_bytes);
 
-    // clear the inconsistent elligator2 bits of the representative after
-    // using the wire format for deriving the mark
-    r_bytes[31] &= 0x3f;
+    // The elligator library internally clears the high-order bits of the
+    // representative to force a LSR value, but we use the wire format for 
+    // deriving the mark (i.e. without cleared bits).
     let server_repres = PublicRepresentative::from(r_bytes);
     let server_auth: [u8; AUTHCODE_LENGTH] =
         buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH].try_into()?;
@@ -223,8 +223,6 @@ fn try_parse(
         hex::encode(mac_received)
     );
     if mac_calculated.ct_eq(mac_received).into() {
-        let mut r_bytes = server_repres.to_bytes();
-        r_bytes[31] &= 0x3f;
         return Ok((
             ServerHandshakeMessage::new(server_repres, server_auth, state.epoch_hr.clone()),
             pos + MARK_LENGTH + MAC_LENGTH,

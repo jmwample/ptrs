@@ -140,7 +140,7 @@ impl ClientHandshakeMessage {
     pub fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
         trace!("serializing client handshake");
 
-        h.reset(); // disambiguate reset() implementations Mac v digest
+        h.reset();
         h.update(self.repres.as_bytes().as_ref());
         let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 

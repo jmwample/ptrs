@@ -197,13 +197,14 @@ impl Server {
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?;
         }
 
-        let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
 
         // derive the mark based on the literal bytes on the wire
         h.update(&r_bytes[..]);
 
-        // clear the bits that are unreliable (and randomized) for elligator2
-        r_bytes[31] &= 0x3f;
+        // The elligator library internally clears the high-order bits of the
+        // representative to force a LSR value, but we use the wire format for 
+        // deriving the mark (i.e. without cleared bits).
         let repres = PublicRepresentative::from(&r_bytes);
 
         let m = h.finalize_reset().into_bytes();
