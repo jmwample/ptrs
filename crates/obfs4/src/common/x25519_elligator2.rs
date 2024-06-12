@@ -4,25 +4,47 @@
 //! key-agreement trait, but for now we are just re-using the APIs from
 //! [`x25519_dalek`].
 
+pub use curve25519_elligator2::{elligator2::representative_from_privkey, EdwardsPoint};
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
-pub use curve25519_elligator2::elligator2::representative_from_privkey;
 
-pub(crate) struct EphemeralSecret (x25519_dalek::StaticSecret, u8);
+/// You can do diffie hellman with this key multiple times and derive the elligator2
+/// representative, but you cannot write it out, as it is intended to be used only
+/// ONCE (i.e. ephemperally).
+#[derive(Clone)]
+pub(crate) struct EphemeralSecret(x25519_dalek::StaticSecret, u8);
 
+#[allow(unused)]
 impl EphemeralSecret {
-    pub(crate) fn random() -> Self {}
+    pub(crate) fn random() -> Self {
+        Keys::random_ephemeral()
+    }
 
-    pub(crate) fn random_from_rng<T: RngCore + CryptoRng>(csprng: T) -> Self {}
+    pub(crate) fn random_from_rng<T: RngCore + CryptoRng>(csprng: T) -> Self {
+        Keys::ephemeral_from_rng(csprng)
+    }
 
-    pub(crate) fn diffie_hellman() -> Self {}
+    pub fn diffie_hellman(&self, their_public: &PublicKey) -> SharedSecret {
+        self.0.diffie_hellman(their_public)
+    }
 
-    pub fn diffie_hellman(self, their_public: &PublicKey) -> SharedSecret {}
+    pub(crate) fn from_parts(sk: StaticSecret, tweak: u8) -> Self {
+        Self(sk, tweak)
+    }
 }
 
 impl From<EphemeralSecret> for PublicKey {
     fn from(value: EphemeralSecret) -> Self {
-        
+        let pk_bytes = EdwardsPoint::mul_base_clamped(value.0.to_bytes()).to_montgomery();
+        PublicKey::from(*pk_bytes.as_bytes())
+    }
+}
+
+impl<'a> Into<PublicKey> for &'a EphemeralSecret {
+    fn into(self) -> PublicKey {
+        let pk_bytes = EdwardsPoint::mul_base_clamped(self.0.to_bytes()).to_montgomery();
+        PublicKey::from(*pk_bytes.as_bytes())
+
     }
 }
 
@@ -144,7 +166,7 @@ pub const REPRESENTATIVE_LENGTH: usize = 32;
 /// in relatively few iterations.
 pub struct Keys;
 
-trait RetryLimit { 
+trait RetryLimit {
     const RETRY_LIMIT: usize = 128;
 }
 
@@ -154,55 +176,31 @@ impl RetryLimit for Keys {}
 impl Keys {
     /// Generate a new Elligator2 representable ['StaticSecret'] with the supplied RNG.
     pub fn static_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> StaticSecret {
-        let mut private = StaticSecret::random_from_rng(&mut rng);
-        let mut repres: Option<PublicRepresentative> = (&private).into();
-
-        for _ in 0..Self::RETRY_LIMIT {
-            if repres.is_some() {
-                return private;
-            }
-            private = StaticSecret::random_from_rng(&mut rng);
-            repres = (&private).into();
-        }
-
-        panic!("failed to generate representable secret, bad RNG provided");
-    }
-
-    /// Generate a new Elligator2 representable ['EphemeralSecret'] with the supplied RNG.
-    pub fn ephemeral_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> EphemeralSecret {
-        let mut private = EphemeralSecret::random_from_rng(&mut rng);
-        let mut repres: Option<PublicRepresentative> = (&private).into();
-
-        for _ in 0..Self::RETRY_LIMIT {
-            if repres.is_some() {
-                return private;
-            }
-            private = EphemeralSecret::random_from_rng(&mut rng);
-            repres = (&private).into();
-        }
-
-        panic!("failed to generate representable secret, bad RNG provided");
+        StaticSecret::random_from_rng(&mut rng)
     }
 
     /// Generate a new Elligator2 representable ['StaticSecret'].
     pub fn random_static() -> StaticSecret {
-        let mut private = StaticSecret::random();
+        StaticSecret::random()
+    }
+
+    /// Generate a new Elligator2 representable ['EphemeralSecret'] with the supplied RNG.
+    pub fn ephemeral_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> EphemeralSecret {
+        let mut private = StaticSecret::random_from_rng(&mut rng);
         let mut tweak = [0u8];
-        getrandom::getrandom(&mut tweak).expect("failed to get random bytes");
+        rng.fill_bytes(&mut tweak);
 
-        let mut key = EphemeralSecret(private, tweak[0]);
-
-        let mut repres: Option<PublicRepresentative> = &key.into();
+        let mut repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
 
         for _ in 0..Self::RETRY_LIMIT {
             if repres.is_some() {
-                return private;
+                return EphemeralSecret(private, tweak[0]);
             }
-            private = StaticSecret::random();
-            repres = (&private).into();
+            private = StaticSecret::random_from_rng(&mut rng);
+            repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
         }
 
-        panic!("failed to generate representable secret, getrandom failed");
+        panic!("failed to generate representable secret, bad RNG provided");
     }
 
     /// Generate a new Elligator2 representable ['EphemeralSecret'].
@@ -221,8 +219,6 @@ impl Keys {
         panic!("failed to generate representable secret, getrandom failed");
     }
 }
-
-
 
 #[cfg(test)]
 mod test {

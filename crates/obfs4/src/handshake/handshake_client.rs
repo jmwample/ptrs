@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        x25519_elligator2::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        x25519_elligator2::{EphemeralSecret, PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
@@ -35,7 +35,7 @@ pub(crate) struct NtorHandshakeState {
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: StaticSecret,
+    my_sk: EphemeralSecret,
 
     /// handshake materials
     materials: HandshakeMaterials,
@@ -49,13 +49,13 @@ pub(super) fn client_handshake_obfs4(
     materials: &HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
     let rng = rand::thread_rng();
-    let my_sk = Keys::static_from_rng(rng);
+    let my_sk = Keys::ephemeral_from_rng(rng);
     client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
 
 /// Helper: client handshake _without_ generating  new keys.
 pub(crate) fn client_handshake_obfs4_no_keygen(
-    ephem: StaticSecret,
+    ephem: EphemeralSecret,
     materials: HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
     let repres: Option<PublicRepresentative> = (&ephem).into();
@@ -191,7 +191,7 @@ fn try_parse(
     h.update(&r_bytes);
 
     // The elligator library internally clears the high-order bits of the
-    // representative to force a LSR value, but we use the wire format for 
+    // representative to force a LSR value, but we use the wire format for
     // deriving the mark (i.e. without cleared bits).
     let server_repres = PublicRepresentative::from(r_bytes);
     let server_auth: [u8; AUTHCODE_LENGTH] =

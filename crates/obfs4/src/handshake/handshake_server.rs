@@ -94,7 +94,7 @@ impl Server {
             materials.session_id
         );
         let their_pk = client_hs.get_public();
-        let ephem_pub = PublicKey::from(&session_sk);
+        let ephem_pub = (&session_sk).into();
         let session_repres: Option<PublicRepresentative> = (&session_sk).into();
 
         let xy = session_sk.diffie_hellman(&their_pk);
@@ -203,7 +203,7 @@ impl Server {
         h.update(&r_bytes[..]);
 
         // The elligator library internally clears the high-order bits of the
-        // representative to force a LSR value, but we use the wire format for 
+        // representative to force a LSR value, but we use the wire format for
         // deriving the mark (i.e. without cleared bits).
         let repres = PublicRepresentative::from(&r_bytes);
 
