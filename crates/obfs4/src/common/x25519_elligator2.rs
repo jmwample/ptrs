@@ -1,17 +1,18 @@
 //! Re-exporting Curve25519 implementations.
 //!
 //! *TODO*: Eventually we should probably recommend using this code via some
-//! key-agreement trait, but for now we are just re-using the APIs from
-//! [`x25519_dalek`].
+//! key-agreement trait, but for now we are just wrapping and re-using the APIs
+//! from [`x25519_dalek`].
 
 pub use curve25519_elligator2::{elligator2::representative_from_privkey, EdwardsPoint};
 use getrandom::getrandom;
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
-/// You can do diffie hellman with this key multiple times and derive the elligator2
+/// You can do diffie-hellman with this key multiple times and derive the elligator2
 /// representative, but you cannot write it out, as it is intended to be used only
-/// ONCE (i.e. ephemperally).
+/// ONCE (i.e. ephemperally). If the key generation succeeds, the key is guaranteed
+/// to have a valid elligator2 representative.
 #[derive(Clone)]
 pub(crate) struct EphemeralSecret(x25519_dalek::StaticSecret, u8);
 
@@ -30,6 +31,9 @@ impl EphemeralSecret {
     }
 
     #[cfg(test)]
+    /// As this function allows building an ['EphemeralSecret'] with a custom secret key,
+    /// it is not guaranteed to have a valid elligator2 representative. As such, it
+    /// is intended for testing purposes only.
     pub(crate) fn from_parts(sk: StaticSecret, tweak: u8) -> Self {
         Self(sk, tweak)
     }
@@ -37,14 +41,14 @@ impl EphemeralSecret {
 
 impl From<EphemeralSecret> for PublicKey {
     fn from(value: EphemeralSecret) -> Self {
-        let pk_bytes = EdwardsPoint::mul_base_clamped(value.0.to_bytes()).to_montgomery();
+        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(value.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
     }
 }
 
 impl<'a> Into<PublicKey> for &'a EphemeralSecret {
     fn into(self) -> PublicKey {
-        let pk_bytes = EdwardsPoint::mul_base_clamped(self.0.to_bytes()).to_montgomery();
+        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(self.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
     }
 }
@@ -70,7 +74,7 @@ impl<'a> Into<PublicKey> for &'a EphemeralSecret {
 /// fn get_representable_ephemeral() -> EphemeralSecret {
 ///     for i in 0_u8..255 {
 ///         let secret = EphemeralSecret::random_from_rng(&mut OsRng);
-///         match Option::<PublicRepresentative>::from(&secret) {
+///         match from(&secret) {
 ///             Some(_) => return secret,
 ///             None => continue,
 ///         }
@@ -263,7 +267,9 @@ mod test {
                 }
             };
 
-            let pk: PublicKey = (&sk).into();
+            let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(sk.to_bytes()).to_montgomery();
+
+            let pk = PublicKey::from(*pk_bytes.as_bytes());
 
             let decoded_pk = PublicKey::from(&repres);
             if hex::encode(pk) != hex::encode(decoded_pk) {
