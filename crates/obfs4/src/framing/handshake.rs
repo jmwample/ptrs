@@ -1,6 +1,6 @@
 use crate::{
     common::{
-        curve25519::{PublicKey, PublicRepresentative},
+        x25519_elligator2::{PublicKey, PublicRepresentative},
         HmacSha256,
     },
     constants::*,

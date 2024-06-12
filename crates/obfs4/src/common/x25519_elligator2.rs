@@ -8,7 +8,7 @@
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 pub use curve25519_elligator2::elligator2::representative_from_privkey;
 
-pub(crate) struct EphemeralSecret (x25519_dalek::EphemeralSecret, u8);
+pub(crate) struct EphemeralSecret (x25519_dalek::StaticSecret, u8);
 
 impl EphemeralSecret {
     pub(crate) fn random() -> Self {}
@@ -117,7 +117,7 @@ impl<'a> From<&'a [u8; 32]> for PublicRepresentative {
 impl<'a> From<&'a EphemeralSecret> for Option<PublicRepresentative> {
     /// Given an x25519 [`EphemeralSecret`] key, compute its corresponding [`PublicRepresentative`].
     fn from(secret: &'a EphemeralSecret) -> Option<PublicRepresentative> {
-        let repres = representative_from_privkey(&secret.0, secret.1);
+        let repres = representative_from_privkey(&secret.0.to_bytes(), secret.1);
         let res: Option<[u8; 32]> = repres;
         Some(PublicRepresentative(res?))
     }
@@ -187,7 +187,12 @@ impl Keys {
     /// Generate a new Elligator2 representable ['StaticSecret'].
     pub fn random_static() -> StaticSecret {
         let mut private = StaticSecret::random();
-        let mut repres: Option<PublicRepresentative> = (&private).into();
+        let mut tweak = [0u8];
+        getrandom::getrandom(&mut tweak).expect("failed to get random bytes");
+
+        let mut key = EphemeralSecret(private, tweak[0]);
+
+        let mut repres: Option<PublicRepresentative> = &key.into();
 
         for _ in 0..Self::RETRY_LIMIT {
             if repres.is_some() {

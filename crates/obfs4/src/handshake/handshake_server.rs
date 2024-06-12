@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        x25519_elligator2::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::{build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage},
@@ -56,7 +56,7 @@ impl Server {
         T: AsRef<[u8]>,
     {
         let rng = thread_rng();
-        let session_sk = Representable::ephemeral_from_rng(rng);
+        let session_sk = Keys::ephemeral_from_rng(rng);
 
         self.server_handshake_obfs4_no_keygen(session_sk, msg, materials)
     }

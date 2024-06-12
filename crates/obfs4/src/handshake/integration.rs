@@ -267,8 +267,8 @@ fn about_half() -> Result<()> {
     let mut not_found = 0;
     let mut not_match = 0;
     for _ in 0..1_000 {
-        let sk = curve25519::StaticSecret::random_from_rng(&mut rng);
-        let rp: Option<curve25519::PublicRepresentative> = (&sk).into();
+        let sk = x25519_elligator2::StaticSecret::random_from_rng(&mut rng);
+        let rp: Option<x25519_elligator2::PublicRepresentative> = (&sk).into();
         let repres = match rp {
             Some(r) => r,
             None => {
@@ -277,9 +277,9 @@ fn about_half() -> Result<()> {
             }
         };
 
-        let pk = curve25519::PublicKey::from(&sk);
+        let pk = x25519_elligator2::PublicKey::from(&sk);
 
-        let decoded_pk = curve25519::PublicKey::from(&repres);
+        let decoded_pk = x25519_elligator2::PublicKey::from(&repres);
         if hex::encode(pk) != hex::encode(decoded_pk) {
             not_match += 1;
             continue;
@@ -303,9 +303,9 @@ fn keypair() -> Result<()> {
         let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
         let pk = kp.pk.pk.to_bytes();
-        let repres: Option<curve25519::PublicRepresentative> = (&kp.sk).into();
+        let repres: Option<x25519_elligator2::PublicRepresentative> = (&kp.sk).into();
 
-        let pubkey = curve25519::PublicKey::from(&repres.unwrap());
+        let pubkey = x25519_elligator2::PublicKey::from(&repres.unwrap());
         assert_eq!(hex::encode(pk), hex::encode(pubkey.to_bytes()));
     }
     Ok(())

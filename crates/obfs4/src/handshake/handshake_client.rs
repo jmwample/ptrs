@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        x25519_elligator2::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
@@ -49,7 +49,7 @@ pub(super) fn client_handshake_obfs4(
     materials: &HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
     let rng = rand::thread_rng();
-    let my_sk = Representable::static_from_rng(rng);
+    let my_sk = Keys::static_from_rng(rng);
     client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
 

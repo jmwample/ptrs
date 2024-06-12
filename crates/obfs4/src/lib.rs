@@ -50,7 +50,7 @@ pub mod dev {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::common::curve25519::StaticSecret;
+        use crate::common::x25519_elligator2::StaticSecret;
         use crate::constants::*;
         use crate::handshake::Obfs4NtorSecretKey;
         use crate::{ClientBuilder, ServerBuilder};

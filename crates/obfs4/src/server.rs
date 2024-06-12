@@ -5,7 +5,7 @@ use crate::{
     client::ClientBuilder,
     common::{
         colorize,
-        curve25519::{PublicKey, StaticSecret},
+        x25519_elligator2::{PublicKey, StaticSecret},
         drbg,
         replay_filter::{self, ReplayFilter},
         HmacSha256,

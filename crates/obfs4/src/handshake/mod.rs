@@ -3,7 +3,7 @@
 use crate::{
     common::{
         ct,
-        curve25519::{EphemeralSecret, PublicKey, Representable, SharedSecret, StaticSecret},
+        x25519_elligator2::{EphemeralSecret, PublicKey, Keys, SharedSecret, StaticSecret},
         kdf::{Kdf, Ntor1Kdf},
         ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
@@ -185,7 +185,7 @@ impl Obfs4NtorSecretKey {
 
     /// Construct a new ['Obfs4NtorSecretKey'] from a CSPRNG.
     pub(crate) fn getrandom() -> Self {
-        let sk = Representable::random_static();
+        let sk = Keys::random_static();
         let mut id = [0_u8; NODE_ID_LENGTH];
         getrandom::getrandom(&mut id).expect("internal randomness error");
         Self::new(sk, RsaIdentity::from(id))
@@ -198,7 +198,7 @@ impl Obfs4NtorSecretKey {
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
 
-        let sk = Representable::static_from_rng(rng);
+        let sk = Keys::static_from_rng(rng);
 
         let pk = Obfs4NtorPublicKey {
             pk: (&sk).into(),
