@@ -46,9 +46,9 @@ impl From<EphemeralSecret> for PublicKey {
     }
 }
 
-impl<'a> Into<PublicKey> for &'a EphemeralSecret {
-    fn into(self) -> PublicKey {
-        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(self.0.to_bytes()).to_montgomery();
+impl<'a> From<&'a EphemeralSecret> for PublicKey {
+    fn from(val: &'a EphemeralSecret) -> Self {
+        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(val.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
     }
 }

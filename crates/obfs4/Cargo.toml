@@ -84,7 +84,7 @@ hex-literal = "0.4.1"
 tor-basic-utils = "0.19.0"
 
 # benches
-criterion = "0.5"
+# criterion = "0.5"
 
 # # o5 pqc test
 # pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}

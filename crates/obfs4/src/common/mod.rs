@@ -18,7 +18,6 @@ pub mod replay_filter;
 // public for now, but may be made private in the future
 pub mod x25519_elligator2;
 
-
 pub trait ArgParse {
     type Output;
 
