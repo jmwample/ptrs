@@ -58,14 +58,11 @@ pub(crate) fn client_handshake_obfs4_no_keygen(
     ephem: EphemeralSecret,
     materials: HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
-    let repres: Option<PublicRepresentative> = (&ephem).into();
+    let repres = PublicRepresentative::from(&ephem);
 
     // build client handshake message
-    let mut ch_msg = ClientHandshakeMessage::new(
-        repres.unwrap(),
-        materials.pad_len,
-        materials.session_id.clone(),
-    );
+    let mut ch_msg =
+        ClientHandshakeMessage::new(repres, materials.pad_len, materials.session_id.clone());
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
     let mut key = materials.node_pubkey.pk.as_bytes().to_vec();

@@ -260,43 +260,6 @@ fn failing_handshakes() {
     assert!(ans3.is_err());
 }
 
-#[test]
-fn about_half() -> Result<()> {
-    let mut rng = rand::thread_rng();
-
-    let mut success = 0;
-    let mut not_found = 0;
-    let mut not_match = 0;
-    for _ in 0..1_000 {
-        let sk = EphemeralSecret::random_from_rng(&mut rng);
-        let rp: Option<PublicRepresentative> = (&sk).into();
-        let repres = match rp {
-            Some(r) => r,
-            None => {
-                not_found += 1;
-                continue;
-            }
-        };
-
-        let pk: PublicKey = (&sk).into();
-
-        let decoded_pk = PublicKey::from(&repres);
-        if hex::encode(pk) != hex::encode(decoded_pk) {
-            not_match += 1;
-            continue;
-        }
-        success += 1;
-    }
-
-    if not_match != 0 {
-        println!("{not_found}/{not_match}/{success}/10_000");
-        assert_eq!(not_match, 0);
-    }
-    assert!(not_found < 600);
-    assert!(not_found > 400);
-    Ok(())
-}
-
 /*
 // Benchmark Client/Server handshake.  The actual time taken that will be
 // observed on either the Client or Server is half the reported time per

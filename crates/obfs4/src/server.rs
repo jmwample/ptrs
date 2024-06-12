@@ -4,10 +4,9 @@ use super::*;
 use crate::{
     client::ClientBuilder,
     common::{
-        colorize,
-        x25519_elligator2::{PublicKey, StaticSecret},
-        drbg,
+        colorize, drbg,
         replay_filter::{self, ReplayFilter},
+        x25519_elligator2::{PublicKey, StaticSecret},
         HmacSha256,
     },
     constants::*,

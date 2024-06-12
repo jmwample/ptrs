@@ -3,12 +3,12 @@
 use crate::{
     common::{
         ct,
-        x25519_elligator2::{EphemeralSecret, PublicKey, Keys, SharedSecret, StaticSecret},
         kdf::{Kdf, Ntor1Kdf},
         ntor_arti::{
             AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
             ServerHandshake,
         },
+        x25519_elligator2::{EphemeralSecret, Keys, PublicKey, SharedSecret, StaticSecret},
     },
     constants::*,
     framing::{Obfs4Codec, KEY_MATERIAL_LENGTH},

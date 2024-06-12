@@ -95,7 +95,7 @@ impl Server {
         );
         let their_pk = client_hs.get_public();
         let ephem_pub = (&session_sk).into();
-        let session_repres: Option<PublicRepresentative> = (&session_sk).into();
+        let session_repres = PublicRepresentative::from(&session_sk);
 
         let xy = session_sk.diffie_hellman(&their_pk);
         let xb = materials.identity_keys.sk.diffie_hellman(&their_pk);
@@ -116,13 +116,8 @@ impl Server {
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
-        let reply = self.complete_server_hs(
-            &client_hs,
-            materials,
-            session_repres.unwrap(),
-            &mut keygen,
-            authcode,
-        )?;
+        let reply =
+            self.complete_server_hs(&client_hs, materials, session_repres, &mut keygen, authcode)?;
 
         if okay.into() {
             Ok((keygen, reply))

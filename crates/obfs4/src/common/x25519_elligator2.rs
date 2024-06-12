@@ -5,6 +5,7 @@
 //! [`x25519_dalek`].
 
 pub use curve25519_elligator2::{elligator2::representative_from_privkey, EdwardsPoint};
+use getrandom::getrandom;
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
@@ -28,6 +29,7 @@ impl EphemeralSecret {
         self.0.diffie_hellman(their_public)
     }
 
+    #[cfg(test)]
     pub(crate) fn from_parts(sk: StaticSecret, tweak: u8) -> Self {
         Self(sk, tweak)
     }
@@ -44,7 +46,6 @@ impl<'a> Into<PublicKey> for &'a EphemeralSecret {
     fn into(self) -> PublicKey {
         let pk_bytes = EdwardsPoint::mul_base_clamped(self.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
-
     }
 }
 
@@ -136,12 +137,11 @@ impl<'a> From<&'a [u8; 32]> for PublicRepresentative {
     }
 }
 
-impl<'a> From<&'a EphemeralSecret> for Option<PublicRepresentative> {
+impl<'a> From<&'a EphemeralSecret> for PublicRepresentative {
     /// Given an x25519 [`EphemeralSecret`] key, compute its corresponding [`PublicRepresentative`].
-    fn from(secret: &'a EphemeralSecret) -> Option<PublicRepresentative> {
-        let repres = representative_from_privkey(&secret.0.to_bytes(), secret.1);
-        let res: Option<[u8; 32]> = repres;
-        Some(PublicRepresentative(res?))
+    fn from(secret: &'a EphemeralSecret) -> PublicRepresentative {
+        let res: Option<[u8; 32]> = representative_from_privkey(secret.0.as_bytes(), secret.1);
+        PublicRepresentative(res.unwrap())
     }
 }
 
@@ -205,15 +205,18 @@ impl Keys {
 
     /// Generate a new Elligator2 representable ['EphemeralSecret'].
     pub fn random_ephemeral() -> EphemeralSecret {
-        let mut private = EphemeralSecret::random();
-        let mut repres: Option<PublicRepresentative> = (&private).into();
+        let mut private = StaticSecret::random();
+        let mut tweak = [0u8];
+        getrandom(&mut tweak);
+        let mut repres: Option<[u8; 32]> =
+            representative_from_privkey(private.as_bytes(), tweak[0]);
 
         for _ in 0..Self::RETRY_LIMIT {
             if repres.is_some() {
-                return private;
+                return EphemeralSecret(private, tweak[0]);
             }
-            private = EphemeralSecret::random();
-            repres = (&private).into();
+            private = StaticSecret::random();
+            repres = representative_from_privkey(private.as_bytes(), tweak[0]);
         }
 
         panic!("failed to generate representable secret, getrandom failed");
@@ -223,6 +226,8 @@ impl Keys {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Result;
+
     use hex::FromHex;
 
     #[test]
@@ -238,5 +243,42 @@ mod test {
         let p = PublicKey::from(&r);
         assert_ne!(incorrect, hex::encode(p.as_bytes()));
         assert_eq!(expected, hex::encode(p.as_bytes()));
+    }
+
+    #[test]
+    fn about_half() -> Result<()> {
+        let mut rng = rand::thread_rng();
+
+        let mut success = 0;
+        let mut not_found = 0;
+        let mut not_match = 0;
+        for _ in 0..1_000 {
+            let sk = StaticSecret::random_from_rng(&mut rng);
+            let rp: Option<[u8; 32]> = representative_from_privkey(sk.as_bytes(), 0u8);
+            let repres = match rp {
+                Some(r) => PublicRepresentative::from(r),
+                None => {
+                    not_found += 1;
+                    continue;
+                }
+            };
+
+            let pk: PublicKey = (&sk).into();
+
+            let decoded_pk = PublicKey::from(&repres);
+            if hex::encode(pk) != hex::encode(decoded_pk) {
+                not_match += 1;
+                continue;
+            }
+            success += 1;
+        }
+
+        if not_match != 0 {
+            println!("{not_found}/{not_match}/{success}/10_000");
+            assert_eq!(not_match, 0);
+        }
+        assert!(not_found < 600);
+        assert!(not_found > 400);
+        Ok(())
     }
 }
