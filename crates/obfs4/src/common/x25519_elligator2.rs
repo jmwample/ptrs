@@ -9,20 +9,20 @@ use getrandom::getrandom;
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
-/// You can do diffie-hellman with this key multiple times and derive the elligator2
-/// representative, but you cannot write it out, as it is intended to be used only
-/// ONCE (i.e. ephemperally). If the key generation succeeds, the key is guaranteed
-/// to have a valid elligator2 representative.
+/// You can do a Diffie-Hellman exchange with this key multiple times and derive
+/// the elligator2 representative, but you cannot write it out, as it is
+/// intended to be used only ONCE (i.e. ephemerally). If the key generation
+/// succeeds, the key is guaranteed to have a valid elligator2 representative.
 #[derive(Clone)]
-pub(crate) struct EphemeralSecret(x25519_dalek::StaticSecret, u8);
+pub struct EphemeralSecret(x25519_dalek::StaticSecret, u8);
 
 #[allow(unused)]
 impl EphemeralSecret {
-    pub(crate) fn random() -> Self {
+    pub fn random() -> Self {
         Keys::random_ephemeral()
     }
 
-    pub(crate) fn random_from_rng<T: RngCore + CryptoRng>(csprng: T) -> Self {
+    pub fn random_from_rng<T: RngCore + CryptoRng>(csprng: T) -> Self {
         Keys::ephemeral_from_rng(csprng)
     }
 
@@ -54,41 +54,22 @@ impl<'a> Into<PublicKey> for &'a EphemeralSecret {
 }
 
 /// [`PublicKey`] transformation to a format indistinguishable from uniform
-/// random. Requires feature `elligator2`.
+/// random.
 ///
 /// This allows public keys to be sent over an insecure channel without
 /// revealing that an x25519 public key is being shared.
 ///
 /// # Example
-#[cfg_attr(feature = "elligator2", doc = "```")]
-#[cfg_attr(not(feature = "elligator2"), doc = "```ignore")]
-/// use rand_core::OsRng;
-/// use rand_core::RngCore;
-///
-/// use x25519_dalek::x25519;
-/// use x25519_ephemeralSecret;
-/// use x25519_dalek::{PublicKey, PublicRepresentative};
-///
-/// // ~50% of points are not encodable as elligator representatives, but we
-/// // want to ensure we select a keypair that is.
-/// fn get_representable_ephemeral() -> EphemeralSecret {
-///     for i in 0_u8..255 {
-///         let secret = EphemeralSecret::random_from_rng(&mut OsRng);
-///         match from(&secret) {
-///             Some(_) => return secret,
-///             None => continue,
-///         }
-///     }
-///     panic!("we should definitely have found a key by now")
-/// }
+/// ```
+/// use obfs4::common::x25519_elligator2::{Keys, PublicRepresentative, PublicKey};
 ///
 /// // Generate Alice's key pair.
-/// let alice_secret = get_representable_ephemeral();
-/// let alice_representative = Option::<PublicRepresentative>::from(&alice_secret).unwrap();
+/// let alice_secret = Keys::random_ephemeral();
+/// let alice_representative = PublicRepresentative::from(&alice_secret);
 ///
 /// // Generate Bob's key pair.
-/// let bob_secret = get_representable_ephemeral();
-/// let bob_representative = Option::<PublicRepresentative>::from(&bob_secret).unwrap();
+/// let bob_secret = Keys::random_ephemeral();
+/// let bob_representative = PublicRepresentative::from(&bob_secret);
 ///
 /// // Alice and Bob should now exchange their representatives and reveal the
 /// // public key from the other person.
@@ -161,13 +142,9 @@ use rand_core::{CryptoRng, RngCore};
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;
 
-/// Curve25519 keys that are guaranteed to have a valid Elligator2 representative.
-/// As only certain Curve25519 keys can be obfuscated with Elligator2, the
-/// representative must be checked when generating the secret key.
-///
-/// The probablility that a key does not have a representable elligator2 encoding
-/// is ~50%, so we are (statistiscally) guaranteed to find a representable key
-/// in relatively few iterations.
+/// A collection of functions for generating x25519 keys wrapping `x25519_dalek`. ['EphemeralSecret']
+/// keys are guaranteed to have a valid elligator2 representative. In general ['StaticSecret'] should
+/// not be converted to PublicRepresentative, use an EphemeralSecret instead.
 pub struct Keys;
 
 trait RetryLimit {
@@ -189,10 +166,16 @@ impl Keys {
     }
 
     /// Generate a new Elligator2 representable ['EphemeralSecret'] with the supplied RNG.
-    pub fn ephemeral_from_rng<R: RngCore + CryptoRng>(mut rng: R) -> EphemeralSecret {
-        let mut private = StaticSecret::random_from_rng(&mut rng);
+    ///
+    /// May panic if the provided csprng fails to generate random values such that no generated
+    /// secret key maps to a valid elligator2 representative. This should never happen
+    /// when system CSPRNGs are used (i.e `rand::thread_rng`).
+    pub fn ephemeral_from_rng<R: RngCore + CryptoRng>(mut csprng: R) -> EphemeralSecret {
+        let mut private = StaticSecret::random_from_rng(&mut csprng);
+
+        // tweak only needs generated once as it doesn't affect the elligator2 representative validity.
         let mut tweak = [0u8];
-        rng.fill_bytes(&mut tweak);
+        csprng.fill_bytes(&mut tweak);
 
         let mut repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
 
@@ -200,7 +183,7 @@ impl Keys {
             if repres.is_some() {
                 return EphemeralSecret(private, tweak[0]);
             }
-            private = StaticSecret::random_from_rng(&mut rng);
+            private = StaticSecret::random_from_rng(&mut csprng);
             repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
         }
 
@@ -208,10 +191,17 @@ impl Keys {
     }
 
     /// Generate a new Elligator2 representable ['EphemeralSecret'].
+    ///
+    /// May panic if the system random genereator fails such that no generated
+    /// secret key maps to a valid elligator2 representative. This should never
+    /// happen under normal use.
     pub fn random_ephemeral() -> EphemeralSecret {
         let mut private = StaticSecret::random();
+        //
+        // tweak only needs generated once as it doesn't affect the elligator2 representative validity.
         let mut tweak = [0u8];
         getrandom(&mut tweak);
+
         let mut repres: Option<[u8; 32]> =
             representative_from_privkey(private.as_bytes(), tweak[0]);
 
@@ -249,6 +239,10 @@ mod test {
         assert_eq!(expected, hex::encode(p.as_bytes()));
     }
 
+    /// This test confirms that only about half of the `StaticSecret`s generated have
+    /// valid representatives. This is expected - in ['Keys'] we rely on this fact
+    /// to ensure that (given the provided csprng works) generating in a loop
+    /// should statiscally never fail to generate a representable key.
     #[test]
     fn about_half() -> Result<()> {
         let mut rng = rand::thread_rng();
