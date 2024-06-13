@@ -138,6 +138,14 @@ impl<'a> From<&'a PublicRepresentative> for PublicKey {
     }
 }
 
+impl From<PublicRepresentative> for PublicKey {
+    /// Given an elligator2 [`PublicRepresentative`], compute its corresponding [`PublicKey`].
+    fn from(representative: PublicRepresentative) -> PublicKey {
+        let point = curve25519_elligator2::MontgomeryPoint::map_to_point(&representative.0);
+        PublicKey::from(*point.as_bytes())
+    }
+}
+
 use rand_core::{CryptoRng, RngCore};
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;
@@ -281,4 +289,24 @@ mod test {
         assert!(not_found > 400);
         Ok(())
     }
+
+    #[test]
+    fn it_works() {
+        // if this panics we are in trouble
+        let k = EphemeralSecret::random();
+
+        // internal serialization and deserialization works
+        let k_bytes = k.0.as_bytes();
+        let _k1 = EphemeralSecret::from_parts(StaticSecret::from(*k_bytes), 0u8);
+
+        // if we send our representative over the wire then recover the pubkey they should match
+        let pk = PublicKey::from(&k);
+        let r = PublicRepresentative::from(&k);
+        let r_bytes = r.to_bytes();
+        // send r_bytes over the network
+        let r1 = PublicRepresentative::from(r_bytes);
+        let pk1 = PublicKey::from(r1);
+        assert_eq!(hex::encode(pk.to_bytes()), hex::encode(pk1.to_bytes()));
+    }
 }
+
