@@ -9,6 +9,9 @@ use getrandom::getrandom;
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
+/// Ephemeral Key for X25519 Handshakes which intentionally makes writing out the
+/// private key value difficult.
+///
 /// You can do a Diffie-Hellman exchange with this key multiple times and derive
 /// the elligator2 representative, but you cannot write it out, as it is
 /// intended to be used only ONCE (i.e. ephemerally). If the key generation
@@ -309,4 +312,3 @@ mod test {
         assert_eq!(hex::encode(pk.to_bytes()), hex::encode(pk1.to_bytes()));
     }
 }
-
