@@ -18,6 +18,15 @@ pub use helpers::*;
 mod log;
 pub mod orport;
 
+#[cfg(feature="tor")]
+pub mod tor;
+
+
+#[cfg(feature="water")]
+pub mod water;
+
+
+
 pub trait PluggableTransport<InRW>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
