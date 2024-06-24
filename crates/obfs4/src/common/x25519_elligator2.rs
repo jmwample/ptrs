@@ -4,7 +4,7 @@
 //! key-agreement trait, but for now we are just wrapping and re-using the APIs
 //! from [`x25519_dalek`].
 
-pub use curve25519_elligator2::{elligator2::representative_from_privkey, EdwardsPoint};
+pub use curve25519_elligator2::{MapToPointVariant, Randomized};
 use getrandom::getrandom;
 #[allow(unused)]
 pub use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
@@ -44,14 +44,14 @@ impl EphemeralSecret {
 
 impl From<EphemeralSecret> for PublicKey {
     fn from(value: EphemeralSecret) -> Self {
-        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(value.0.to_bytes()).to_montgomery();
+        let pk_bytes = Randomized::mul_base_clamped(value.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
     }
 }
 
 impl<'a> From<&'a EphemeralSecret> for PublicKey {
     fn from(val: &'a EphemeralSecret) -> Self {
-        let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(val.0.to_bytes()).to_montgomery();
+        let pk_bytes = Randomized::mul_base_clamped(val.0.to_bytes()).to_montgomery();
         PublicKey::from(*pk_bytes.as_bytes())
     }
 }
@@ -128,7 +128,8 @@ impl<'a> From<&'a [u8; 32]> for PublicRepresentative {
 impl<'a> From<&'a EphemeralSecret> for PublicRepresentative {
     /// Given an x25519 [`EphemeralSecret`] key, compute its corresponding [`PublicRepresentative`].
     fn from(secret: &'a EphemeralSecret) -> PublicRepresentative {
-        let res: Option<[u8; 32]> = representative_from_privkey(secret.0.as_bytes(), secret.1);
+        let res: Option<[u8; 32]> =
+            Randomized::to_representative(secret.0.as_bytes(), secret.1).into();
         PublicRepresentative(res.unwrap())
     }
 }
@@ -188,14 +189,15 @@ impl Keys {
         let mut tweak = [0u8];
         csprng.fill_bytes(&mut tweak);
 
-        let mut repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
+        let mut repres: Option<[u8; 32]> =
+            Randomized::to_representative(&private.to_bytes(), tweak[0]).into();
 
         for _ in 0..Self::RETRY_LIMIT {
             if repres.is_some() {
                 return EphemeralSecret(private, tweak[0]);
             }
             private = StaticSecret::random_from_rng(&mut csprng);
-            repres = representative_from_privkey(&private.to_bytes(), tweak[0]);
+            repres = Randomized::to_representative(&private.to_bytes(), tweak[0]).into();
         }
 
         panic!("failed to generate representable secret, bad RNG provided");
@@ -214,14 +216,14 @@ impl Keys {
         getrandom(&mut tweak);
 
         let mut repres: Option<[u8; 32]> =
-            representative_from_privkey(private.as_bytes(), tweak[0]);
+            Randomized::to_representative(&private.to_bytes(), tweak[0]).into();
 
         for _ in 0..Self::RETRY_LIMIT {
             if repres.is_some() {
                 return EphemeralSecret(private, tweak[0]);
             }
             private = StaticSecret::random();
-            repres = representative_from_privkey(private.as_bytes(), tweak[0]);
+            repres = Randomized::to_representative(&private.to_bytes(), tweak[0]).into();
         }
 
         panic!("failed to generate representable secret, getrandom failed");
@@ -233,6 +235,7 @@ mod test {
     use super::*;
     use crate::Result;
 
+    use curve25519_elligator2::{MapToPointVariant, Randomized};
     use hex::FromHex;
 
     #[test]
@@ -263,7 +266,7 @@ mod test {
         let mut not_match = 0;
         for _ in 0..1_000 {
             let sk = StaticSecret::random_from_rng(&mut rng);
-            let rp: Option<[u8; 32]> = representative_from_privkey(sk.as_bytes(), 0u8);
+            let rp: Option<[u8; 32]> = Randomized::to_representative(sk.as_bytes(), 0_u8).into();
             let repres = match rp {
                 Some(r) => PublicRepresentative::from(r),
                 None => {
@@ -272,7 +275,7 @@ mod test {
                 }
             };
 
-            let pk_bytes = EdwardsPoint::mul_base_clamped_dirty(sk.to_bytes()).to_montgomery();
+            let pk_bytes = Randomized::mul_base_clamped(sk.to_bytes()).to_montgomery();
 
             let pk = PublicKey::from(*pk_bytes.as_bytes());
 
