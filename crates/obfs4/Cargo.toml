@@ -66,7 +66,7 @@ thiserror = "1.0.56"
 ## transitive dependencies that break things when versions are too low
 ## i.e. any lower than the exact versions here.
 curve25519-dalek = { version="4.1", optional=true}
-curve25519-elligator2 = { version="4.1.2", features=["elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "interim-crate"} # path = "../../../../dalek-crypto/curve25519-dalek/curve25519-elligator2"} # , 
+curve25519-elligator2 = { version="0.1.0-alpha.0", features=["elligator2"],  git = "https://github.com/jmwample/curve25519-dalek.git", branch = "interim-crate"} # path = "../../../../dalek-crypto/curve25519-dalek/curve25519-elligator2"} # , 
 
 anyhow = { version="1.0.20", optional=true}
 async-trait = { version="0.1.9", optional=true}
