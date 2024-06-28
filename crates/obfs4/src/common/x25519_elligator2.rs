@@ -389,32 +389,4 @@ mod test {
             println!("pk_gen: {pk_off}, pk_255: {off_255}, pk_254: {off_254}");
         }
     }
-
-    // #[test]
-    // fn subgroups() {
-    //     let order = curve25519_elligator2::Scalar::from_bytes_mod_order(BASEPOINT_ORDER_MINUS_ONE);
-
-    //     let elligator_direct_map1 = MontgomeryPoint::from_representative::<Randomized>;
-    //     // let elligator_direct_map2 = MontgomeryPoint::from_representative::<RFC9380>;
-
-    //     for _ in 0..100 {
-    //         let e = EphemeralSecret::random();
-    //         let r = PublicRepresentative::from(&e);
-
-    //         let mut yr_255 = r.0.clone();
-    //         yr_255[31] &= 0xbf;
-    //         let y_255 = elligator_direct_map1(&yr_255).expect("to_repr_255, should never fail");
-    //         let z = y_255 * order;
-    //         let off_255 = !z.is_identity();
-
-    //         let mut yr_254 = r.0.clone();
-    //         yr_254[31] &= 0x3f;
-    //         let y_254 = elligator_direct_map1(&yr_254).expect("to_repr_254, should never fail");
-    //         let z = y_254 * order;
-    //         let off_254 = !z.is_identity();
-
-    //         println!("255: {off_255}, 254: {off_254}");
-    //     }
-    // }
-
 }

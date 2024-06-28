@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# original source: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/-/issues/40007
+
 # Usage: obfs4-subgroup-check [-n NUM_TRIALS] [-t TIMEOUT] 192.95.36.142:443 qUVQ0srL1JI/vO6V6m/24anYXiJD3QP2HgzUKQtQ7GRqqUvs7P+tG43RtAqdhLOALP7DJQ
 # The second argument is the "cert" parameter from the bridge line.
 #
@@ -258,7 +260,6 @@ vfactor = sqrt(ufactor)  # and vfactor are equal to 1
 
 # Elligator reference implementation by Loup Vaillant
 # https://elligator.org/src/elligator
-
 ###########################################
 # Fast Implementation (explicit formulas) #
 ###########################################
@@ -364,7 +365,7 @@ def check(Yrb):
     Y_254 = elligator_dir_map(Yr_254)[0]
     off_subgroup_254 = Mt.scalarmult(Y_254, Mt.order).to_num() != 0
 
-    print(" - 255: %r, 254: %r" % (off_subgroup_255, off_subgroup_254))
+    print(" - 255: %r,\t254: %r" % (off_subgroup_255, off_subgroup_254))
 
     return off_subgroup_255 and off_subgroup_254
 
@@ -393,24 +394,10 @@ def trial(addr, server_nodeid, server_pubkey):
 
 
 def main():
-    network_trials()
-    # fixed_trials()
+    # network_trials()
+    random_trials()
 
-def fixed_trials():
-    low_order_points = [
-        "0100000000000000000000000000000000000000000000000000000000000000",
-        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000080",
-        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
-        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
-        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
-        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
-    ]
-    for px in low_order_points:
-        p = bytes.fromhex(px)
-        check(p)
-
+def random_trials():
     for _ in range(100):
         p = random.randbytes(32)
         check(p)

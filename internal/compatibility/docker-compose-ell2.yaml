@@ -17,9 +17,22 @@ services:
       server-proxy:
         condition: service_started
 
+          # server-proxy:
+          #   image: obfs4-compat
+          #   command: fwd_go -a dev -x server echo
+          #   tty: true
+          #   build:
+          #     context: ../../
+          #     dockerfile: Dockerfile
+          #   expose:
+          #     - 9001
+          #   networks:
+          #     - trial
+
+
   server-proxy:
     image: obfs4-compat
-    command: fwd_go -a dev -x server echo
+    command: fwd_rs -a dev -x server echo
     tty: true
     build:
       context: ../../
@@ -28,19 +41,6 @@ services:
       - 9001
     networks:
       - trial
-
-
-        # server-proxy:
-        #   image: obfs4-compat
-        #   command: fwd_rs -a dev -x server echo
-        #   tty: true
-        #   build:
-        #     context: ../../
-        #     dockerfile: Dockerfile
-        #   expose:
-        #     - 9001
-        #   networks:
-        #     - trial
 
 
 networks:
