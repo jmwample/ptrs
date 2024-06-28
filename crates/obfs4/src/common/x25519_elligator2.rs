@@ -235,8 +235,10 @@ mod test {
     use super::*;
     use crate::Result;
 
-    use curve25519_elligator2::{MapToPointVariant, Randomized};
+    use curve25519_elligator2::{traits::IsIdentity, MapToPointVariant, MontgomeryPoint, EdwardsPoint, Randomized, RFC9380};
     use hex::FromHex;
+
+    use rand::Rng;
 
     #[test]
     fn representative_match() {
@@ -314,4 +316,105 @@ mod test {
         let pk1 = PublicKey::from(r1);
         assert_eq!(hex::encode(pk.to_bytes()), hex::encode(pk1.to_bytes()));
     }
+
+    const BASEPOINT_ORDER_MINUS_ONE: [u8; 32] = [
+        0xec, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
+        0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x10,
+    ];
+
+    // Generates a new Keypair using, and returns the public key representative
+    // along, with its public key as a newly allocated edwards25519.Point.
+    fn generate<R:RngCore+CryptoRng>(rng: &mut R) -> ([u8; 32], EdwardsPoint) {
+        for _ in 0..63 {
+            let y_sk = rng.gen::<[u8; 32]>();
+
+            let y_repr_bytes = match Randomized::to_representative(&y_sk, 0xff).into() {
+                Some(r) => r,
+                None => continue,
+            };
+            let y_pk = Randomized::mul_base_clamped(y_sk);
+
+            assert_eq!(
+                MontgomeryPoint::from_representative::<Randomized>(&y_repr_bytes)
+                    .expect("failed to re-derive point from representative"),
+                y_pk.to_montgomery()
+            );
+
+            return (y_repr_bytes, y_pk);
+        }
+        panic!("failed to generate a valid keypair");
+    }
+
+    /// Returns a new edwards25519.Point that is v multiplied by the subgroup order.
+    ///
+    /// BASEPOINT_ORDER_MINUS_ONE is the same as scMinusOne in filippo.io/edwards25519.
+    /// https://github.com/FiloSottile/edwards25519/blob/v1.0.0/scalar.go#L34
+    fn scalar_mult_order(v: &EdwardsPoint) -> EdwardsPoint {
+            let order = curve25519_elligator2::Scalar::from_bytes_mod_order(BASEPOINT_ORDER_MINUS_ONE);
+
+            // v * (L - 1) + v => v * L
+            let p = v * order;
+            p + v
+    }
+
+    #[test]
+    fn off_subgroup_check_edw() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let (repr, pk) = generate(&mut rng);
+
+            // check if the generated public key is off the subgroup
+            let v = scalar_mult_order(&pk);
+            let pk_off = !v.is_identity();
+
+            // ----
+
+            // check if the public key derived from the representative (top bit 0)
+            // is off the subgroup
+            let mut yr_255 = repr.clone();
+            yr_255[31] &= 0xbf;
+            let pk_255 = EdwardsPoint::from_representative::<RFC9380>(&yr_255).expect("from_repr_255, should never fail");
+            let v = scalar_mult_order(&pk_255);
+            let off_255 = !v.is_identity();
+
+            // check if the public key derived from the representative (top two bits 0 - as
+            // our representatives are) is off the subgroup.
+            let mut yr_254 = repr.clone();
+            yr_254[31] &= 0x3f;
+            let pk_254 = EdwardsPoint::from_representative::<RFC9380>(&yr_254).expect("from_repr_254, should never fail");
+            let v = scalar_mult_order(&pk_254);
+            let off_254 = !v.is_identity();
+
+            println!("pk_gen: {pk_off}, pk_255: {off_255}, pk_254: {off_254}");
+        }
+    }
+
+    // #[test]
+    // fn subgroups() {
+    //     let order = curve25519_elligator2::Scalar::from_bytes_mod_order(BASEPOINT_ORDER_MINUS_ONE);
+
+    //     let elligator_direct_map1 = MontgomeryPoint::from_representative::<Randomized>;
+    //     // let elligator_direct_map2 = MontgomeryPoint::from_representative::<RFC9380>;
+
+    //     for _ in 0..100 {
+    //         let e = EphemeralSecret::random();
+    //         let r = PublicRepresentative::from(&e);
+
+    //         let mut yr_255 = r.0.clone();
+    //         yr_255[31] &= 0xbf;
+    //         let y_255 = elligator_direct_map1(&yr_255).expect("to_repr_255, should never fail");
+    //         let z = y_255 * order;
+    //         let off_255 = !z.is_identity();
+
+    //         let mut yr_254 = r.0.clone();
+    //         yr_254[31] &= 0x3f;
+    //         let y_254 = elligator_direct_map1(&yr_254).expect("to_repr_254, should never fail");
+    //         let z = y_254 * order;
+    //         let off_254 = !z.is_identity();
+
+    //         println!("255: {off_255}, 254: {off_254}");
+    //     }
+    // }
+
 }

@@ -37,6 +37,7 @@ import socket
 import sys
 import time
 import traceback
+import random
 
 # Elligator reference implementation by Loup Vaillant
 # https://elligator.org/src/core
@@ -363,6 +364,8 @@ def check(Yrb):
     Y_254 = elligator_dir_map(Yr_254)[0]
     off_subgroup_254 = Mt.scalarmult(Y_254, Mt.order).to_num() != 0
 
+    print(" - 255: %r, 254: %r" % (off_subgroup_255, off_subgroup_254))
+
     return off_subgroup_255 and off_subgroup_254
 
 def trial(addr, server_nodeid, server_pubkey):
@@ -375,7 +378,7 @@ def trial(addr, server_nodeid, server_pubkey):
     padding = os.urandom(85)
     mark = mac(Xrb)
     epoch_hours = str(int(time.time()) // 3600).encode()
-    s = socket.create_connection((host, port), TIMEOUT)
+    s = socket.create_connection(addr, TIMEOUT)
     try:
         # Client handshake
         # https://gitlab.com/yawning/obfs4/-/blob/obfs4proxy-0.0.13/doc/obfs4-spec.txt#L156-163
@@ -388,35 +391,63 @@ def trial(addr, server_nodeid, server_pubkey):
         s.close()
     return check(Yrb)
 
-opts, (addr, cert) = getopt.gnu_getopt(sys.argv[1:], "n:t:")
-for o, a in opts:
-    if o == "-n":
-        NUM_TRIALS = int(a)
-    elif o == "-t":
-        TIMEOUT = float(a)
-host, port = re.match(r'^\[?(.*?)\]?:(\d+)$', addr).groups()
-port = int(port)
-cert = base64.b64decode(cert + "==="[:(4-len(cert)%4)%4])
-if len(cert) != 52:
-    raise ValueError(cert)
-server_nodeid = cert[ 0:20]
-server_pubkey = cert[20:52]
 
-num_successes = 0
-err = None
-try:
-    for _ in range(NUM_TRIALS):
-        if trial((host, port), server_nodeid, server_pubkey):
-            dot = f"#"
-            num_successes += 1
-        else:
-            dot = "."
-        print(dot, flush = True, end = "")
-except Exception as e:
-    print("X", flush = True, end = "")
-    print("", addr, "ERROR", str(e))
-    traceback.print_exc()
-    sys.exit(2)
-else:
-    print("", addr, "PASS" if num_successes > 0 else "FAIL", f"{num_successes}/{NUM_TRIALS}")
-    sys.exit(0 if num_successes > 0 else 1)
+def main():
+    network_trials()
+    # fixed_trials()
+
+def fixed_trials():
+    low_order_points = [
+        "0100000000000000000000000000000000000000000000000000000000000000",
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000080",
+        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+    ]
+    for px in low_order_points:
+        p = bytes.fromhex(px)
+        check(p)
+
+    for _ in range(100):
+        p = random.randbytes(32)
+        check(p)
+
+def network_trials():
+    opts, (addr, cert) = getopt.gnu_getopt(sys.argv[1:], "n:t:")
+    for o, a in opts:
+        if o == "-n":
+            NUM_TRIALS = int(a)
+        elif o == "-t":
+            TIMEOUT = float(a)
+    host, port = re.match(r'^\[?(.*?)\]?:(\d+)$', addr).groups()
+    port = int(port)
+    cert = base64.b64decode(cert + "==="[:(4-len(cert)%4)%4])
+    if len(cert) != 52:
+        raise ValueError(cert)
+    server_nodeid = cert[ 0:20]
+    server_pubkey = cert[20:52]
+
+    num_successes = 0
+    err = None
+    try:
+        for _ in range(NUM_TRIALS):
+            if trial((host, port), server_nodeid, server_pubkey):
+                dot = f"#"
+                num_successes += 1
+            else:
+                dot = "."
+            print(dot, flush = True, end = "")
+    except Exception as e:
+        print("X", flush = True, end = "")
+        print("", addr, "ERROR", str(e))
+        traceback.print_exc()
+        sys.exit(2)
+    else:
+        print("", addr, "PASS" if num_successes > 0 else "FAIL", f"{num_successes}/{NUM_TRIALS}")
+        sys.exit(0 if num_successes > 0 else 1)
+
+if __name__ == "__main__":
+    main()
