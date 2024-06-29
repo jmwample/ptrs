@@ -235,7 +235,9 @@ mod test {
     use super::*;
     use crate::Result;
 
-    use curve25519_elligator2::{traits::IsIdentity, MapToPointVariant, MontgomeryPoint, EdwardsPoint, Randomized, RFC9380};
+    use curve25519_elligator2::{
+        traits::IsIdentity, EdwardsPoint, MapToPointVariant, MontgomeryPoint, Randomized, RFC9380,
+    };
     use hex::FromHex;
 
     use rand::Rng;
@@ -325,7 +327,7 @@ mod test {
 
     // Generates a new Keypair using, and returns the public key representative
     // along, with its public key as a newly allocated edwards25519.Point.
-    fn generate<R:RngCore+CryptoRng>(rng: &mut R) -> ([u8; 32], EdwardsPoint) {
+    fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> ([u8; 32], EdwardsPoint) {
         for _ in 0..63 {
             let y_sk = rng.gen::<[u8; 32]>();
 
@@ -351,11 +353,11 @@ mod test {
     /// BASEPOINT_ORDER_MINUS_ONE is the same as scMinusOne in filippo.io/edwards25519.
     /// https://github.com/FiloSottile/edwards25519/blob/v1.0.0/scalar.go#L34
     fn scalar_mult_order(v: &EdwardsPoint) -> EdwardsPoint {
-            let order = curve25519_elligator2::Scalar::from_bytes_mod_order(BASEPOINT_ORDER_MINUS_ONE);
+        let order = curve25519_elligator2::Scalar::from_bytes_mod_order(BASEPOINT_ORDER_MINUS_ONE);
 
-            // v * (L - 1) + v => v * L
-            let p = v * order;
-            p + v
+        // v * (L - 1) + v => v * L
+        let p = v * order;
+        p + v
     }
 
     #[test]
@@ -374,7 +376,8 @@ mod test {
             // is off the subgroup
             let mut yr_255 = repr.clone();
             yr_255[31] &= 0xbf;
-            let pk_255 = EdwardsPoint::from_representative::<RFC9380>(&yr_255).expect("from_repr_255, should never fail");
+            let pk_255 = EdwardsPoint::from_representative::<RFC9380>(&yr_255)
+                .expect("from_repr_255, should never fail");
             let v = scalar_mult_order(&pk_255);
             let off_255 = !v.is_identity();
 
@@ -382,7 +385,8 @@ mod test {
             // our representatives are) is off the subgroup.
             let mut yr_254 = repr.clone();
             yr_254[31] &= 0x3f;
-            let pk_254 = EdwardsPoint::from_representative::<RFC9380>(&yr_254).expect("from_repr_254, should never fail");
+            let pk_254 = EdwardsPoint::from_representative::<RFC9380>(&yr_254)
+                .expect("from_repr_254, should never fail");
             let v = scalar_mult_order(&pk_254);
             let off_254 = !v.is_identity();
 
