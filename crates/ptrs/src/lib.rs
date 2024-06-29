@@ -11,20 +11,18 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 mod error;
 pub use error::Error;
-#[macro_use]
-pub mod args;
-mod helpers;
-pub use helpers::*;
 mod log;
-pub mod orport;
 
 #[cfg(feature="tor")]
 pub mod tor;
+pub use tor::args;
 
 
 #[cfg(feature="water")]
 pub mod water;
 
+#[cfg(feature="pt_spec_v3")]
+pub mod pt_spec_v3;
 
 
 pub trait PluggableTransport<InRW>

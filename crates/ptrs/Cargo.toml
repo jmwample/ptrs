@@ -12,10 +12,11 @@ repository = "https://github.com/jmwample/ptrs"
 
 
 [features]
-default = ["tor", "water"]
+default = ["tor", "water", "pt_spec_v3"]
 debug = []
 tor = []
 water = []
+pt_spec_v3 = []
 
 [lib]
 name = "ptrs"
