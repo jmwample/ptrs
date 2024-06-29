@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        x25519_elligator2::{EphemeralSecret, PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::handshake::{ClientHandshakeMessage, ServerHandshakeMessage},
@@ -35,7 +35,7 @@ pub(crate) struct NtorHandshakeState {
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: StaticSecret,
+    my_sk: EphemeralSecret,
 
     /// handshake materials
     materials: HandshakeMaterials,
@@ -49,23 +49,20 @@ pub(super) fn client_handshake_obfs4(
     materials: &HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
     let rng = rand::thread_rng();
-    let my_sk = Representable::static_from_rng(rng);
+    let my_sk = Keys::ephemeral_from_rng(rng);
     client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
 
 /// Helper: client handshake _without_ generating  new keys.
 pub(crate) fn client_handshake_obfs4_no_keygen(
-    ephem: StaticSecret,
+    ephem: EphemeralSecret,
     materials: HandshakeMaterials,
 ) -> Result<(NtorHandshakeState, Vec<u8>)> {
-    let repres: Option<PublicRepresentative> = (&ephem).into();
+    let repres = PublicRepresentative::from(&ephem);
 
     // build client handshake message
-    let mut ch_msg = ClientHandshakeMessage::new(
-        repres.unwrap(),
-        materials.pad_len,
-        materials.session_id.clone(),
-    );
+    let mut ch_msg =
+        ClientHandshakeMessage::new(repres, materials.pad_len, materials.session_id.clone());
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
     let mut key = materials.node_pubkey.pk.as_bytes().to_vec();
@@ -187,12 +184,12 @@ fn try_parse(
     let mut h = HmacSha256::new_from_slice(&key[..]).unwrap();
     h.reset(); // disambiguate reset() implementations Mac v digest
 
-    let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+    let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
     h.update(&r_bytes);
 
-    // clear the inconsistent elligator2 bits of the representative after
-    // using the wire format for deriving the mark
-    r_bytes[31] &= 0x3f;
+    // The elligator library internally clears the high-order bits of the
+    // representative to force a LSR value, but we use the wire format for
+    // deriving the mark (i.e. without cleared bits).
     let server_repres = PublicRepresentative::from(r_bytes);
     let server_auth: [u8; AUTHCODE_LENGTH] =
         buf[REPRESENTATIVE_LENGTH..REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH].try_into()?;
@@ -223,8 +220,6 @@ fn try_parse(
         hex::encode(mac_received)
     );
     if mac_calculated.ct_eq(mac_received).into() {
-        let mut r_bytes = server_repres.to_bytes();
-        r_bytes[31] &= 0x3f;
         return Ok((
             ServerHandshakeMessage::new(server_repres, server_auth, state.epoch_hr.clone()),
             pos + MARK_LENGTH + MAC_LENGTH,
