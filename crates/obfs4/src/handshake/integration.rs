@@ -16,7 +16,8 @@
 
 use super::*;
 use crate::{
-    common::{colorize, curve25519},
+    common::colorize,
+    common::x25519_elligator2::*,
     test_utils::{init_subscriber, FakePRNG},
 };
 
@@ -34,7 +35,7 @@ fn test_obfs4_roundtrip() -> Result<()> {
     let mut rng = rand::thread_rng();
 
     let relay_private = Obfs4NtorSecretKey::generate_for_test(&mut rng);
-    let x = Obfs4NtorSecretKey::generate_for_test(&mut rng);
+    let x_sk = EphemeralSecret::random_from_rng(&mut rng);
     let y = Obfs4NtorSecretKey::generate_for_test(&mut rng);
 
     let mut sid = [0u8; SESSION_ID_LEN];
@@ -50,7 +51,7 @@ fn test_obfs4_roundtrip() -> Result<()> {
         session_id: "s-yyy".into(),
     };
 
-    let (state, create_msg) = client_handshake_obfs4_no_keygen(x.sk, chs_materials).unwrap();
+    let (state, create_msg) = client_handshake_obfs4_no_keygen(x_sk, chs_materials).unwrap();
 
     let ephem = make_fake_ephem_key(&y.sk.as_bytes()[..]);
     let (s_keygen, created_msg) = server
@@ -123,7 +124,7 @@ fn test_obfs4_testvec_compat() -> Result<()> {
     let relay_sk = Obfs4NtorSecretKey { pk, sk };
     let server = Server::new_from_key(relay_sk.clone());
 
-    let x: StaticSecret = x_sk.into();
+    let x = EphemeralSecret::from_parts(x_sk.into(), 0u8);
 
     let chs_materials = CHSMaterials::new(pk, "c-xxx".into());
 
@@ -257,58 +258,6 @@ fn failing_handshakes() {
     smsg[60] ^= 7;
     let ans3 = Obfs4NtorHandshake::client2(st3, smsg);
     assert!(ans3.is_err());
-}
-
-#[test]
-fn about_half() -> Result<()> {
-    let mut rng = rand::thread_rng();
-
-    let mut success = 0;
-    let mut not_found = 0;
-    let mut not_match = 0;
-    for _ in 0..1_000 {
-        let sk = curve25519::StaticSecret::random_from_rng(&mut rng);
-        let rp: Option<curve25519::PublicRepresentative> = (&sk).into();
-        let repres = match rp {
-            Some(r) => r,
-            None => {
-                not_found += 1;
-                continue;
-            }
-        };
-
-        let pk = curve25519::PublicKey::from(&sk);
-
-        let decoded_pk = curve25519::PublicKey::from(&repres);
-        if hex::encode(pk) != hex::encode(decoded_pk) {
-            not_match += 1;
-            continue;
-        }
-        success += 1;
-    }
-
-    if not_match != 0 {
-        println!("{not_found}/{not_match}/{success}/10_000");
-        assert_eq!(not_match, 0);
-    }
-    assert!(not_found < 600);
-    assert!(not_found > 400);
-    Ok(())
-}
-
-#[test]
-fn keypair() -> Result<()> {
-    let mut rng = rand::thread_rng();
-    for _ in 0..1_000 {
-        let kp = Obfs4NtorSecretKey::generate_for_test(&mut rng);
-
-        let pk = kp.pk.pk.to_bytes();
-        let repres: Option<curve25519::PublicRepresentative> = (&kp.sk).into();
-
-        let pubkey = curve25519::PublicKey::from(&repres.unwrap());
-        assert_eq!(hex::encode(pk), hex::encode(pubkey.to_bytes()));
-    }
-    Ok(())
 }
 
 /*

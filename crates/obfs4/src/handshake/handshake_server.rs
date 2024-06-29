@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        curve25519::{PublicRepresentative, REPRESENTATIVE_LENGTH},
+        x25519_elligator2::{PublicRepresentative, REPRESENTATIVE_LENGTH},
         HmacSha256,
     },
     framing::{build_and_marshall, ClientHandshakeMessage, MessageTypes, ServerHandshakeMessage},
@@ -56,7 +56,7 @@ impl Server {
         T: AsRef<[u8]>,
     {
         let rng = thread_rng();
-        let session_sk = Representable::ephemeral_from_rng(rng);
+        let session_sk = Keys::ephemeral_from_rng(rng);
 
         self.server_handshake_obfs4_no_keygen(session_sk, msg, materials)
     }
@@ -94,8 +94,8 @@ impl Server {
             materials.session_id
         );
         let their_pk = client_hs.get_public();
-        let ephem_pub = PublicKey::from(&session_sk);
-        let session_repres: Option<PublicRepresentative> = (&session_sk).into();
+        let ephem_pub = (&session_sk).into();
+        let session_repres = PublicRepresentative::from(&session_sk);
 
         let xy = session_sk.diffie_hellman(&their_pk);
         let xb = materials.identity_keys.sk.diffie_hellman(&their_pk);
@@ -116,13 +116,8 @@ impl Server {
 
         let mut keygen = NtorHkdfKeyGenerator::new(key_seed, false);
 
-        let reply = self.complete_server_hs(
-            &client_hs,
-            materials,
-            session_repres.unwrap(),
-            &mut keygen,
-            authcode,
-        )?;
+        let reply =
+            self.complete_server_hs(&client_hs, materials, session_repres, &mut keygen, authcode)?;
 
         if okay.into() {
             Ok((keygen, reply))
@@ -197,13 +192,14 @@ impl Server {
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?;
         }
 
-        let mut r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
+        let r_bytes: [u8; 32] = buf[0..REPRESENTATIVE_LENGTH].try_into().unwrap();
 
         // derive the mark based on the literal bytes on the wire
         h.update(&r_bytes[..]);
 
-        // clear the bits that are unreliable (and randomized) for elligator2
-        r_bytes[31] &= 0x3f;
+        // The elligator library internally clears the high-order bits of the
+        // representative to force a LSR value, but we use the wire format for
+        // deriving the mark (i.e. without cleared bits).
         let repres = PublicRepresentative::from(&r_bytes);
 
         let m = h.finalize_reset().into_bytes();
