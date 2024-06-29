@@ -21,9 +21,6 @@ pub use tor::args;
 #[cfg(feature="water")]
 pub mod water;
 
-#[cfg(feature="pt_spec_v3")]
-pub mod pt_spec_v3;
-
 
 pub trait PluggableTransport<InRW>
 where
