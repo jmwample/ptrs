@@ -374,7 +374,7 @@ mod test {
 
             // check if the public key derived from the representative (top bit 0)
             // is off the subgroup
-            let mut yr_255 = repr.clone();
+            let mut yr_255 = repr;
             yr_255[31] &= 0xbf;
             let pk_255 = EdwardsPoint::from_representative::<RFC9380>(&yr_255)
                 .expect("from_repr_255, should never fail");
@@ -383,7 +383,7 @@ mod test {
 
             // check if the public key derived from the representative (top two bits 0 - as
             // our representatives are) is off the subgroup.
-            let mut yr_254 = repr.clone();
+            let mut yr_254 = repr;
             yr_254[31] &= 0x3f;
             let pk_254 = EdwardsPoint::from_representative::<RFC9380>(&yr_254)
                 .expect("from_repr_254, should never fail");
