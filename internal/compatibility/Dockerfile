@@ -1,12 +1,12 @@
 
-FROM golang:bullseye as go-builder
+FROM golang:bullseye AS go-builder
 WORKDIR /usr/src/obfs4-go
 COPY internal/compatibility/obfs4/ .
 RUN ls
 RUN go mod tidy
 RUN go build -o fwd_go .
 
-FROM rust:bullseye as rs-builder
+FROM rust:bullseye AS rs-builder
 WORKDIR /usr/src/fwd
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates/
