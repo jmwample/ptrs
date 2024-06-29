@@ -42,10 +42,6 @@ import (
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/transports"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/transports/base"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/transports/obfs4"
-	// "github.com/refraction-networking/obfs4/common/drbg"
-	// "github.com/refraction-networking/obfs4/transports"
-	// "github.com/refraction-networking/obfs4/transports/base"
-	// "github.com/refraction-networking/obfs4/transports/obfs4"
 )
 
 const (

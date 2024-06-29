@@ -35,7 +35,7 @@ pub const OBFS4_NAME: &str = "obfs4";
 #[cfg(test)]
 pub(crate) mod test_utils;
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub mod dev {
     /// Pre-generated / shared key for use while running in debug mode.
     pub const DEV_PRIV_KEY: &[u8; 32] = b"0123456789abcdeffedcba9876543210";
@@ -50,7 +50,7 @@ pub mod dev {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::common::curve25519::StaticSecret;
+        use crate::common::x25519_elligator2::StaticSecret;
         use crate::constants::*;
         use crate::handshake::Obfs4NtorSecretKey;
         use crate::{ClientBuilder, ServerBuilder};

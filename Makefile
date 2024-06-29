@@ -1,6 +1,6 @@
 
 docker:
-	docker build -t obfs4-compat -f internal/compitability/obfs4/Dockerfile .
+	docker build -t obfs4-compat -f internal/compatibility/Dockerfile .
 
 
 release:
