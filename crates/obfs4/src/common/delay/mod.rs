@@ -57,9 +57,7 @@ impl<Item, Si: Sink<Item>> Sink<Item> for DelayedSink<Si, Item> {
         let delay = (*s.delay_fn)();
 
         if delay.is_zero() {
-            s.sleep
-                .as_mut()
-                .reset(Instant::now() + delay);
+            s.sleep.as_mut().reset(Instant::now() + delay);
         }
         Ok(())
     }
@@ -77,8 +75,8 @@ impl<Item, Si: Sink<Item>> Sink<Item> for DelayedSink<Si, Item> {
 mod testing {
     use super::*;
     use futures::sink::{self, SinkExt};
+    use rand_distr::{Distribution, Normal};
     use std::time::Instant;
-    use rand_distr::{Normal, Distribution};
 
     #[tokio::test]
     async fn delay_sink() {

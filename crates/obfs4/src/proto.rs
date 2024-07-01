@@ -1,6 +1,8 @@
 use crate::{
     common::{
-        delay, drbg, probdist::{self, WeightedDist}
+        delay::{self, DelayedSink},
+        drbg,
+        probdist::{self, WeightedDist},
     },
     constants::*,
     framing,
@@ -9,7 +11,10 @@ use crate::{
 };
 
 use bytes::{Buf, BytesMut};
-use futures::{sink::Sink, stream::{Stream, StreamExt}};
+use futures::{
+    sink::Sink,
+    stream::{Stream, StreamExt},
+};
 use pin_project::pin_project;
 use ptrs::trace;
 use sha2::{Digest, Sha256};
@@ -35,8 +40,6 @@ pub enum IAT {
     Paranoid,
 }
 
-pub trait Transport<B,E,I>: Sink<B, Error=E> + Stream<Item=I> + Unpin + Send {}
-
 #[derive(Debug, Clone)]
 pub(crate) enum MaybeTimeout {
     Default_,
@@ -44,6 +47,9 @@ pub(crate) enum MaybeTimeout {
     Length(Duration),
     Unset,
 }
+
+type MsgStream = Box<dyn Stream<Item = StdResult<Messages, FrameError>> + Send + Unpin>;
+type BytesSink<E> = Box<dyn Sink<BytesMut, Error = E> + Send + Unpin>;
 
 impl std::str::FromStr for IAT {
     type Err = Error;
@@ -86,14 +92,20 @@ impl MaybeTimeout {
 }
 
 #[pin_project]
-pub struct Obfs4Stream {
+pub struct Obfs4Stream<E> {
     // s: Arc<Mutex<O4Stream<'a, T>>>,
     #[pin]
-    s: O4Stream,
+    s: O4Stream<E>,
 }
 
-impl Obfs4Stream {
-    pub(crate) fn from_o4(o4: O4Stream<>) -> Self {
+impl<E> Obfs4Stream<E>
+where
+    E: From<IoError>,
+{
+    pub(crate) fn from_o4(o4: O4Stream<E>) -> Self
+    where
+        E: From<IoError>,
+    {
         Obfs4Stream {
             // s: Arc::new(Mutex::new(o4)),
             s: o4,
@@ -102,13 +114,13 @@ impl Obfs4Stream {
 }
 
 #[pin_project]
-pub(crate) struct O4Stream{
+pub(crate) struct O4Stream<E> {
     #[pin]
     // pub stream: Framed<T, framing::Obfs4Codec>,
     // pub stream: Box<dyn Transport<BytesMut, IoError, Messages>>,
-    pub stream: Box<dyn Stream<Item=Messages> + Send + Unpin>,
+    pub stream: MsgStream,
     #[pin]
-    pub sink: Box<dyn Sink<BytesMut, Error=IoError> + Send + Unpin>,
+    pub sink: BytesSink<E>,
 
     pub length_dist: probdist::WeightedDist,
     pub iat_dist: probdist::WeightedDist,
@@ -116,13 +128,16 @@ pub(crate) struct O4Stream{
     pub session: Session,
 }
 
-impl O4Stream {
+impl<E> O4Stream<E>
+where
+    E: From<IoError>,
+{
     pub(crate) fn new<T>(
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
         codec: framing::Obfs4Codec,
         mut session: Session,
-    ) -> O4Stream
+    ) -> O4Stream<E>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {
@@ -131,10 +146,10 @@ impl O4Stream {
             IAT::Enabled | IAT::Paranoid => session.iat_duration_sampler(),
         };
         let (sink, stream) = Framed::new(inner, codec).split();
-        let sink = delay::DelayedSink::new(sink, delay_fn);
+        let sink = &delay::DelayedSink::new(sink, delay_fn);
 
-        let sink: Box<dyn Sink<BytesMut, Error = IoError> + Send + Unpin> = Box::new(sink);
-        let stream: Box<dyn Stream<Item = Messages> + Send + Unpin> = Box::new(stream);
+        let sink: BytesSink<E> = Box::new(sink);
+        let stream: MsgStream = Box::new(stream);
 
         let len_seed = session.len_seed();
 
@@ -177,8 +192,10 @@ impl O4Stream {
     }
 }
 
-
-impl AsyncWrite for O4Stream {
+impl<E> AsyncWrite for O4Stream<E>
+where
+    E: From<IoError>,
+{
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -197,8 +214,8 @@ impl AsyncWrite for O4Stream {
         // chunks until we have less than that amount left.
         // TODO: asyncwrite - apply length_dist instead of just full payloads
         let mut len_sent: usize = 0;
-        let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
         while msg_len - len_sent > framing::MAX_MESSAGE_PAYLOAD_LENGTH {
+            let mut out_buf = BytesMut::with_capacity(framing::MAX_MESSAGE_PAYLOAD_LENGTH);
             // package one chunk of the mesage as a payload
             let payload = framing::Messages::Payload(
                 buf[len_sent..len_sent + framing::MAX_MESSAGE_PAYLOAD_LENGTH].to_vec(),
@@ -206,10 +223,9 @@ impl AsyncWrite for O4Stream {
 
             // send the marshalled payload
             payload.marshall(&mut out_buf)?;
-            this.stream.as_mut().start_send(&mut out_buf)?;
+            this.sink.as_mut().start_send(out_buf)?;
 
             len_sent += framing::MAX_MESSAGE_PAYLOAD_LENGTH;
-            out_buf.clear();
 
             // determine if the stream is ready to send more data. if not back off
             match futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx) {
@@ -222,7 +238,7 @@ impl AsyncWrite for O4Stream {
 
         let mut out_buf = BytesMut::new();
         payload.marshall(&mut out_buf)?;
-        this.sink.as_mut().start_send(out_buf)?;
+        this.sink.as_mut().start_send(out_buf).into()?;
 
         Poll::Ready(Ok(msg_len))
     }
@@ -232,7 +248,7 @@ impl AsyncWrite for O4Stream {
         let mut this = self.project();
         match futures::Sink::<BytesMut>::poll_flush(this.sink.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -242,13 +258,16 @@ impl AsyncWrite for O4Stream {
         let mut this = self.project();
         match futures::Sink::<BytesMut>::poll_close(this.sink.as_mut(), cx) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-impl AsyncRead for O4Stream {
+impl<E> AsyncRead for O4Stream<E>
+where
+    E: From<IoError>,
+{
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -271,7 +290,10 @@ impl AsyncRead for O4Stream {
                             return Poll::Ready(Ok(()));
                         }
 
-                        res.unwrap()
+                        match res.unwrap() {
+                            Ok(m) => m,
+                            Err(e) => Err(e)?,
+                        }
                     }
                 }
             };
@@ -313,7 +335,10 @@ impl AsyncWrite for Obfs4Stream {
     }
 }
 
-impl AsyncRead for Obfs4Stream {
+impl<E> AsyncRead for Obfs4Stream<E>
+where
+    E: From<IoError>,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -324,8 +349,11 @@ impl AsyncRead for Obfs4Stream {
     }
 }
 
-impl Sink<BytesMut> for O4Stream {
-    type Error = IoError;
+impl<E> Sink<BytesMut> for O4Stream<E>
+where
+    E: From<IoError>,
+{
+    type Error = E;
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
         todo!();
     }
@@ -343,20 +371,17 @@ impl Sink<BytesMut> for O4Stream {
     }
 }
 
-impl Stream for O4Stream {
+impl<E> Stream for O4Stream<E>
+where
+    E: From<IoError>,
+{
     type Item = Messages;
 
     // Required method
-    fn poll_next(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         todo!();
     }
 }
-
-impl Transport<BytesMut, IoError, Messages> for O4Stream {}
-
 
 // TODO Apply pad_burst logic and IAT policy to Message assembly (probably as part of AsyncRead / AsyncWrite impl)
 /// Attempts to pad a burst of data so that the last [`Message`] is of the length

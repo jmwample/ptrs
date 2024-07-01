@@ -207,7 +207,6 @@ impl RngCore for Drbg {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;

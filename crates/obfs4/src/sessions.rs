@@ -24,7 +24,7 @@ use bytes::BytesMut;
 use ptrs::{debug, info, trace};
 use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::time::{Instant, Duration};
+use tokio::time::{Duration, Instant};
 use tokio_util::codec::Decoder;
 
 /// Initial state for a Session, created with any params.
@@ -64,19 +64,16 @@ impl Session {
         }
     }
 
-    pub(crate) fn get_iat_mode(&self)-> IAT {
+    pub(crate) fn get_iat_mode(&self) -> IAT {
         match self {
             Session::Client(cs) => cs.iat_mode,
             Session::Server(ss) => ss.iat_mode,
         }
     }
 
-    pub(crate) fn iat_duration_sampler(&mut self) -> fn() ->Duration {
-        || {
-            Duration::from_secs(1)
-        }
+    pub(crate) fn iat_duration_sampler(&mut self) -> fn() -> Duration {
+        || Duration::from_secs(1)
     }
-
 
     pub(crate) fn sample_iat_length() -> usize {
         0usize
@@ -185,11 +182,7 @@ impl ClientSession<Initialized> {
     /// TODO: make sure failure modes align with golang obfs4
     /// - FIN/RST based on buffered data.
     /// - etc.
-    pub async fn handshake<T>(
-        self,
-        mut stream: T,
-        deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream>
+    pub async fn handshake<T>(self, mut stream: T, deadline: Option<Instant>) -> Result<Obfs4Stream>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {

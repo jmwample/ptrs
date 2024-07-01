@@ -10,8 +10,8 @@ pub(crate) mod kdf;
 mod skip;
 pub use skip::discard;
 
-pub mod drbg;
 pub(crate) mod delay;
+pub mod drbg;
 
 pub mod ntor_arti;
 pub mod probdist;
