@@ -1,4 +1,13 @@
-use super::*;
+use ptrs::{
+    args, ClientBuilder, ClientTransport, FutureResult as F, PluggableTransport, ServerBuilder,
+    ServerTransport,
+};
+
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::Duration;
+
+use std::net::{SocketAddrV4, SocketAddrV6};
+use std::pin::Pin;
 
 pub struct Passthrough {}
 
@@ -166,7 +175,7 @@ impl Passthrough {
 #[cfg(test)]
 mod design_tests {
 
-    use crate::info;
+    use ptrs::info;
     use tokio::{
         io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
         net::TcpStream,
@@ -180,7 +189,7 @@ mod design_tests {
     use std::time::Duration;
 
     use super::{BuilderC, BuilderS, Passthrough};
-    use crate::{
+    use ptrs::{
         ClientBuilder,
         ClientTransport,
         FutureResult,
@@ -827,3 +836,4 @@ mod design_tests {
         Ok(())
     }
 }
+
