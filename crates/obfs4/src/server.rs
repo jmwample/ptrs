@@ -303,9 +303,9 @@ impl Server {
         Self::new_from_key(identity_keys)
     }
 
-    pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
+    pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
@@ -348,6 +348,7 @@ impl Server {
         Ok(sessions::ServerSession {
             // fixed by server
             identity_keys: self.identity_keys.clone(),
+            iat_mode: self.iat_mode,
             biased: self.biased,
 
             // generated per session

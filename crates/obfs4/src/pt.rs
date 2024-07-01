@@ -213,7 +213,7 @@ where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
 {
-    type OutRW = Obfs4Stream<InRW>;
+    type OutRW = Obfs4Stream;
     type OutErr = Error;
     type Builder = crate::ClientBuilder;
 
@@ -234,7 +234,7 @@ impl<InRW> ptrs::ServerTransport<InRW> for crate::Server
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type OutRW = Obfs4Stream<InRW>;
+    type OutRW = Obfs4Stream;
     type OutErr = Error;
     type Builder = crate::ServerBuilder<InRW>;
 

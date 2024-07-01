@@ -65,22 +65,42 @@ tokio::spawn(async move {
 Server example using [ptrs](../ptrs)
 
 ```rs
-use ptrs::{ServerBuilder, ServerTransport};
-...
+use ptrs::{ServerBuilder as _, ServerTransport as _};
+use obfs4::Obfs4PT;
 
-// TODO fill out example
+let mut builder = Obfs4PT::server_builder();
+let server = if params.is_some() {
+    builder.options(&params.unwrap())?.build()
+} else {
+    builder.build()
+};
+
+let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
+loop {
+    let (conn, _) = listener.accept()?;
+    let pt_conn = server.reveal(conn).await?;
+
+    // pt_conn wraps conn and is usable as an `AsyncRead + AsyncWrite` object.
+    tokio::spawn( async move{
+        // use the connection (e.g. to echo)
+        let (mut r, mut w) = tokio::io::split(pt_conn);
+        if let Err(e) = tokio::io::copy(&mut r, &mut w).await {
+            warn!("echo closed with error: {e}")
+        }
+    });
+}
+
 ```
 
 ### Loose Ends:
 
 - [X] server / client compatibility test go-to-rust and rust-to-go.
+- [x] double check the bit randomization and clearing for high two bits in the `dalek` representative
 - [ ] length distribution things
 - [ ] iat mode handling
-- [ ] double check the bit randomization and clearing for high two bits in the `dalek` representative
 
 ## Performance
 
 - comparison to golang
-- comparison when kyber is enabled
 - NaCl encryption library(s)
 

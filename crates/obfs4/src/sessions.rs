@@ -24,7 +24,7 @@ use bytes::BytesMut;
 use ptrs::{debug, info, trace};
 use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 use tokio_util::codec::Decoder;
 
 /// Initial state for a Session, created with any params.
@@ -53,7 +53,7 @@ impl Session {
     pub fn biased(&self) -> bool {
         match self {
             Session::Client(cs) => cs.biased,
-            Session::Server(ss) => ss.biased, //biased,
+            Session::Server(ss) => ss.biased,
         }
     }
 
@@ -62,6 +62,21 @@ impl Session {
             Session::Client(cs) => cs.len_seed.clone(),
             Session::Server(ss) => ss.len_seed.clone(),
         }
+    }
+
+    pub(crate) fn get_iat_mode(&self) -> IAT {
+        match self {
+            Session::Client(cs) => cs.iat_mode,
+            Session::Server(ss) => ss.iat_mode,
+        }
+    }
+
+    pub(crate) fn iat_duration_sampler(&mut self) -> fn() -> Duration {
+        || Duration::from_secs(1)
+    }
+
+    pub(crate) fn sample_iat_length() -> usize {
+        0usize
     }
 }
 
@@ -167,13 +182,9 @@ impl ClientSession<Initialized> {
     /// TODO: make sure failure modes align with golang obfs4
     /// - FIN/RST based on buffered data.
     /// - etc.
-    pub async fn handshake<T>(
-        self,
-        mut stream: T,
-        deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<T>>
+    pub async fn handshake<T>(self, mut stream: T, deadline: Option<Instant>) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
@@ -312,6 +323,7 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 pub(crate) struct ServerSession<S: ServerSessionState> {
     // fixed by server
     pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) iat_mode: IAT,
     pub(crate) biased: bool,
     // pub(crate) server: &'a Server,
 
@@ -357,6 +369,7 @@ impl<S: ServerSessionState> ServerSession<S> {
         ServerSession {
             // fixed by server
             identity_keys: self.identity_keys,
+            iat_mode: self.iat_mode,
             biased: self.biased,
 
             // generated per session
@@ -373,6 +386,7 @@ impl<S: ServerSessionState> ServerSession<S> {
         ServerSession {
             // fixed by server
             identity_keys: self.identity_keys,
+            iat_mode: self.iat_mode,
             biased: self.biased,
 
             // generated per session
@@ -392,9 +406,9 @@ impl ServerSession<Initialized> {
         server: &Server,
         mut stream: T,
         deadline: Option<Instant>,
-    ) -> Result<Obfs4Stream<T>>
+    ) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         // set up for handshake
         let mut session = self.transition(ServerHandshaking {});

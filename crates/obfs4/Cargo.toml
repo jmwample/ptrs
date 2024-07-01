@@ -81,10 +81,10 @@ simple_asn1 = { version="0.6.1", optional=true}
 tracing-subscriber = "0.3.18"
 hex-literal = "0.4.1"
 tor-basic-utils = "0.20.0"
+rand_distr = "0.4.3"
 
 # benches
 # criterion = "0.5"
-
 # # o5 pqc test
 # pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
 # ml-kem = "0.1.0"
