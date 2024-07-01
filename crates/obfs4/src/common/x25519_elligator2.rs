@@ -393,8 +393,8 @@ mod test {
             let off_254 = !v.is_identity();
 
             // println!("pk_gen: {pk_off}, pk_255: {off_255}, pk_254: {off_254}");
-            if off_254 &&off_255  {
-                count +=1;
+            if off_254 && off_255 {
+                count += 1;
             }
         }
         assert!(count > 0);
