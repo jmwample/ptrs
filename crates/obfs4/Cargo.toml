@@ -89,3 +89,8 @@ tor-basic-utils = "0.20.0"
 # pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
 # ml-kem = "0.1.0"
 
+[lints.rust]
+# unexpected_cfgs are used to disable incomplete / WIP features and tests. This is
+# not an error for this library. This turns off that specific lint for the "disable" feature.
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_features, values("disabled"))'] }
+
