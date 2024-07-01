@@ -95,7 +95,6 @@ pub fn find_mac_mark(
 #[cfg(test)]
 mod test {
     use super::*;
-    use bytes::Bytes;
 
     struct MacMarkTest {
         mark: [u8; MARK_LENGTH],
@@ -243,13 +242,7 @@ mod test {
         ];
 
         for m in cases {
-            let actual = find_mac_mark(
-                m.mark,
-                &Bytes::from(m.buf),
-                m.start_pos,
-                m.max_pos,
-                m.from_tail,
-            );
+            let actual = find_mac_mark(m.mark, m.buf, m.start_pos, m.max_pos, m.from_tail);
             assert_eq!(actual, m.expected);
         }
 
