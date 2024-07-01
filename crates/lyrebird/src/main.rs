@@ -176,7 +176,7 @@ fn resolve_target_addr(addr: &TargetAddr) -> Result<SocketAddr> {
         TargetAddr::Ip(sa) => Ok(*sa),
         TargetAddr::Domain(_, _) => {
             // this will always fail because ptrs does not do dns lookups.
-            ptrs::resolve_addr(format!("{addr}")).context("domain resolution failed")
+            ptrs::tor::resolve_addr(format!("{addr}")).context("domain resolution failed")
         }
     }
 }
@@ -189,7 +189,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Make state directory
-    let statedir = ptrs::make_state_dir()?;
+    let statedir = ptrs::tor::make_state_dir()?;
 
     // launch tracing subscriber with filter level
     init_logging_recvr(
@@ -202,7 +202,7 @@ async fn main() -> Result<()> {
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     // launch runners
-    let mut exit_rx = if ptrs::is_client()? {
+    let mut exit_rx = if ptrs::tor::is_client()? {
         // running as CLIENT
         client_setup(&statedir, cancel_token.clone()).await?
     } else {
@@ -256,7 +256,7 @@ async fn client_setup(
     cancel_token: CancellationToken,
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
-    let client_pt_info = ptrs::ClientInfo::new()?;
+    let client_pt_info = ptrs::tor::ClientInfo::new()?;
     let proxy_uri = client_pt_info.uri.ok_or(BridgeLineParseError)?;
     let (tx, rx) = oneshot::channel::<bool>();
 
@@ -514,7 +514,7 @@ async fn server_setup(
 ) -> Result<oneshot::Receiver<bool>> {
     let obfs4_name = Obfs4PT::name();
 
-    let server_info = ptrs::ServerInfo::new()?;
+    let server_info = ptrs::tor::ServerInfo::new()?;
     let (tx, rx) = oneshot::channel::<bool>();
 
     let mut listeners = Vec::new();

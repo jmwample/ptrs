@@ -13,14 +13,12 @@ mod error;
 pub use error::Error;
 mod log;
 
-#[cfg(feature="tor")]
+#[cfg(feature = "tor")]
 pub mod tor;
 pub use tor::args;
 
-
-#[cfg(feature="water")]
+#[cfg(feature = "water")]
 pub mod water;
-
 
 pub trait PluggableTransport<InRW>
 where
