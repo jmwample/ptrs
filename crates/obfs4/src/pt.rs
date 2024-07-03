@@ -3,6 +3,7 @@ use crate::{
     handshake::Obfs4NtorPublicKey,
     proto::{Obfs4Stream, IAT},
     Error, OBFS4_NAME,
+    Client, ClientBuilder, Server, ServerBuilder,
 };
 use ptrs::{args::Args, FutureResult as F};
 
@@ -14,6 +15,7 @@ use std::{
     time::Duration,
 };
 
+use futures::TryFutureExt;
 use hex::FromHex;
 use ptrs::trace;
 use tokio::{
@@ -35,32 +37,32 @@ impl<T> ptrs::PluggableTransport<T> for Transport<T>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type ClientBuilder = crate::ClientBuilder;
-    type ServerBuilder = crate::ServerBuilder<T>;
+    type ClientBuilder = ClientBuilder;
+    type ServerBuilder = ServerBuilder<T>;
 
     fn name() -> String {
         OBFS4_NAME.into()
     }
 
     fn client_builder() -> <Self as ptrs::PluggableTransport<T>>::ClientBuilder {
-        crate::ClientBuilder::default()
+        ClientBuilder::default()
     }
 
     fn server_builder() -> <Self as ptrs::PluggableTransport<T>>::ServerBuilder {
-        crate::ServerBuilder::default()
+        ServerBuilder::default()
     }
 }
 
-impl<T> ptrs::ServerBuilder<T> for crate::ServerBuilder<T>
+impl<T> ptrs::ServerBuilder<T> for ServerBuilder<T>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type ServerPT = crate::Server;
+    type ServerPT = Server;
     type Error = Error;
     type Transport = Transport<T>;
 
     fn build(&self) -> Self::ServerPT {
-        crate::ServerBuilder::build(self)
+        ServerBuilder::build(self)
     }
 
     fn method_name() -> String {
@@ -105,11 +107,11 @@ where
     }
 }
 
-impl<T> ptrs::ClientBuilder<T> for crate::ClientBuilder
+impl<T> ptrs::ClientBuilder<T> for ClientBuilder
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    type ClientPT = crate::Client;
+    type ClientPT = Client;
     type Error = Error;
     type Transport = Transport<T>;
 
@@ -122,7 +124,7 @@ where
     /// **Errors**
     /// If a required field has not been initialized.
     fn build(&self) -> Self::ClientPT {
-        crate::ClientBuilder::build(self)
+        ClientBuilder::build(self)
     }
 
     /// Pluggable transport attempts to parse and validate options from a string,
@@ -208,21 +210,21 @@ where
 
 /// Example wrapping transport that just passes the incoming connection future through
 /// unmodified as a proof of concept.
-impl<InRW, InErr> ptrs::ClientTransport<InRW, InErr> for crate::Client
+impl<InRW, InErr> ptrs::ClientTransport<InRW, InErr> for Client
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
 {
     type OutRW = Obfs4Stream;
     type OutErr = Error;
-    type Builder = crate::ClientBuilder;
+    type Builder = ClientBuilder;
 
     fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::establish(self, input))
+        Box::pin(Client::establish(self, input))
     }
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::wrap(self, io))
+        Box::pin(Client::wrap(self, io).map_err(|e| e.into()))
     }
 
     fn method_name() -> String {
@@ -230,17 +232,21 @@ where
     }
 }
 
-impl<InRW> ptrs::ServerTransport<InRW> for crate::Server
+impl<InRW> ptrs::ServerTransport<InRW> for Server
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
+    // Our out read/write is an obfs4strea, that has an error of IoError.
+    // If an error occurs while revealing it will be returned as an [`Error`].
+    // As input we require a Serverbuilder with an InRW type that implements
+    // the async read and write traits.
     type OutRW = Obfs4Stream;
     type OutErr = Error;
-    type Builder = crate::ServerBuilder<InRW>;
+    type Builder = ServerBuilder<InRW>;
 
     /// Use something that can be accessed reference (Arc, Rc, etc.)
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Server::wrap(self, io))
+        Box::pin(Server::wrap(self, io))
     }
 
     fn method_name() -> String {
@@ -257,18 +263,18 @@ mod test {
         let pt_name = <Obfs4PT as ptrs::PluggableTransport<TcpStream>>::name();
         assert_eq!(pt_name, Obfs4PT::NAME);
 
-        let cb_name = <crate::ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
+        let cb_name = <ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
         assert_eq!(cb_name, Obfs4PT::NAME);
 
         let sb_name =
-            <crate::ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
+            <ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
         assert_eq!(sb_name, Obfs4PT::NAME);
 
         let ct_name =
-            <crate::Client as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
+            <Client as ptrs::ClientTransport<TcpStream, Error>>::method_name();
         assert_eq!(ct_name, Obfs4PT::NAME);
 
-        let st_name = <crate::Server as ptrs::ServerTransport<TcpStream>>::method_name();
+        let st_name = <Server as ptrs::ServerTransport<TcpStream>>::method_name();
         assert_eq!(st_name, Obfs4PT::NAME);
     }
 }

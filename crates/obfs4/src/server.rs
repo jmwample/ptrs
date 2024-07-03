@@ -19,6 +19,7 @@ use crate::{
 use ptrs::args::Args;
 
 use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
+use std::io::Error as IoError;
 
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;

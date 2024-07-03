@@ -11,7 +11,7 @@ use pin_project::pin_project;
 type DurationFn = fn() -> Duration;
 
 #[pin_project]
-pub struct DelayedSink<Si, Item> {
+pub struct DelayedSink<Si, Item, E> {
     // #[pin]
     // sink: Si,
     // #[pin]
@@ -20,9 +20,10 @@ pub struct DelayedSink<Si, Item> {
     sleep: Pin<Box<Sleep>>,
     delay_fn: DurationFn,
     _item: PhantomData<Item>,
+    _error: PhantomData<E>,
 }
 
-impl<Item, Si: Sink<Item>> DelayedSink<Si, Item> {
+impl<Item, E, Si: Sink<Item, Error = E>> DelayedSink<Si, Item, E> {
     pub fn new(sink: Si, delay_fn: DurationFn) -> Self {
         let delay = delay_fn();
         let sleep = tokio::time::sleep(delay);
@@ -33,11 +34,15 @@ impl<Item, Si: Sink<Item>> DelayedSink<Si, Item> {
             sleep: Box::pin(sleep),
             delay_fn,
             _item: PhantomData {},
+            _error: PhantomData {},
         }
     }
 }
 
-impl<Item, Si: Sink<Item>> Sink<Item> for DelayedSink<Si, Item> {
+impl<I, J, E, Si: Sink<I, Error = E>> Sink<J> for DelayedSink<Si, I, E>
+where
+    J: Into<I>,
+{
     type Error = Si::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -48,9 +53,9 @@ impl<Item, Si: Sink<Item>> Sink<Item> for DelayedSink<Si, Item> {
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Item) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: J) -> Result<(), Self::Error> {
         let s = self.project();
-        if let Err(e) = s.sink.as_mut().start_send(item) {
+        if let Err(e) = s.sink.as_mut().start_send(item.into()) {
             return Err(e);
         }
 
