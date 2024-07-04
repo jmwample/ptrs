@@ -4,7 +4,7 @@ use crate::{
         probdist::{self, WeightedDist},
     },
     constants::*,
-    framing::{self, FrameError, Messages, Obfs4Codec},
+    framing::{self, codecs::EncryptingEncoder, FrameError, Messages, Obfs4Codec},
     sessions::Session,
     Error, Result,
 };
@@ -128,7 +128,7 @@ impl O4Stream {
     pub(crate) fn new<'a, T>(
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
-        mut codec: Obfs4Codec,
+        codec: Obfs4Codec,
         mut session: Session,
     ) -> Self
     where
@@ -142,14 +142,14 @@ impl O4Stream {
         let (r, w) = tokio::io::split(inner);
         let (e, d) = codec.to_parts();
         let encoding_sink = FramedWrite::new(w, e);
-        let sink = Box::new(&mut delay::DelayedSink::<
+        let sink = Box::new(delay::DelayedSink::<
             FramedWrite<tokio::io::WriteHalf<T>, EncryptingEncoder>,
-            Item,
+            BytesMut,
             Error,
         >::new(encoding_sink, delay_fn));
 
-        let decoded_stream = FramedRead::new(r, d);
-        let stream: MsgStream = Box::new(decoded_stream);
+        let decoding_stream = FramedRead::new(r, d);
+        let stream: MsgStream = Box::new(decoding_stream);
 
         let len_seed = session.len_seed();
 

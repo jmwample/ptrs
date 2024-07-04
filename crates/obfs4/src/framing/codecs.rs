@@ -259,7 +259,7 @@ impl Decoder for EncryptingDecoder {
 }
 
 /// Encoder is a frame encoder instance.
-struct EncryptingEncoder {
+pub(crate) struct EncryptingEncoder {
     key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg,
