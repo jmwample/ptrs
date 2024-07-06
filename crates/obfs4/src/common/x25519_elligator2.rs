@@ -362,13 +362,15 @@ mod test {
 
     #[test]
     fn off_subgroup_check_edw() {
+        let mut count = 0;
+        let n_trials = 100;
         let mut rng = rand::thread_rng();
-        for _ in 0..100 {
+        for _ in 0..n_trials {
             let (repr, pk) = generate(&mut rng);
 
             // check if the generated public key is off the subgroup
             let v = scalar_mult_order(&pk);
-            let pk_off = !v.is_identity();
+            let _pk_off = !v.is_identity();
 
             // ----
 
@@ -390,7 +392,12 @@ mod test {
             let v = scalar_mult_order(&pk_254);
             let off_254 = !v.is_identity();
 
-            println!("pk_gen: {pk_off}, pk_255: {off_255}, pk_254: {off_254}");
+            // println!("pk_gen: {pk_off}, pk_255: {off_255}, pk_254: {off_254}");
+            if off_254 && off_255 {
+                count += 1;
+            }
         }
+        assert!(count > 0);
+        assert!(count < n_trials);
     }
 }
