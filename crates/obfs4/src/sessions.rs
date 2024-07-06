@@ -9,9 +9,7 @@ use crate::{
     },
     constants::*,
     framing,
-    handshake::{
-        CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey,
-    },
+    handshake::{CHSMaterials, Obfs4Keygen, Obfs4NtorHandshake, Obfs4NtorPublicKey},
     proto::{O4Stream, Obfs4Stream, IAT},
     server::ServerSession,
     Error, Result,
@@ -181,7 +179,11 @@ impl ClientSession<Initialized> {
     /// TODO: make sure failure modes align with golang obfs4
     /// - FIN/RST based on buffered data.
     /// - etc.
-    pub async fn handshake<'a, T>(self, mut stream: T, deadline: Option<Instant>) -> Result<Obfs4Stream>
+    pub async fn handshake<'a, T>(
+        self,
+        mut stream: T,
+        deadline: Option<Instant>,
+    ) -> Result<Obfs4Stream>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -340,4 +342,3 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 //
 //     }
 // }
-

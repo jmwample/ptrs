@@ -11,8 +11,8 @@ use crate::{
 
 use bytes::{Buf, BytesMut};
 use futures::{
-    sink::Sink,
-    stream::Stream, // StreamExt},
+    sink::{Sink, SinkExt},
+    stream::{Stream, StreamExt},
 };
 use pin_project::pin_project;
 use ptrs::trace;
@@ -135,7 +135,7 @@ impl O4Stream {
         };
 
         let (r, w) = tokio::io::split(inner);
-        let (e, d) = codec.to_parts();
+        let (e, d) = codec.into_parts();
         let encoding_sink = FramedWrite::new(w, e);
         let sink = Box::new(delay::DelayedSink::<
             FramedWrite<tokio::io::WriteHalf<T>, EncryptingEncoder>,
@@ -187,9 +187,8 @@ impl AsyncWrite for O4Stream {
         let mut this = self.as_mut().project();
 
         // determine if the stream is ready to send an event?
-        match futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx) {
-            Poll::Pending => return Poll::Pending,
-            _ => {}
+        if futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx).is_pending() {
+            return Poll::Pending
         }
 
         // while we have bytes in the buffer write MAX_MESSAGE_PAYLOAD_LENGTH
@@ -210,9 +209,8 @@ impl AsyncWrite for O4Stream {
             len_sent += framing::MAX_MESSAGE_PAYLOAD_LENGTH;
 
             // determine if the stream is ready to send more data. if not back off
-            match futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx) {
-                Poll::Pending => return Poll::Ready(Ok(len_sent)),
-                _ => {}
+            if futures::Sink::<BytesMut>::poll_ready(this.sink.as_mut(), cx).is_pending() {
+                return Poll::Ready(Ok(len_sent))
             }
         }
 
@@ -332,31 +330,37 @@ impl AsyncRead for Obfs4Stream {
     }
 }
 
+// impl AsRef<dyn Sink<BytesMut, Error=Error>> for O4Stream {
+//     fn as_ref(&self) -> &dyn Sink<BytesMut, Error = Error> {
+//         self.sink.as_ref()
+//     }
+// }
+
 impl Sink<BytesMut> for O4Stream {
     type Error = Error;
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
-        todo!();
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+        self.project().sink.poll_ready_unpin(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, _item: BytesMut) -> StdResult<(), Self::Error> {
-        todo!();
+    fn start_send(self: Pin<&mut Self>, item: BytesMut) -> StdResult<(), Self::Error> {
+        self.project().sink.start_send_unpin(item)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
-        todo!();
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+        self.project().sink.poll_flush_unpin(cx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
-        todo!();
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<StdResult<(), Self::Error>> {
+        self.project().sink.poll_close_unpin(cx)
     }
 }
 
 impl Stream for O4Stream {
-    type Item = Messages;
+    type Item = Result<Messages>;
 
     // Required method
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!();
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().stream.poll_next_unpin(cx)
     }
 }
 //

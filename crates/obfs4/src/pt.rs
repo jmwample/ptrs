@@ -2,8 +2,7 @@ use crate::{
     constants::*,
     handshake::Obfs4NtorPublicKey,
     proto::{Obfs4Stream, IAT},
-    Error, OBFS4_NAME,
-    Client, ClientBuilder, Server, ServerBuilder,
+    Client, ClientBuilder, Error, Server, ServerBuilder, OBFS4_NAME,
 };
 use ptrs::{args::Args, FutureResult as F};
 
@@ -224,7 +223,7 @@ where
     }
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(Client::wrap(self, io).map_err(|e| e.into()))
+        Box::pin(Client::wrap(self, io).map_err(|e| e))
     }
 
     fn method_name() -> String {
@@ -266,12 +265,10 @@ mod test {
         let cb_name = <ClientBuilder as ptrs::ClientBuilder<TcpStream>>::method_name();
         assert_eq!(cb_name, Obfs4PT::NAME);
 
-        let sb_name =
-            <ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
+        let sb_name = <ServerBuilder<TcpStream> as ptrs::ServerBuilder<TcpStream>>::method_name();
         assert_eq!(sb_name, Obfs4PT::NAME);
 
-        let ct_name =
-            <Client as ptrs::ClientTransport<TcpStream, Error>>::method_name();
+        let ct_name = <Client as ptrs::ClientTransport<TcpStream, Error>>::method_name();
         assert_eq!(ct_name, Obfs4PT::NAME);
 
         let st_name = <Server as ptrs::ServerTransport<TcpStream>>::method_name();

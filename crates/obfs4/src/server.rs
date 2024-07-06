@@ -4,24 +4,24 @@ use super::*;
 use crate::{
     client::ClientBuilder,
     common::{
-        colorize, drbg, discard,
+        colorize, discard, drbg,
+        ntor_arti::{RelayHandshakeError, ServerHandshake},
         replay_filter::{self, ReplayFilter},
         x25519_elligator2::{PublicKey, StaticSecret},
         HmacSha256,
-        ntor_arti::{ServerHandshake, RelayHandshakeError},
     },
     constants::*,
     framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
-    handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey, Obfs4Keygen, SHSMaterials},
+    handshake::{Obfs4Keygen, Obfs4NtorPublicKey, Obfs4NtorSecretKey, SHSMaterials},
     proto::{MaybeTimeout, O4Stream, Obfs4Stream, IAT},
-    sessions::{Session, Initialized, Established, Fault},
+    sessions::{Established, Fault, Initialized, Session},
     Error, Result,
 };
 use ptrs::args::Args;
 use ptrs::{debug, info, trace};
 
-use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
@@ -309,7 +309,6 @@ impl Server {
     //                         Server Handshake                               //
     // ====================================================================== //
 
-
     pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -391,9 +390,7 @@ impl Server {
         }
     }
 
-    pub(crate) fn new_server_session(
-        &self,
-    ) -> Result<ServerSession<Initialized>> {
+    pub(crate) fn new_server_session(&self) -> Result<ServerSession<Initialized>> {
         let mut session_id = [0u8; SESSION_ID_LEN];
         rand::thread_rng().fill_bytes(&mut session_id);
         Ok(ServerSession {
@@ -459,7 +456,6 @@ impl Server {
             };
         }
     }
-
 }
 
 // ================================================================ //
@@ -544,7 +540,6 @@ impl<S: ServerSessionState> ServerSession<S> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

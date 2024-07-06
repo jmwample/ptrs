@@ -71,7 +71,7 @@ impl EncryptingCodec {
         self.handshake_complete = true;
     }
 
-    pub(crate) fn to_parts(self) -> (EncryptingEncoder, EncryptingDecoder) {
+    pub(crate) fn into_parts(self) -> (EncryptingEncoder, EncryptingDecoder) {
         (self.encoder, self.decoder)
     }
 

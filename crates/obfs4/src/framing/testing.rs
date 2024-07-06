@@ -10,7 +10,7 @@
 ///
 use super::*;
 use crate::test_utils::init_subscriber;
-use crate::{Result, Error};
+use crate::{Error, Result};
 
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};

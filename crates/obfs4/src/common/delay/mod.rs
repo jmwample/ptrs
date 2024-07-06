@@ -55,9 +55,7 @@ where
 
     fn start_send(self: Pin<&mut Self>, item: J) -> Result<(), Self::Error> {
         let s = self.project();
-        if let Err(e) = s.sink.as_mut().start_send(item.into()) {
-            return Err(e);
-        }
+        s.sink.as_mut().start_send(item.into())?;
 
         let delay = (*s.delay_fn)();
 
