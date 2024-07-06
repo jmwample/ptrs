@@ -49,7 +49,7 @@ pub use messages_base::*;
 mod messages_v1;
 pub use messages_v1::{MessageTypes, Messages};
 
-mod codecs;
+pub(crate) mod codecs;
 pub use codecs::EncryptingCodec as Obfs4Codec;
 
 pub(crate) mod handshake;

@@ -10,7 +10,7 @@
 ///
 use super::*;
 use crate::test_utils::init_subscriber;
-use crate::Result;
+use crate::{Error, Result};
 
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -67,11 +67,21 @@ async fn oversized_flow() -> Result<()> {
     let mut src = Bytes::from(oversized_messsage);
     let res = codec.encode(&mut src, &mut b);
 
-    assert_eq!(
-        res.unwrap_err(),
-        FrameError::InvalidPayloadLength(frame_len)
-    );
-    Ok(())
+    let e = res.unwrap_err();
+    assert!(matches!(
+        e,
+        Error::Obfs4Framing(FrameError::InvalidPayloadLength(_))
+    ));
+    match e {
+        Error::Obfs4Framing(FrameError::InvalidPayloadLength(f)) => {
+            if f == frame_len {
+                Ok(())
+            } else {
+                panic!("expected frame_length {}, got {}", frame_len, f);
+            }
+        }
+        _ => panic!("expected InvalidPayloadLength, got {}", e),
+    }
 }
 
 #[tokio::test]

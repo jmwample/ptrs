@@ -10,8 +10,9 @@ pub(crate) mod kdf;
 mod skip;
 pub use skip::discard;
 
+pub(crate) mod delay;
 pub mod drbg;
-// pub mod ntor;
+
 pub mod ntor_arti;
 pub mod probdist;
 pub mod replay_filter;

@@ -4,26 +4,28 @@ use super::*;
 use crate::{
     client::ClientBuilder,
     common::{
-        colorize, drbg,
+        colorize, discard, drbg,
+        ntor_arti::{RelayHandshakeError, ServerHandshake},
         replay_filter::{self, ReplayFilter},
         x25519_elligator2::{PublicKey, StaticSecret},
         HmacSha256,
     },
     constants::*,
     framing::{FrameError, Marshall, Obfs4Codec, TryParse, KEY_LENGTH},
-    handshake::{Obfs4NtorPublicKey, Obfs4NtorSecretKey},
-    proto::{MaybeTimeout, Obfs4Stream, IAT},
-    sessions::Session,
+    handshake::{Obfs4Keygen, Obfs4NtorPublicKey, Obfs4NtorSecretKey, SHSMaterials},
+    proto::{MaybeTimeout, O4Stream, Obfs4Stream, IAT},
+    sessions::{Established, Fault, Initialized, Session},
     Error, Result,
 };
 use ptrs::args::Args;
+use ptrs::{debug, info, trace};
 
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
 use hmac::{Hmac, Mac};
-use ptrs::{debug, info};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -303,14 +305,62 @@ impl Server {
         Self::new_from_key(identity_keys)
     }
 
-    pub async fn wrap<T>(self, stream: T) -> Result<Obfs4Stream<T>>
+    // ====================================================================== //
+    //                         Server Handshake                               //
+    // ====================================================================== //
+
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let session = self.new_server_session()?;
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake(&self, stream, deadline).await
+        let hs_materials = SHSMaterials::new(
+            &session.identity_keys,
+            session.session_id(),
+            session.len_seed.to_bytes(),
+        );
+
+        let mut session = session.transition(ServerHandshaking {});
+
+        let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
+        let handshake_fut = self.complete_handshake(&mut stream, hs_materials, deadline);
+
+        let mut keygen =
+            match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
+                Ok(result) => match result {
+                    Ok(handshake) => handshake,
+                    Err(e) => {
+                        // non-timeout error,
+                        let id = session.session_id();
+                        let _ = session.fault(ServerHandshakeFailed {
+                            details: format!("{id} handshake failed {e}"),
+                        });
+                        return Err(e);
+                    }
+                },
+                Err(_) => {
+                    let id = session.session_id();
+                    let _ = session.fault(ServerHandshakeFailed {
+                        details: format!("{id} timed out"),
+                    });
+                    return Err(Error::HandshakeTimeout);
+                }
+            };
+
+        // post handshake state updates
+        session.set_session_id(keygen.session_id());
+        let mut codec: framing::Obfs4Codec = keygen.into();
+
+        // mark session as Established
+        let session_state: ServerSession<Established> = session.transition(Established {});
+
+        codec.handshake_complete();
+        let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
+
+        Ok(Obfs4Stream::from_o4(o4))
+        // session.handshake(&self, stream, deadline).await
     }
 
     // pub fn set_iat_mode(&mut self, mode: IAT) -> &Self {
@@ -340,14 +390,13 @@ impl Server {
         }
     }
 
-    pub(crate) fn new_server_session(
-        &self,
-    ) -> Result<sessions::ServerSession<sessions::Initialized>> {
+    pub(crate) fn new_server_session(&self) -> Result<ServerSession<Initialized>> {
         let mut session_id = [0u8; SESSION_ID_LEN];
         rand::thread_rng().fill_bytes(&mut session_id);
-        Ok(sessions::ServerSession {
+        Ok(ServerSession {
             // fixed by server
             identity_keys: self.identity_keys.clone(),
+            iat_mode: self.iat_mode,
             biased: self.biased,
 
             // generated per session
@@ -355,8 +404,140 @@ impl Server {
             len_seed: drbg::Seed::new().unwrap(),
             iat_seed: drbg::Seed::new().unwrap(),
 
-            _state: sessions::Initialized {},
+            _state: Initialized {},
         })
+    }
+
+    /// Complete the handshake with the client. This function assumes that the
+    /// client has already sent a message and that we do not know yet if the
+    /// message is valid.
+    async fn complete_handshake<T>(
+        &self,
+        mut stream: T,
+        materials: SHSMaterials,
+        deadline: Option<Instant>,
+    ) -> Result<impl Obfs4Keygen>
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        let session_id = materials.session_id.clone();
+
+        // wait for and attempt to consume the client hello message
+        let mut buf = [0_u8; MAX_HANDSHAKE_LENGTH];
+        loop {
+            let n = stream.read(&mut buf).await?;
+            if n == 0 {
+                stream.shutdown().await?;
+                return Err(IoError::from(IoErrorKind::UnexpectedEof).into());
+            }
+            trace!("{} successful read {n}B", session_id);
+
+            match self.server(&mut |_: &()| Some(()), &[materials.clone()], &buf[..n]) {
+                Ok((keygen, response)) => {
+                    stream.write_all(&response).await?;
+                    info!("{} handshake complete", session_id);
+                    return Ok(keygen);
+                }
+                Err(RelayHandshakeError::EAgain) => {
+                    trace!("{} reading more", session_id);
+                    continue;
+                }
+                Err(e) => {
+                    trace!("{} failed to parse client handshake: {e}", session_id);
+                    // if a deadline was set and has not passed already, discard
+                    // from the stream until the deadline, then close.
+                    if deadline.is_some_and(|d| d > Instant::now()) {
+                        debug!("{} discarding due to: {e}", session_id);
+                        discard(&mut stream, deadline.unwrap() - Instant::now()).await?
+                    }
+                    stream.shutdown().await?;
+                    return Err(e.into());
+                }
+            };
+        }
+    }
+}
+
+// ================================================================ //
+//                   Server Sessions States                         //
+// ================================================================ //
+
+pub(crate) struct ServerSession<S: ServerSessionState> {
+    // fixed by server
+    pub(crate) identity_keys: Obfs4NtorSecretKey,
+    pub(crate) iat_mode: IAT,
+    pub(crate) biased: bool,
+    // pub(crate) server: &'a Server,
+
+    // generated per session
+    pub(crate) session_id: [u8; SESSION_ID_LEN],
+    pub(crate) len_seed: drbg::Seed,
+    pub(crate) iat_seed: drbg::Seed,
+
+    pub(crate) _state: S,
+}
+
+pub(crate) struct ServerHandshaking {}
+
+#[allow(unused)]
+pub(crate) struct ServerHandshakeFailed {
+    details: String,
+}
+
+pub(crate) trait ServerSessionState {}
+impl ServerSessionState for Initialized {}
+impl ServerSessionState for ServerHandshaking {}
+impl ServerSessionState for Established {}
+
+impl ServerSessionState for ServerHandshakeFailed {}
+impl Fault for ServerHandshakeFailed {}
+
+impl<S: ServerSessionState> ServerSession<S> {
+    pub fn session_id(&self) -> String {
+        String::from("s-") + &colorize(self.session_id)
+    }
+
+    pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
+        debug!(
+            "{} -> {} server updating session id",
+            colorize(self.session_id),
+            colorize(id)
+        );
+        self.session_id = id;
+    }
+
+    /// Helper function to perform state transitions.
+    pub(crate) fn transition<T: ServerSessionState>(self, _state: T) -> ServerSession<T> {
+        ServerSession {
+            // fixed by server
+            identity_keys: self.identity_keys,
+            iat_mode: self.iat_mode,
+            biased: self.biased,
+
+            // generated per session
+            session_id: self.session_id,
+            len_seed: self.len_seed,
+            iat_seed: self.iat_seed,
+
+            _state,
+        }
+    }
+
+    /// Helper function to perform state transition on error.
+    pub(crate) fn fault<F: Fault + ServerSessionState>(self, f: F) -> ServerSession<F> {
+        ServerSession {
+            // fixed by server
+            identity_keys: self.identity_keys,
+            iat_mode: self.iat_mode,
+            biased: self.biased,
+
+            // generated per session
+            session_id: self.session_id,
+            len_seed: self.len_seed,
+            iat_seed: self.iat_seed,
+
+            _state: f,
+        }
     }
 }
 

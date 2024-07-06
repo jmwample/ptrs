@@ -2,6 +2,7 @@ use crate::{
     common::drbg::{self, Drbg, Seed},
     constants::MESSAGE_OVERHEAD,
     framing::{FrameError, Messages},
+    Error,
 };
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -69,10 +70,28 @@ impl EncryptingCodec {
     pub(crate) fn handshake_complete(&mut self) {
         self.handshake_complete = true;
     }
+
+    pub(crate) fn into_parts(self) -> (EncryptingEncoder, EncryptingDecoder) {
+        (self.encoder, self.decoder)
+    }
+
+    #[allow(unused)]
+    pub(crate) fn from_parts(
+        e: EncryptingEncoder,
+        d: EncryptingDecoder,
+        hs_complete: bool,
+    ) -> Self {
+        Self {
+            // key,
+            encoder: e,
+            decoder: d,
+            handshake_complete: hs_complete,
+        }
+    }
 }
 
 ///Decoder is a frame decoder instance.
-struct EncryptingDecoder {
+pub(crate) struct EncryptingDecoder {
     key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg,
@@ -106,8 +125,19 @@ impl EncryptingDecoder {
 
 impl Decoder for EncryptingCodec {
     type Item = Messages;
-    type Error = FrameError;
+    type Error = Error;
 
+    fn decode(
+        &mut self,
+        src: &mut BytesMut,
+    ) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        self.decoder.decode(src)
+    }
+}
+
+impl Decoder for EncryptingDecoder {
+    type Item = Messages;
+    type Error = Error;
     // Decode decodes a stream of data and returns the length if any.  ErrAgain is
     // a temporary failure, all other errors MUST be treated as fatal and the
     // session aborted.
@@ -118,28 +148,28 @@ impl Decoder for EncryptingCodec {
         trace!(
             "decoding src:{}B {} {}",
             src.remaining(),
-            self.decoder.next_length,
-            self.decoder.next_length_invalid
+            self.next_length,
+            self.next_length_invalid
         );
         // A length of 0 indicates that we do not know the expected size of
         // the next frame. we use this to store the length of a packet when we
         // receive the length at the beginning, but not the whole packet, since
         // future reads may not have the who packet (including length) available
-        if self.decoder.next_length == 0 {
+        if self.next_length == 0 {
             // Attempt to pull out the next frame length
             if LENGTH_LENGTH > src.remaining() {
                 return Ok(None);
             }
 
             // derive the nonce that the peer would have used
-            self.decoder.next_nonce = self.decoder.nonce.next()?;
+            self.next_nonce = self.nonce.next()?;
 
             // Remove the field length from the buffer
             // let mut len_buf: [u8; LENGTH_LENGTH] = src[..LENGTH_LENGTH].try_into().unwrap();
             let mut length = src.get_u16();
 
             // De-obfuscate the length field
-            let length_mask = self.decoder.drbg.length_mask();
+            let length_mask = self.drbg.length_mask();
             trace!(
                 "decoding {length:04x}^{length_mask:04x} {:04x}B",
                 length ^ length_mask
@@ -158,35 +188,35 @@ impl Decoder for EncryptingCodec {
                 // paper.
 
                 let invalid_length = length;
-                self.decoder.next_length_invalid = true;
+                self.next_length_invalid = true;
 
                 length = rand::thread_rng().gen::<u16>()
                     % (MAX_FRAME_LENGTH - MIN_FRAME_LENGTH) as u16
                     + MIN_FRAME_LENGTH as u16;
                 error!(
                     "invalid length {invalid_length} {length} {}",
-                    self.decoder.next_length_invalid
+                    self.next_length_invalid
                 );
             }
 
-            self.decoder.next_length = length;
+            self.next_length = length;
         }
 
-        let next_len = self.decoder.next_length as usize;
+        let next_len = self.next_length as usize;
 
         if next_len > src.len() {
             // The full string has not yet arrived.
             //
             // We reserve more space in the buffer. This is not strictly
             // necessary, but is a good idea performance-wise.
-            if !self.decoder.next_length_invalid {
+            if !self.next_length_invalid {
                 src.reserve(next_len - src.len());
             }
 
             trace!(
                 "next_len > src.len --> reading more {} {}",
-                self.decoder.next_length,
-                self.decoder.next_length_invalid
+                self.next_length,
+                self.next_length_invalid
             );
 
             // We inform the Framed that we need more bytes to form the next
@@ -198,25 +228,25 @@ impl Decoder for EncryptingCodec {
         let data = src.get(..next_len).unwrap().to_vec();
 
         // Unseal the frame
-        let key = GenericArray::from_slice(&self.decoder.key);
+        let key = GenericArray::from_slice(&self.key);
         let cipher = XSalsa20Poly1305::new(key);
-        let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
+        let nonce = GenericArray::from_slice(&self.next_nonce); // unique per message
 
         let res = cipher.decrypt(nonce, data.as_ref());
         if res.is_err() {
             let e = res.unwrap_err();
             trace!("failed to decrypt result: {e}");
-            return Err(e.into());
+            return Err(Error::Obfs4Framing(FrameError::from(e)));
         }
-        let plaintext = res?;
+        let plaintext = res.map_err(|e| Error::Obfs4Framing(FrameError::from(e)))?;
         if plaintext.len() < MESSAGE_OVERHEAD {
-            return Err(FrameError::InvalidMessage);
+            return Err(Error::Obfs4Framing(FrameError::InvalidMessage));
         }
 
         // Clean up and prepare for the next frame
         //
         // we read a whole frame, we no longer know the size of the next pkt
-        self.decoder.next_length = 0;
+        self.next_length = 0;
         src.advance(next_len);
 
         debug!("decoding {next_len}B src:{}B", src.remaining());
@@ -224,13 +254,13 @@ impl Decoder for EncryptingCodec {
             Ok(Messages::Padding(_)) => Ok(None),
             Ok(m) => Ok(Some(m)),
             Err(FrameError::UnknownMessageType(_)) => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => Err(Error::Obfs4Framing(e)),
         }
     }
 }
 
 /// Encoder is a frame encoder instance.
-struct EncryptingEncoder {
+pub(crate) struct EncryptingEncoder {
     key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg,
@@ -255,8 +285,15 @@ impl EncryptingEncoder {
 }
 
 impl<T: Buf> Encoder<T> for EncryptingCodec {
-    type Error = FrameError;
+    type Error = Error;
 
+    fn encode(&mut self, plaintext: T, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+        self.encoder.encode(plaintext, dst)
+    }
+}
+
+impl<T: Buf> Encoder<T> for EncryptingEncoder {
+    type Error = Error;
     /// Encode encodes a single frame worth of payload and returns. Plaintext
     /// should either be a handshake message OR a buffer containing one or more
     /// [`Message`]s already properly marshalled. The proided plaintext can
@@ -272,7 +309,7 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
 
         // Don't send a frame if it is longer than the other end will accept.
         if plaintext.remaining() > MAX_FRAME_PAYLOAD_LENGTH {
-            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()));
+            return Err(FrameError::InvalidPayloadLength(plaintext.remaining()).into());
         }
 
         let mut plaintext_frame = BytesMut::new();
@@ -280,18 +317,20 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
         plaintext_frame.put(plaintext);
 
         // Generate a new nonce
-        let nonce_bytes = self.encoder.nonce.next()?;
+        let nonce_bytes = self.nonce.next()?;
 
         // Encrypt and MAC payload
-        let key = GenericArray::from_slice(&self.encoder.key);
+        let key = GenericArray::from_slice(&self.key);
         let cipher = XSalsa20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
-        let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext_frame.as_ref())
+            .map_err(|e| Error::Obfs4Framing(FrameError::Crypto(e)))?;
 
         // Obfuscate the length
         let mut length = ciphertext.len() as u16;
-        let length_mask: u16 = self.encoder.drbg.length_mask();
+        let length_mask: u16 = self.drbg.length_mask();
         debug!(
             "encoding➡️ {length}B, {length:04x}^{length_mask:04x} {:04x}",
             length ^ length_mask
