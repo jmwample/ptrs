@@ -45,9 +45,6 @@ pub(crate) enum MaybeTimeout {
     Unset,
 }
 
-type MsgStream = Box<dyn Stream<Item = StdResult<Messages, Error>> + Send + Unpin>;
-type BytesSink<I> = Box<dyn Sink<I, Error = Error> + Send + Unpin>;
-
 impl std::str::FromStr for IAT {
     type Err = Error;
     fn from_str(s: &str) -> StdResult<Self, Self::Err> {
@@ -88,10 +85,8 @@ impl MaybeTimeout {
     }
 }
 
-pub trait SinkStream {
-    type Item;
-    type Error;
-}
+type MsgStream = Box<dyn Stream<Item = StdResult<Messages, Error>> + Send + Unpin>;
+type BytesSink<I> = Box<dyn Sink<I, Error = Error> + Send + Unpin>;
 
 #[pin_project]
 pub struct Obfs4Stream {
@@ -125,14 +120,14 @@ pub(crate) struct O4Stream {
 }
 
 impl O4Stream {
-    pub(crate) fn new<'a, T>(
+    pub(crate) fn new<T>(
         // inner: &'a mut dyn Stream<'a>,
         inner: T,
         codec: Obfs4Codec,
         mut session: Session,
     ) -> Self
     where
-        T: AsyncRead + AsyncWrite + Unpin + Send + 'a,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let delay_fn = match session.get_iat_mode() {
             IAT::Off => || Duration::ZERO,

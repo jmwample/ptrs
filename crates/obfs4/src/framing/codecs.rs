@@ -75,6 +75,7 @@ impl EncryptingCodec {
         (self.encoder, self.decoder)
     }
 
+    #[allow(unused)]
     pub(crate) fn from_parts(
         e: EncryptingEncoder,
         d: EncryptingDecoder,
@@ -90,7 +91,7 @@ impl EncryptingCodec {
 }
 
 ///Decoder is a frame decoder instance.
-struct EncryptingDecoder {
+pub(crate) struct EncryptingDecoder {
     key: [u8; KEY_LENGTH],
     nonce: NonceBox,
     drbg: Drbg,

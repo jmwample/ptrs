@@ -183,7 +183,7 @@ impl ClientSession<Initialized> {
     /// - etc.
     pub async fn handshake<'a, T>(self, mut stream: T, deadline: Option<Instant>) -> Result<Obfs4Stream>
     where
-        T: AsyncRead + AsyncWrite + Unpin + Send + 'a,
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
@@ -327,17 +327,17 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 //         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 //     {
 //         // set up for handshake
-// 
+//
 //         let materials = SHSMaterials::new(
 //             &session.identity_keys,
 //             session.session_id(),
 //             session.len_seed.to_bytes(),
 //         );
-// 
+//
 //         // default deadline
 //         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
 //         let handshake_fut = server.complete_handshake(&mut stream, materials, deadline);
-// 
+//
 //     }
 // }
 
