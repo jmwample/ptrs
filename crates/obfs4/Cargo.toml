@@ -71,6 +71,7 @@ anyhow = { version="1.0.20", optional=true}
 async-trait = { version="0.1.9", optional=true}
 num-bigint = { version="0.4.2", optional=true}
 simple_asn1 = { version="0.6.1", optional=true}
+filetime = {version="0.2.25", optional=true}
 
 ## Maybe useful in future iterations
 # tor-socksproto = { version = "0.10.0" }
