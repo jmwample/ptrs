@@ -65,7 +65,7 @@ pub fn is_client() -> Result<bool, Error> {
 
 /// Get the state directory from env, create if it doesnt exist.
 ///
-/// Return the directory name in the TOR_PT_STATE_LOCATION environment variable, creating it 
+/// Return the directory name in the TOR_PT_STATE_LOCATION environment variable, creating it
 /// if it doesn't exist. Returns non-nil error if `TOR_PT_STATE_LOCATION` is not set or if
 /// there is an error creating the directory.
 pub fn make_state_dir() -> Result<String, Error> {
