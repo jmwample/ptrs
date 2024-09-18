@@ -24,7 +24,7 @@ futures = "0.3.30"
 itertools = "0.13.0"
 subtle = "2.5.0"
 thiserror = "1"
-tokio = { version = "1.34", features = ["full"] }
+tokio = { version = "1.40", features = ["full"] }
 tracing = "0.1.40"
 url = "2.5.0"
 

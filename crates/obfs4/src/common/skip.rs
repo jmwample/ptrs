@@ -6,7 +6,9 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 // use std::task::{Context, Poll};
 use std::time::Duration;
 
-/// copies all data from the reader to a sink. If the reader closes before
+/// Copies all data from the reader to a sink.
+///
+/// If the reader closes before
 /// the timeout due to na error or an EoF that result will be returned.
 /// Otherwise if the timeout is reached, the stream will be shutdown
 /// and the result of that shutdown will be returned.

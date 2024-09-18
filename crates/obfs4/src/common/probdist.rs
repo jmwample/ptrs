@@ -1,3 +1,5 @@
+//! Weighted probability distribution
+//!
 //! The probdist module implements a weighted probability distribution suitable for
 //! protocol parameterization.  To allow for easy reproduction of a given
 //! distribution, the drbg package is used as the random number source.

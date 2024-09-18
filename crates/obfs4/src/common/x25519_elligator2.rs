@@ -154,9 +154,9 @@ use rand_core::{CryptoRng, RngCore};
 
 pub const REPRESENTATIVE_LENGTH: usize = 32;
 
-/// A collection of functions for generating x25519 keys wrapping `x25519_dalek`. ['EphemeralSecret']
-/// keys are guaranteed to have a valid elligator2 representative. In general ['StaticSecret'] should
-/// not be converted to PublicRepresentative, use an EphemeralSecret instead.
+/// A collection of functions for generating x25519 keys wrapping `x25519_dalek`.
+// ['EphemeralSecret'] keys are guaranteed to have a valid elligator2 representative. In general
+// ['StaticSecret'] should not be converted to PublicRepresentative, use an EphemeralSecret instead.
 pub struct Keys;
 
 trait RetryLimit {

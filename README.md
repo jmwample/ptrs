@@ -20,19 +20,20 @@ lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 
 |                 Crate                    |   Description  | Crates.io | Docs | MSRV |
 -------------------------------------------|----------------|-----------|------|------|
-| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) | 1.63 |
-| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) | 1.70 |
-| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) | 1.70 |
+| [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) | 1.70 |
+| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) | 1.75 |
+| [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) | 1.75 |
 
 ## MSRV
 
 The Minimum Supported Rust Versions (MSRV) for the various crates are listed above.
-These are ensured by test and build steps in the CI pipeline. 
+These are ensured by test and build steps in the CI pipeline.
 
-MSRV can be changed in the future, but it will be done with a minor version bump.
-We will not increase MSRV on PATCH releases, though downstream dependencies might.
+Once these crates reach a semi-stable state any changes to MSRV will be accompanied
+with a minor version bump. We will not increase MSRV on PATCH releases, though downstream
+dependencies might.
 
-We won't increase MSRV just because we can: we'll only do so when we have a
+Along these lines, we won't increase MSRV just because we can: we'll only do so when we have a
 reason. (We don't guarantee that you'll agree with our reasoning; only that
 it will exist.)
 
@@ -40,6 +41,7 @@ it will exist.)
 
 Things to keep an eye on:
 
+- [X] [`kemeleon`](https://github.com/jmwample/kemeleon) crate implementing the [Kemeleon ML-KEM Key obfuscation algorithm(s)](https://eprint.iacr.org/2024/1086.pdf).
 - [ ] PR implementating elligator2 for the `dalek` ed25519 library. [PR Here](https://github.com/dalek-cryptography/curve25519-dalek/pull/612)
 
 ## Open Source License
