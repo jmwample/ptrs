@@ -63,10 +63,11 @@ pub fn is_client() -> Result<bool, Error> {
     }
 }
 
-/// Return the directory name in the TOR_PT_STATE_LOCATION environment variable,
-/// creating it if it doesn't exist. Returns non-nil error if
-/// `TOR_PT_STATE_LOCATION` is not set or if there is an error creating the
-/// directory.
+/// Get the state directory from env, create if it doesnt exist.
+///
+/// Return the directory name in the TOR_PT_STATE_LOCATION environment variable, creating it 
+/// if it doesn't exist. Returns non-nil error if `TOR_PT_STATE_LOCATION` is not set or if
+/// there is an error creating the directory.
 pub fn make_state_dir() -> Result<String, Error> {
     let path = env::var(constants::STATE_LOCATION)
         .map_err(|_| to_io_other("missing required TOR_PT_STATE_LOCATION env var"))?;
@@ -244,6 +245,8 @@ pub(crate) fn validate_proxy_url(spec: &Url) -> Result<(), Error> {
 //                            Server                                //
 // ================================================================ //
 
+/// Tor OR Server Information
+///
 /// Check the server pluggable transports environment, emitting an error message
 /// and returning a non-nil error if any error is encountered. Resolves the
 /// various requested bind addresses, the server ORPort and extended ORPort, and
