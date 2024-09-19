@@ -14,9 +14,14 @@
 
 use std::borrow::Borrow;
 
-use super::{RelayHandshakeError, RelayHandshakeResult};
-use crate::util::ct;
-use crate::{Error, Result};
+use crate::{
+    common::{
+        ct,
+        ntor_arti::{KeyGenerator, RelayHandshakeError, RelayHandshakeResult, ClientHandshake, ServerHandshake, AuxDataReply},
+    },
+    Error, Result,
+};
+
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writeable, Writer};
 use tor_error::into_internal;
 use tor_llcrypto::d::{Sha3_256, Shake256, Shake256Reader};
@@ -25,7 +30,6 @@ use tor_llcrypto::util::ct::ct_lookup;
 
 use cipher::{KeyIvInit, StreamCipher};
 
-use crate::crypto::handshake::KeyGenerator;
 use rand_core::{CryptoRng, RngCore};
 use subtle::{Choice, ConstantTimeEq};
 use tor_cell::relaycell::extend::NtorV3Extension;
@@ -227,7 +231,7 @@ fn kdf_msgkdf(
 /// Client side of the ntor v3 handshake.
 pub(crate) struct NtorV3Client;
 
-impl super::ClientHandshake for NtorV3Client {
+impl ClientHandshake for NtorV3Client {
     type KeyType = NtorV3PublicKey;
     type StateType = NtorV3HandshakeState;
     type KeyGen = NtorV3KeyGenerator;
@@ -239,13 +243,12 @@ impl super::ClientHandshake for NtorV3Client {
     ///
     /// On success, return a state object that will be used to complete the handshake, along
     /// with the message to send.
-    fn client1<R: RngCore + CryptoRng, M: Borrow<[NtorV3Extension]>>(
-        rng: &mut R,
-        key: &NtorV3PublicKey,
-        extensions: &M,
+    fn client1<M: Borrow<Self::ClientAuxData>>(
+        key: &Self::KeyType,
+        client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
         let mut message = Vec::new();
-        NtorV3Extension::write_many_onto(extensions.borrow(), &mut message)
+        NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
             .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
         Ok(
             client_handshake_ntor_v3(rng, key, &message, NTOR3_CIRC_VERIFICATION)
@@ -276,14 +279,14 @@ impl super::ClientHandshake for NtorV3Client {
 /// Server side of the ntor v3 handshake.
 pub(crate) struct NtorV3Server;
 
-impl super::ServerHandshake for NtorV3Server {
+impl ServerHandshake for NtorV3Server {
     type KeyType = NtorV3SecretKey;
     type KeyGen = NtorV3KeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
 
-    fn server<R: RngCore + CryptoRng, REPLY: super::AuxDataReply<Self>, T: AsRef<[u8]>>(
-        rng: &mut R,
+    fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+        &self,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
         msg: T,
@@ -768,7 +771,7 @@ mod test {
         let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
 
         let (c_state, c_handshake) =
-            NtorV3Client::client1(&mut rng, &relay_private.pk, &[]).unwrap();
+            NtorV3Client::client1(&relay_private.pk, &[]).unwrap();
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
@@ -793,7 +796,6 @@ mod test {
         let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
 
         let (c_state, c_handshake) = NtorV3Client::client1(
-            &mut rng,
             &relay_private.pk,
             &[NtorV3Extension::RequestCongestionControl],
         )
@@ -882,4 +884,3 @@ mod test {
         assert_eq!(c_keys[..], hex!("9c19b631fd94ed86a817e01f6c80b0743a43f5faebd39cfaa8b00fa8bcc65c3bfeaa403d91acbd68a821bf6ee8504602b094a254392a07737d5662768c7a9fb1b2814bb34780eaee6e867c773e28c212ead563e98a1cd5d5b4576f5ee61c59bde025ff2851bb19b721421694f263818e3531e43a9e4e3e2c661e2ad547d8984caa28ebecd3e4525452299be26b9185a20a90ce1eac20a91f2832d731b54502b09749b5a2a2949292f8cfcbeffb790c7790ed935a9d251e7e336148ea83b063a5618fcff674a44581585fd22077ca0e52c59a24347a38d1a1ceebddbf238541f226b8f88d0fb9c07a1bcd2ea764bbbb5dacdaf5312a14c0b9e4f06309b0333b4a")[..]);
     }
 }
-

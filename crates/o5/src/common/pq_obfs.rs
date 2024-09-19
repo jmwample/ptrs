@@ -31,17 +31,6 @@
 //!    Kyber768Draft00) are secure [hybrid].
 //! ```
 
-// use crate::{
-//     common::ntor_arti::{
-//         derive_ntor_shared, Auth, HandshakeResult, IdentityKeyPair, KeySeed, NtorError, PublicKey,
-//         SessionKeyPair, ID,
-//     },
-//     Error, Result,
-// };
-use crate::common::curve25519::PublicKey;
-
-use subtle::{ConstantTimeEq, CtOption};
-
 mod keys;
 mod ntorv3;
 
@@ -49,9 +38,7 @@ pub struct SessionKeyPair(keys::HybridKey);
 
 pub struct IdentityKeyPair(keys::HybridKey);
 
-
-
-
+/*
 /// The client side uses the ntor derived shared secret based on the secret
 /// input created by appending the shared secret derived between the client's
 /// session keys and the server's sessions keys with the shared secret derived
@@ -101,9 +88,9 @@ pub fn client_handshake(
 ///
 /// secret input = X25519(X, y) | Kyber(X, y) | X25519(X, b) | Kyber(X, b)
 pub fn server_handshake(
-    server_keys: &SessionKeys,
+    server_keys: &SessionKeyPair,
     client_public: &PublicKey,
-    id_keys: &IdentityKeys,
+    id_keys: &IdentityKeyPair,
     id: &ID,
 ) -> CtOption<HandshakeResult> {
     let mut not_ok = 0;
@@ -134,83 +121,4 @@ pub fn server_handshake(
     // if not_ok != 0 then scalar operations failed
     CtOption::new(HandshakeResult { key_seed, auth }, not_ok.ct_eq(&0_u8))
 }
-
-#[cfg(test)]
-#[allow(unused)]
-mod tests {
-    use crate::common::ntor::compare_auth;
-
-    use super::*;
-    use x25519_dalek::EphemeralSecret;
-
-    #[test]
-    fn kyberx25519_handshake_flow() {
-        // long-term server id and keys
-        let server_id_keys = KyberXIdentityKeys::new();
-        let server_id_pub = server_id_keys.get_public();
-        let server_id = ID::new();
-
-        // client open session, generating the associated ephemeral keys
-        let client_session = KyberXSessionKeys::new();
-
-        // client sends kyber25519 session pubkey(s)
-        let cpk = client_session.get_public();
-
-        // server computes kyberx25519 combined shared secret
-        let server_session = KyberXSessionKeys::new();
-        let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
-
-        // server sends kyberx25519 session pubkey(s)
-        let spk = client_session.get_public();
-
-        // client computes kyberx25519 combined shared secret
-        let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
-
-        assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);
-        assert_ne!(server_hs_res.is_some().unwrap_u8(), 0);
-
-        let chsres = client_hs_res.unwrap();
-        let shsres = server_hs_res.unwrap();
-        assert_eq!(chsres.key_seed, shsres.key_seed);
-        assert_eq!(&chsres.auth, &shsres.auth);
-    }
-
-    #[test]
-    fn kyber_handshake_supplement_flow() {
-        // long-term server id and keys
-        let server_id_keys = KyberXIdentityKeys::new();
-        let server_id_pub = server_id_keys.get_public();
-        let server_id = ID::new();
-
-        // client open session, generating the associated ephemeral keys
-        let client_session = KyberXSessionKeys::new();
-
-        // client sends ed25519 session pubkey elligator2 encoded and includes
-        // session Kyber1024Supplement CryptoOffer.
-        let c_ed_pk = client_session.x25519.public;
-        let c_ky_pk = client_session.kyber.public;
-        let cpk = KyberXPublicKey::from_parts(c_ed_pk, c_ky_pk);
-
-        // server computes KyberX25519 combined shared secret
-        let server_session = KyberXSessionKeys::new();
-        let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
-
-        // server sends ed25519 session pubkey elligator2 encoded and includes
-        // session Kyber1024Supplement CryptoAccept.
-        let s_ed_pk = client_session.x25519.public;
-        let s_ky_pk = client_session.kyber.public;
-        let spk = KyberXPublicKey::from_parts(c_ed_pk, c_ky_pk);
-
-        // client computes KyberX25519 combined shared secret
-        let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
-
-        assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);
-        assert_ne!(server_hs_res.is_some().unwrap_u8(), 0);
-
-        let chsres = client_hs_res.unwrap();
-        let shsres = server_hs_res.unwrap();
-        assert_eq!(chsres.key_seed, shsres.key_seed);
-        assert_eq!(&chsres.auth, &shsres.auth);
-    }
-}
-
+*/
