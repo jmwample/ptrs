@@ -5,7 +5,6 @@ use hmac::Hmac;
 use sha2::Sha256;
 
 pub(crate) mod ct;
-pub(crate) mod x25519_elligator2;
 pub(crate) mod kdf;
 pub(crate) mod pq_obfs;
 
@@ -16,6 +15,7 @@ pub mod drbg;
 pub mod ntor_arti;
 pub mod probdist;
 pub mod replay_filter;
+pub mod x25519_elligator2;
 
 pub trait ArgParse {
     type Output;

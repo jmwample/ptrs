@@ -64,7 +64,7 @@ impl<'a> From<&'a EphemeralSecret> for PublicKey {
 ///
 /// # Example
 /// ```
-/// use obfs4::common::x25519_elligator2::{Keys, PublicRepresentative, PublicKey};
+/// use o5::common::x25519_elligator2::{Keys, PublicRepresentative, PublicKey};
 ///
 /// // Generate Alice's key pair.
 /// let alice_secret = Keys::random_ephemeral();

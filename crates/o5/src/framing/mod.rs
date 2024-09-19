@@ -13,7 +13,7 @@
 ///
 /// ```txt
 ///     length      u16; // (obfsucated, big endian)
-///     // NaCl secretbox (Poly1305/XSalsa20) containing:
+///     // NaCl secretbox (Poly1305/XChaCha20) containing:
 ///         tag     [u8; 16]; // (Part of the secretbox construct)
 ///         payload [u8];
 /// ```
@@ -28,7 +28,7 @@
 ///     // obfs_len = length ^ mask[n]
 /// ```
 ///
-/// The NaCl secretbox (Poly1305/XSalsa20) nonce format is:
+/// The NaCl secretbox (Poly1305/XChaCha20) nonce format is:
 ///
 /// ```txt
 ///     prefix  [u8; 24]; //(Fixed)
