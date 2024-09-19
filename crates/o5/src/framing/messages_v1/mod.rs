@@ -1,25 +1,4 @@
 //! Version 1 of the Protocol Messagess to be included in constructed frames.
-//!
-//! ## Compatability concerns:
-//!
-//! Server - when operating as a server we may want to support clients using v0
-//! as well as clients using v1. In order to accomplish this the server can
-//! look for the presence of the [`ClientParams`] message. If it is included as
-//! a part of the clients handshake we can affirmatively assign protocol message
-//! set v1 to the clients session. If we complete the handshake without
-//! receiving a [`ClientParams`] messsage then we default to v0 (if the server
-//! enables support).
-//!
-//! Client - When operating as a client we want to support the option to connect
-//! with either v0 or v1 servers. when running as a v1 client the server will
-//! ignore the unknown frames including [`ClientParams`] and [`CryptoOffer`].
-//! This means that the `SevrerHandshake` will not include [`ServerParams`] or
-//! [`CryptoAccept`] frames which indicates to a v1 client that it is speaking
-//! with a server unwilling or incapable of speaking v1. This should allow
-//! cross compatibility.
-
-mod crypto;
-use crypto::CryptoExtension;
 
 use crate::{
     constants::*,
@@ -37,10 +16,9 @@ pub enum MessageTypes {
     HeartbeatPing,
     HeartbeatPong,
 
+    HandshakeVersion,
     ClientParams,
     ServerParams,
-    CryptoOffer,
-    CryptoAccept,
 
     HandshakeEnd,
 }
@@ -54,11 +32,11 @@ impl MessageTypes {
     const HEARTBEAT_PONG: u8 = 0x04;
 
     // Handshake messages
-    const CLIENT_PARAMS: u8 = 0x10;
+    const HANDSHAKE_VERSION: u8 = 0x10;
+    const CLIENT_PARAMS: u8 = 0x11;
     const SERVER_PARAMS: u8 = 0x11;
-    const CRYPTO_OFFER: u8 = 0x12;
-    const CRYPTO_ACCEPT: u8 = 0x13;
     //...
+
     const HANDSHAKE_END: u8 = 0x1f;
 }
 
@@ -70,10 +48,9 @@ impl From<MessageTypes> for u8 {
             MessageTypes::Padding => MessageTypes::PADDING,
             MessageTypes::HeartbeatPing => MessageTypes::HEARTBEAT_PING,
             MessageTypes::HeartbeatPong => MessageTypes::HEARTBEAT_PONG,
+            MessageTypes::HandshakeVersion => MessageTypes::HANDSHAKE_VERSION,
             MessageTypes::ClientParams => MessageTypes::CLIENT_PARAMS,
             MessageTypes::ServerParams => MessageTypes::SERVER_PARAMS,
-            MessageTypes::CryptoOffer => MessageTypes::CRYPTO_OFFER,
-            MessageTypes::CryptoAccept => MessageTypes::CRYPTO_ACCEPT,
             MessageTypes::HandshakeEnd => MessageTypes::HANDSHAKE_END,
         }
     }
@@ -100,8 +77,7 @@ pub enum Messages {
 
     ClientParams,
     ServerParams,
-    CryptoOffer(CryptoExtension),
-    CryptoAccept(CryptoExtension),
+    HandshakeVersion,
 
     HandshakeEnd,
 }
@@ -114,10 +90,9 @@ impl Messages {
             Messages::Padding(_) => MessageTypes::Padding,
             Messages::HeartbeatPing => MessageTypes::HeartbeatPing,
             Messages::HeartbeatPong => MessageTypes::HeartbeatPong,
+            Messages::HandshakeVersion => MessageTypes::HandshakeVersion,
             Messages::ClientParams => MessageTypes::ClientParams,
             Messages::ServerParams => MessageTypes::ServerParams,
-            Messages::CryptoOffer(_) => MessageTypes::CryptoOffer,
-            Messages::CryptoAccept(_) => MessageTypes::CryptoAccept,
             Messages::HandshakeEnd => MessageTypes::HandshakeEnd,
         }
     }
@@ -177,13 +152,11 @@ impl Messages {
 
             MessageTypes::HeartbeatPong => Ok(Messages::HeartbeatPong),
 
+            MessageTypes::HandshakeVersion => Ok(Messages::HandshakeVersion),
+
             MessageTypes::ClientParams => Ok(Messages::ClientParams),
 
             MessageTypes::ServerParams => Ok(Messages::ServerParams),
-
-            MessageTypes::CryptoOffer => Ok(Messages::CryptoOffer(CryptoExtension::Kyber)),
-
-            MessageTypes::CryptoAccept => Ok(Messages::CryptoAccept(CryptoExtension::Kyber)),
 
             MessageTypes::HandshakeEnd => Ok(Messages::HandshakeEnd),
         }

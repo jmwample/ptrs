@@ -7,12 +7,12 @@ use sha2::Sha256;
 pub(crate) mod ct;
 pub(crate) mod curve25519;
 pub(crate) mod kdf;
+pub(crate) mod pq_obfs;
 
 mod skip;
 pub use skip::discard;
 
 pub mod drbg;
-// pub mod ntor;
 pub mod ntor_arti;
 pub mod probdist;
 pub mod replay_filter;
