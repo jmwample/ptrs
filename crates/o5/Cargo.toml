@@ -54,9 +54,8 @@ curve25519-elligator2 = { version="0.1.0-alpha.1", features=["elligator2"] }
 
 # o5 pqc
 ml-kem = "0.2.1"
-hybrid-array = { version="0.2.0-rc.9", git="https://github.com/RustCrypto/hybrid-array.git", branch="master", optional=true }
 kem = "0.3.0-pre.0"
-kemeleon = { version = "0.1.0", git="https://github.com/jmwample/kemeleon.git"}
+kemeleon = "0.1.0-rc.1"
 
 [dev-dependencies]
 anyhow = "1.0"

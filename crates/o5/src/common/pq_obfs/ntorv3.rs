@@ -5,12 +5,7 @@
 //! encrypt data (without forward secrecy) after it sends the first
 //! message.
 
-// TODO:
-//    Remove the "allow" item for dead_code.
-//    Make terminology and variable names consistent with spec.
-
-// This module is still unused: so allow some dead code for now.
-#![allow(dead_code)]
+// TODO:  Make ntorv3 terminology and variable names consistent with spec.
 
 use std::borrow::Borrow;
 
@@ -153,7 +148,8 @@ fn hash(t: &Encap<'_>, data: &[u8]) -> DigestVal {
 fn encrypt(key: &EncKey, m: &[u8]) -> Vec<u8> {
     let mut d = m.to_vec();
     let zero_iv = Default::default();
-    let mut cipher = Aes256Ctr::new(key.as_ref().into(), &zero_iv);
+    let k: &[u8;32] = key;
+    let mut cipher = Aes256Ctr::new(k.into(), &zero_iv);
     cipher.apply_keystream(&mut d);
     d
 }
@@ -247,11 +243,12 @@ impl ClientHandshake for NtorV3Client {
         key: &Self::KeyType,
         client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
+        let mut rng = rand::thread_rng();
         let mut message = Vec::new();
         NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
             .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
         Ok(
-            client_handshake_ntor_v3(rng, key, &message, NTOR3_CIRC_VERIFICATION)
+            client_handshake_ntor_v3(&mut rng, key, &message, NTOR3_CIRC_VERIFICATION)
                 .map_err(into_internal!("Can't encode ntor3 client handshake."))?,
         )
     }
@@ -298,9 +295,10 @@ impl ServerHandshake for NtorV3Server {
             NtorV3Extension::write_many_onto(&reply_exts, &mut out).ok()?;
             Some(out)
         };
+        let mut rng = rand::thread_rng();
 
         let (res, reader) = server_handshake_ntor_v3(
-            rng,
+            &mut rng,
             &mut bytes_reply_fn,
             msg.as_ref(),
             key,
@@ -512,7 +510,15 @@ fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     let id: Ed25519Identity = r.extract()?;
     let requested_pk: curve25519::PublicKey = r.extract()?;
     let client_pk: curve25519::PublicKey = r.extract()?;
-    let client_msg = r.take_all_but(MAC_LEN)?;
+    let client_msg = if let Some(msg_len) = r.remaining().checked_sub(MAC_LEN) {
+        r.take(msg_len)?
+    } else {
+        let deficit = (MAC_LEN - r.remaining())
+            .try_into()
+            .expect("miscalculated!");
+        return Err(Error::incomplete_error(deficit).into());
+    };
+
     let msg_mac: MacVal = r.extract()?;
     r.should_be_exhausted()?;
 
@@ -714,7 +720,7 @@ mod test {
     #![allow(clippy::useless_vec)]
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
-    use crate::crypto::handshake::{ClientHandshake, ServerHandshake};
+    use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
 
     use super::*;
     use hex_literal::hex;
@@ -767,7 +773,6 @@ mod test {
     // Same as previous test, but use the higher-level APIs instead.
     #[test]
     fn test_ntor3_roundtrip_highlevel() {
-        let mut rng = rand::thread_rng();
         let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
 
         let (c_state, c_handshake) =
@@ -775,8 +780,9 @@ mod test {
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
+        let server = NtorV3Server{};
         let (s_keygen, s_handshake) =
-            NtorV3Server::server(&mut rng, &mut rep, &[relay_private], &c_handshake).unwrap();
+            server.server(&mut rep, &[relay_private], &c_handshake).unwrap();
 
         let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
 
@@ -789,7 +795,6 @@ mod test {
     // Same as previous test, but encode some congestion control extensions.
     #[test]
     fn test_ntor3_roundtrip_highlevel_cc() {
-        let mut rng = rand::thread_rng();
         let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
 
         let client_exts = vec![NtorV3Extension::RequestCongestionControl];
@@ -806,8 +811,9 @@ mod test {
             Some(reply_exts.clone())
         };
 
+        let server = NtorV3Server{};
         let (s_keygen, s_handshake) =
-            NtorV3Server::server(&mut rng, &mut rep, &[relay_private], &c_handshake).unwrap();
+            server.server(&mut rep, &[relay_private], &c_handshake).unwrap();
 
         let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
 

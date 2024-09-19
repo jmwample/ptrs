@@ -13,7 +13,7 @@
 // kludge something together using a fake Rng, but that might be more
 // trouble than we want to go looking for.
 #[allow(unused)]
-pub use x25519_dalek::{
+pub use curve25519_elligator2::{
     EphemeralSecret, PublicKey, PublicRepresentative, ReusableSecret, SharedSecret, StaticSecret,
 };
 

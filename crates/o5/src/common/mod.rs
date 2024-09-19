@@ -5,7 +5,7 @@ use hmac::Hmac;
 use sha2::Sha256;
 
 pub(crate) mod ct;
-pub(crate) mod curve25519;
+pub(crate) mod x25519_elligator2;
 pub(crate) mod kdf;
 pub(crate) mod pq_obfs;
 

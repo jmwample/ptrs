@@ -3,12 +3,14 @@
 use tor_llcrypto::pk::rsa::RSA_ID_LEN;
 
 use crate::{
-    common::{curve25519::REPRESENTATIVE_LENGTH, drbg},
+    common::{x25519_elligator2::REPRESENTATIVE_LENGTH, drbg},
     framing,
-    handshake::AUTHCODE_LENGTH,
+    // handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;
+
+pub const AUTHCODE_LENGTH: usize = 32;
 
 //=========================[Framing/Msgs]=====================================//
 
