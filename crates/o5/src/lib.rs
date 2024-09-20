@@ -4,17 +4,17 @@
 pub mod common;
 // pub mod server;
 pub mod framing;
-// pub mod proto;
+pub mod proto;
 // pub use client::{Client, ClientBuilder};
 // pub use server::{Server, ServerBuilder};
 
 pub(crate) mod constants;
-// pub(crate) mod handshake;
-// pub(crate) mod sessions;
+pub(crate) mod handshake;
+pub(crate) mod sessions;
 
 // #[cfg(test)]
 // mod testing;
-// 
+//
 // mod pt;
 // pub use pt::{O5PT, Transport};
 

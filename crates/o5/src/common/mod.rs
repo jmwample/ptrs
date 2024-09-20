@@ -6,16 +6,17 @@ use sha2::Sha256;
 
 pub(crate) mod ct;
 pub(crate) mod kdf;
+pub(crate) mod utils;
 
 mod skip;
 pub use skip::discard;
 
 pub mod drbg;
+pub mod mlkem1024_x25519;
 pub mod ntor_arti;
 pub mod probdist;
 pub mod replay_filter;
 pub mod x25519_elligator2;
-pub mod mlkem1024_x25519;
 
 pub trait ArgParse {
     type Output;

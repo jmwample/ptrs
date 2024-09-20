@@ -4,7 +4,7 @@ use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 use x25519_dalek::ReusableSecret;
 
-pub struct SessionKeyPair(HybridKey);
+pub struct StaticSecret(HybridKey);
 
 pub struct IdentityKeyPair(HybridKey);
 
@@ -14,7 +14,7 @@ struct HybridKey {
     pub_key: PublicKey,
 }
 
-struct PublicKey {
+pub(crate) struct PublicKey {
     x25519: x25519_dalek::PublicKey,
     mlkem: EncapsulationKey<ml_kem::MlKem1024>,
 }
@@ -99,10 +99,7 @@ impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
     type Error = EncodeError;
 
     // Required method
-    fn decapsulate(
-        &self,
-        encapsulated_key: &Ciphertext,
-    ) -> Result<SharedSecret, Self::Error> {
+    fn decapsulate(&self, encapsulated_key: &Ciphertext) -> Result<SharedSecret, Self::Error> {
         let arr = kemeleon::Ciphertext::try_from(&encapsulated_key[32..])?;
         let local_ss_mlkem = self.mlkem.decapsulate(&arr)?;
 
@@ -145,31 +142,31 @@ mod test {
         // x25519
         let alice_secret = ReusableSecret::random_from_rng(&mut rng);
         let alice_public = x25519_dalek::PublicKey::from(&alice_secret);
-        // kyber
-        let (alice_kyber_dk, alice_kyber_ek) = MlKem1024::generate(&mut rng);
+        // mlkem
+        let (alice_mlkem_dk, alice_mlkem_ek) = MlKem1024::generate(&mut rng);
 
         // --- alice -> bob (public keys) ---
-        // alice sends bob the public key for her kyber1024 keypair with her
+        // alice sends bob the public key for her mlkem1024 keypair with her
         // x25519 key appended to the end.
-        let mut kyber1024x_pubkey = alice_public.as_bytes().to_vec();
-        kyber1024x_pubkey.extend_from_slice(&alice_kyber_ek.as_bytes());
+        let mut mlkem1024x_pubkey = alice_public.as_bytes().to_vec();
+        mlkem1024x_pubkey.extend_from_slice(&alice_mlkem_ek.as_bytes());
 
-        assert_eq!(kyber1024x_pubkey.len(), 1562);
+        assert_eq!(mlkem1024x_pubkey.len(), 1562);
 
         // --- Generate Keypair (Bob) ---
         // x25519
         let bob_secret = ReusableSecret::random_from_rng(&mut rng);
         let bob_public = x25519_dalek::PublicKey::from(&bob_secret);
 
-        // (Imagine) upon receiving the kyberx25519 public key bob parses them
+        // (Imagine) upon receiving the mlkemx25519 public key bob parses them
         // into their respective structs from bytes
 
         // Bob encapsulates a shared secret using Alice's public key
-        let (ciphertext, shared_secret_bob) = alice_kyber_ek.encapsulate(&mut rng).unwrap();
+        let (ciphertext, shared_secret_bob) = alice_mlkem_ek.encapsulate(&mut rng).unwrap();
         let bob_shared_secret = bob_secret.diffie_hellman(&alice_public);
 
         // // Alice decapsulates a shared secret using the ciphertext sent by Bob
-        let shared_secret_alice = alice_kyber_dk.decapsulate(&ciphertext).unwrap();
+        let shared_secret_alice = alice_mlkem_dk.decapsulate(&ciphertext).unwrap();
         let alice_shared_secret = alice_secret.diffie_hellman(&bob_public);
 
         assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes());
@@ -180,74 +177,4 @@ mod test {
             hex::encode(shared_secret_alice)
         );
     }
-
-    /*
-    #[test]
-    fn mlkem1024_x25519_handshake_flow() {
-        let mut rng = rand::thread_rng();
-        // long-term server id and keys
-        let server_id_keys = HybridKey::new(&mut rng);
-        let server_id_pub = server_id_keys.public_key();
-        // let server_id = ID::new();
-
-        // client open session, generating the associated ephemeral keys
-        let client_session = HybridKey::new(&mut rng);
-
-        // client sends kyber25519 session pubkey(s)
-        let cpk = client_session.public_key();
-
-        // server computes kyberx25519 combined shared secret
-        let server_session = HybridKey::new(&mut rng);
-        let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
-
-        // server sends kyberx25519 session pubkey(s)
-        let spk = client_session.public_key();
-
-        // client computes kyberx25519 combined shared secret
-        let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
-
-        assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);
-        assert_ne!(server_hs_res.is_some().unwrap_u8(), 0);
-
-        let chsres = client_hs_res.unwrap();
-        let shsres = server_hs_res.unwrap();
-        assert_eq!(chsres.key_seed, shsres.key_seed);
-        assert_eq!(&chsres.auth, &shsres.auth);
-    }
-
-    #[test]
-    fn kyber_handshake_supplement_flow() {
-        let mut rng = rand::thread_rng();
-        // long-term server id and keys
-        let server_id_keys = HybridKey::new(&mut rng);
-        let server_id_pub = server_id_keys.public_key();
-        // let server_id = ID::new();
-
-        // client open session, generating the associated ephemeral keys
-        let client_session = HybridKey::new(&mut rng);
-
-        // client sends ed25519 session pubkey elligator2 encoded and includes
-        // session Kyber1024Supplement CryptoOffer.
-        let cpk = client_session.public_key();
-
-        // server computes KyberX25519 combined shared secret
-        let server_session = HybridKey::new(&mut rng);
-        let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
-
-        // server sends ed25519 session pubkey elligator2 encoded and includes
-        // session Kyber1024Supplement CryptoAccept.
-        let spk = server_session.public_key();
-
-        // client computes KyberX25519 combined shared secret
-        let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
-
-        assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);
-        assert_ne!(server_hs_res.is_some().unwrap_u8(), 0);
-
-        let chsres = client_hs_res.unwrap();
-        let shsres = server_hs_res.unwrap();
-        assert_eq!(chsres.key_seed, shsres.key_seed);
-        assert_eq!(&chsres.auth, &shsres.auth);
-    }
-    */
 }

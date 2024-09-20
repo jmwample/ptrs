@@ -1,40 +1,22 @@
 use crate::{
     common::{
+        utils::{get_epoch_hour, make_hs_pad},
         x25519_elligator2::{PublicKey, PublicRepresentative},
         HmacSha256,
     },
     constants::*,
-    // handshake::{get_epoch_hour, make_hs_pad, Authcode},
+    // handshake::Authcode,
     Result,
 };
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::BufMut;
 use hmac::Mac;
 use ptrs::trace;
-use rand::{Rng, RngCore};
+use rand::Rng;
 
 // ----------------------[ taken from handshake/ for now ]----------------------
 
-type Authcode = [u8;32];
-
-pub fn get_epoch_hour() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / 3600
-}
-
-pub fn make_hs_pad(pad_len: usize) -> Result<Vec<u8>> {
-    trace!("[make_hs_pad] generating {pad_len}B");
-    let mut pad = vec![u8::default(); pad_len];
-    rand::thread_rng()
-        .try_fill_bytes(&mut pad)
-        .expect("rng failure");
-    Ok(pad)
-}
+type Authcode = [u8; 32];
 
 // -----------------------------[ Server ]-----------------------------
 

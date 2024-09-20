@@ -10,8 +10,7 @@ use crate::{
     constants::*,
     framing,
     handshake::{
-        CHSMaterials, O5Keygen, O5NtorHandshake, O5NtorPublicKey, O5NtorSecretKey,
-        SHSMaterials,
+        CHSMaterials, NtorV3PublicKey, NtorV3SecretKey, O5Keygen, O5NtorHandshake, SHSMaterials,
     },
     proto::{O4Stream, O5Stream, IAT},
     server::Server,
@@ -70,7 +69,7 @@ impl Session {
 // ================================================================ //
 
 pub(crate) struct ClientSession<S: ClientSessionState> {
-    node_pubkey: O5NtorPublicKey,
+    node_pubkey: NtorV3PublicKey,
     session_id: [u8; SESSION_ID_LEN],
     iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
@@ -141,7 +140,7 @@ impl<S: ClientSessionState> ClientSession<S> {
 }
 
 pub fn new_client_session(
-    station_pubkey: O5NtorPublicKey,
+    station_pubkey: NtorV3PublicKey,
     iat_mode: IAT,
 ) -> ClientSession<Initialized> {
     let mut session_id = [0u8; SESSION_ID_LEN];
@@ -167,11 +166,7 @@ impl ClientSession<Initialized> {
     /// TODO: make sure failure modes align with golang obfs4
     /// - FIN/RST based on buffered data.
     /// - etc.
-    pub async fn handshake<T>(
-        self,
-        mut stream: T,
-        deadline: Option<Instant>,
-    ) -> Result<O5Stream<T>>
+    pub async fn handshake<T>(self, mut stream: T, deadline: Option<Instant>) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -311,7 +306,7 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
 
 pub(crate) struct ServerSession<S: ServerSessionState> {
     // fixed by server
-    pub(crate) identity_keys: O5NtorSecretKey,
+    pub(crate) identity_keys: NtorV3SecretKey,
     pub(crate) biased: bool,
     // pub(crate) server: &'a Server,
 

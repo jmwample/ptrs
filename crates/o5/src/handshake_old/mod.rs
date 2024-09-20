@@ -5,35 +5,55 @@
 //! encrypt data (without forward secrecy) after it sends the first
 //! message.
 
-// TODO:
-//    Remove the "allow" item for dead_code.
-//    Make terminology and variable names consistent with spec.
+use crate::{
+    common::{
+        ct,
+        x25519_elligator2::{Representable, StaticSecret},
+        ntor_arti::{
+            AuxDataReply, ClientHandshake, KeyGenerator, RelayHandshakeError, RelayHandshakeResult,
+            ServerHandshake,
+        },
+    },
+    constants::*,
+    framing::{O5Codec, KEY_MATERIAL_LENGTH},
+    Error, Result, Server,
+};
 
-// This module is still unused: so allow some dead code for now.
-#![allow(dead_code)]
-
-use std::borrow::Borrow;
-
-use crate::common::ntor_arti::{KeyGenerator, RelayHandshakeError, RelayHandshakeResult};
-use crate::common::ct;
-use crate::common::curve25519;
-use crate::{Error, Result};
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writeable, Writer};
 use tor_error::into_internal;
-use tor_llcrypto::d::{Sha256, Shake256, Shake256Reader};
-use tor_llcrypto::pk::ed25519::Ed25519Identity;
+use tor_llcrypto::d::{Sha3_256, Shake256, Shake256Reader};
+use tor_llcrypto::pk::{curve25519, ed25519::Ed25519Identity};
 use tor_llcrypto::util::ct::ct_lookup;
 
 use cipher::{KeyIvInit, StreamCipher};
 
+#[cfg(test)]
 use rand_core::{CryptoRng, RngCore};
+
 use subtle::{Choice, ConstantTimeEq};
 use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use zeroize::Zeroizing;
 
+use std::borrow::Borrow;
+
+mod handshake_client;
+mod handshake_server;
+mod utils;
+
+pub(crate) use utils::*;
+
+pub(crate) use handshake_client::HandshakeMaterials as CHSMaterials;
+#[cfg(test)]
+pub(crate) use handshake_client::{
+    client_handshake2_no_auth_check_o5, client_handshake_o5_no_keygen,
+};
+
+use handshake_client::{client_handshake2_o5, client_handshake_o5, O5NtorHandshakeState};
+pub(crate) use handshake_server::HandshakeMaterials as SHSMaterials;
+
 /// The verification string to be used for circuit extension.
-const OBFS4_CIRC_VERIFICATION: &[u8] = b"circuit extend";
+const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
 
 /// The size of an encryption key in bytes.
 const ENC_KEY_LEN: usize = 32;
@@ -48,21 +68,25 @@ const MAC_LEN: usize = 32;
 /// The length of a node identity in bytes.
 const ID_LEN: usize = 32;
 
+/// Alias for an HMAC output, used to validate correctness of a handshake.
+pub(crate) type Authcode = [u8; 32];
+pub(crate) const AUTHCODE_LENGTH: usize = 32;
+
 /// The output of the digest, as an array.
 type DigestVal = [u8; DIGEST_LEN];
 /// The output of the MAC.
 type MacVal = [u8; MAC_LEN];
 /// A key for symmetric encryption or decryption.
 //
-// TODO (nickm): Any move operations applied to this key could subvert the zeroizing.
+// TODO: Any move operations applied to this key could subvert the zeroizing.
 type EncKey = Zeroizing<[u8; ENC_KEY_LEN]>;
 /// A key for message authentication codes.
 type MacKey = [u8; MAC_KEY_LEN];
 
-/// Opaque wrapper type for Obfs4Ntor's hash reader.
-struct Obfs4NtorXofReader(Shake256Reader);
+/// Opaque wrapper type for NtorV3's hash reader.
+struct NtorV3XofReader(Shake256Reader);
 
-impl digest::XofReader for Obfs4NtorXofReader {
+impl digest::XofReader for NtorV3XofReader {
     fn read(&mut self, buffer: &mut [u8]) {
         self.0.read(buffer);
     }
@@ -88,7 +112,6 @@ impl<'a> Encap<'a> {
     }
     /// Return the underlying data
     fn data(&self) -> &'a [u8] {
-        self.0
     }
 }
 
@@ -110,16 +133,6 @@ macro_rules! define_tweaks {
 }
 
 define_tweaks! {
-
-    pub(crate) const PROTO_ID: &[u8; 24] = b"ntor-curve25519-sha256-1";
-
-    pub(crate) const T_MAC: &[u8; 28] = b"ntor-curve25519-sha256-1:mac";
-
-    pub(crate) const T_VERIFY: &[u8; 35] = b"ntor-curve25519-sha256-1:key_verify";
-
-    pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
-
-
     /// Protocol ID: concatenated with other things in the protocol to
     /// prevent hash confusion.
     PROTOID =  "ntor3-curve25519-sha3_256-1";
@@ -145,7 +158,7 @@ define_tweaks! {
 /// Compute a tweaked hash.
 fn hash(t: &Encap<'_>, data: &[u8]) -> DigestVal {
     use digest::Digest;
-    let mut d = Sha256::new();
+    let mut d = Sha3_256::new();
     d.update((t.len() as u64).to_be_bytes());
     d.update(t.data());
     d.update(data);
@@ -203,17 +216,17 @@ fn kdf_msgkdf(
     relay_public: &O5NtorPublicKey,
     client_public: &curve25519::PublicKey,
     verification: &[u8],
-) -> EncodeResult<(EncKey, DigestWriter<Sha256>)> {
+) -> EncodeResult<(EncKey, DigestWriter<Sha3_256>)> {
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
     // phase1_keys = KDF_msgkdf(secret_input_phase1)
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
     use digest::{ExtendableOutput, XofReader};
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
-    msg_kdf.write(xb.as_bytes())?;
-    msg_kdf.write(&relay_public.id)?;
-    msg_kdf.write(client_public.as_bytes())?;
-    msg_kdf.write(&relay_public.pk.as_bytes())?;
+    msg_kdf.write(xb)?;
+    msg_kdf.write(&materials.node_pubkey.id)?;
+    msg_kdf.write(client_public)?;
+    msg_kdf.write(&materials.node_pubkey.pk)?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
     let mut r = msg_kdf.take().finalize_xof();
@@ -222,25 +235,25 @@ fn kdf_msgkdf(
 
     r.read(&mut enc_key[..]);
     r.read(&mut mac_key[..]);
-    let mut mac = DigestWriter(Sha256::default());
+    let mut mac = DigestWriter(Sha3_256::default());
     {
         mac.write(&T_MSGMAC)?;
         mac.write(&Encap(&mac_key[..]))?;
-        mac.write(&relay_public.id)?;
-        mac.write(&relay_public.pk.as_bytes())?;
-        mac.write(client_public.as_bytes())?;
+        mac.write(&materials.node_pubkey.id)?;
+        mac.write(&materials.node_pubkey.pk)?;
+        mac.write(client_public)?;
     }
 
     Ok((enc_key, mac))
 }
 
 /// Client side of the ntor v3 handshake.
-pub(crate) struct Obfs4NtorClient;
+pub(crate) struct O5Client;
 
-impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
+impl ClientHandshake for O5Client {
     type KeyType = O5NtorPublicKey;
     type StateType = O5NtorHandshakeState;
-    type KeyGen = Obfs4NtorKeyGenerator;
+    type KeyGen = O5NtorKeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
 
@@ -249,17 +262,17 @@ impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
     ///
     /// On success, return a state object that will be used to complete the handshake, along
     /// with the message to send.
-    fn client1<R: RngCore + CryptoRng, M: Borrow<[NtorV3Extension]>>(
-        rng: &mut R,
-        key: &O5NtorPublicKey,
-        extensions: &M,
+    fn client1<M: Borrow<Self::ClientAuxData>>(
+        key: &Self::KeyType,
+        client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
         let mut message = Vec::new();
-        NtorV3Extension::write_many_onto(extensions.borrow(), &mut message)
-            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
+        // // TODO: Add extensions back in
+        // NtorV3Extension::write_many_onto(extensions.borrow(), &mut message)
+        //     .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
         Ok(
-            client_handshake_obfs4(rng, key, &message, OBFS4_CIRC_VERIFICATION)
-                .map_err(into_internal!("Can't encode obfs4 client handshake."))?,
+            client_handshake_o5(key, &message, NTOR3_CIRC_VERIFICATION)
+                .map_err(into_internal!("Can't encode ntor3 client handshake."))?,
         )
     }
 
@@ -270,30 +283,30 @@ impl crate::common::ntor_arti::ClientHandshake for Obfs4NtorClient {
     fn client2<T: AsRef<[u8]>>(
         state: Self::StateType,
         msg: T,
-    ) -> Result<(Vec<NtorV3Extension>, Self::KeyGen)> {
+    ) -> Result<(Self::ServerAuxData, Self::KeyGen)> {
         let (message, xofreader) =
-            client_handshake_obfs4_part2(&state, msg.as_ref(), OBFS4_CIRC_VERIFICATION)?;
+            client_handshake_o5_part2(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
         let extensions = NtorV3Extension::decode(&message).map_err(|err| Error::CellDecodeErr {
             object: "ntor v3 extensions",
             err,
         })?;
-        let keygen = Obfs4NtorKeyGenerator { reader: xofreader };
+        let keygen = O5NtorKeyGenerator { reader: xofreader };
 
         Ok((extensions, keygen))
     }
 }
 
 /// Server side of the ntor v3 handshake.
-pub(crate) struct Obfs4NtorServer;
+pub(crate) struct O5Server;
 
-impl crate::common::ntor_arti::ServerHandshake for Obfs4NtorServer {
+impl ServerHandshake for O5Server {
     type KeyType = O5NtorSecretKey;
-    type KeyGen = Obfs4NtorKeyGenerator;
+    type KeyGen = O5NtorKeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
 
-    fn server<R: RngCore + CryptoRng, REPLY: crate::common::ntor_arti::AuxDataReply<Self>, T: AsRef<[u8]>>(
-        rng: &mut R,
+    fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
+        &self,
         reply_fn: &mut REPLY,
         key: &[Self::KeyType],
         msg: T,
@@ -306,14 +319,13 @@ impl crate::common::ntor_arti::ServerHandshake for Obfs4NtorServer {
             Some(out)
         };
 
-        let (res, reader) = server_handshake_obfs4(
-            rng,
+        let (res, reader) = server_handshake_o5(
             &mut bytes_reply_fn,
             msg.as_ref(),
             key,
-            OBFS4_CIRC_VERIFICATION,
+            NTOR3_CIRC_VERIFICATION,
         )?;
-        Ok((Obfs4NtorKeyGenerator { reader }, res))
+        Ok((O5NtorKeyGenerator { reader }, res))
     }
 }
 
@@ -325,10 +337,8 @@ impl crate::common::ntor_arti::ServerHandshake for Obfs4NtorServer {
 pub(crate) struct O5NtorPublicKey {
     /// The relay's identity.
     pub(crate) id: Ed25519Identity,
-    /// The Bridge's identity key.
+    /// The relay's onion key.
     pub(crate) pk: curve25519::PublicKey,
-    /// The Elligator2 representative for the public key
-    pub(crate) rp: Option<curve25519::PublicRepresentative>,
 }
 
 /// Secret key information used by a relay for the ntor v3 handshake.
@@ -345,44 +355,26 @@ impl O5NtorSecretKey {
     pub(crate) fn new(
         sk: curve25519::StaticSecret,
         pk: curve25519::PublicKey,
-        rp: Option<curve25519::PublicRepresentative>,
         id: Ed25519Identity,
     ) -> Self {
         Self {
-            pk: O5NtorPublicKey { id, pk, rp },
+            pk: O5NtorPublicKey { id, pk },
             sk,
         }
     }
 
     /// Generate a key using the given `rng`, suitable for testing.
     #[cfg(test)]
-    pub(crate) fn generate_for_test<R: RngCore + CryptoRng>(mut rng: R) -> Self {
+    pub(crate) fn generate_for_test<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         let mut id = [0_u8; 32];
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
 
-        let mut sk: curve25519::StaticSecret = [0u8;32].into();
-        let mut pk1: curve25519::PublicKey = [0u8;32].into();
-        let mut rp: Option<curve25519::PublicRepresentative> = None;
-
-        for _ in 0..64 { // artificial ceil of 64 so this can't infinite loop
-
-            // approx 50% of keys do not have valid representatives so we just
-            // iterate until we find a key where it is valid. This should take
-            // a low number of iteratations and always succeed eventually.
-            sk = curve25519::StaticSecret::random_from_rng(&mut rng);
-            rp = (&sk).into();
-            if rp.is_none() {
-                continue
-            }
-            pk1 = (&sk).into();
-            break
-        }
+        let sk = curve25519::StaticSecret::random_from_rng(rng);
 
         let pk = O5NtorPublicKey {
-            pk: pk1,
+            pk: (&sk).into(),
             id: id.into(),
-            rp,
         };
         Self { pk, sk }
     }
@@ -396,31 +388,14 @@ impl O5NtorSecretKey {
     }
 }
 
-/// Client state for the ntor v3 handshake.
-///
-/// The client needs to hold this state between when it sends its part
-/// of the handshake and when it receives the relay's reply.
-pub(crate) struct O5NtorHandshakeState {
-    /// The public key of the relay we're communicating with.
-    relay_public: O5NtorPublicKey, // B, ID.
-    /// Our ephemeral secret key for this handshake.
-    my_sk: curve25519::StaticSecret, // x
-    /// Our ephemeral public key for this handshake.
-    my_public: curve25519::PublicKey, // X
-
-    /// The shared secret generated as Bx or Xb.
-    shared_secret: curve25519::SharedSecret, // Bx
-    /// The MAC of our original encrypted message.
-    msg_mac: MacVal, // msg_mac
-}
-
 /// A key generator returned from an ntor v3 handshake.
-pub(crate) struct Obfs4NtorKeyGenerator {
+pub(crate) struct O5NtorKeyGenerator {
     /// The underlying `digest::XofReader`.
-    reader: Obfs4NtorXofReader,
+    reader: NtorV3XofReader,
 }
 
-impl KeyGenerator for Obfs4NtorKeyGenerator {
+
+impl KeyGenerator for O5NtorKeyGenerator {
     fn expand(mut self, keylen: usize) -> Result<SecretBuf> {
         use digest::XofReader;
         let mut ret: SecretBuf = vec![0; keylen].into();
@@ -429,60 +404,6 @@ impl KeyGenerator for Obfs4NtorKeyGenerator {
     }
 }
 
-/// Client-side Ntor version 3 handshake, part one.
-///
-/// Given a secure `rng`, a relay's public key, a secret message to send,
-/// and a shared verification string, generate a new handshake state
-/// and a message to send to the relay.
-fn client_handshake_obfs4<R: RngCore + CryptoRng>(
-    rng: &mut R,
-    relay_public: &O5NtorPublicKey,
-    client_msg: &[u8],
-    verification: &[u8],
-) -> EncodeResult<(O5NtorHandshakeState, Vec<u8>)> {
-    let my_sk = curve25519::StaticSecret::random_from_rng(rng);
-    client_handshake_obfs4_no_keygen(relay_public, client_msg, verification, my_sk)
-}
-
-/// As `client_handshake_obfs4`, but don't generate an ephemeral DH
-/// key: instead take that key an arguments `my_sk`.
-fn client_handshake_obfs4_no_keygen(
-    relay_public: &O5NtorPublicKey,
-    client_msg: &[u8],
-    verification: &[u8],
-    my_sk: curve25519::StaticSecret,
-) -> EncodeResult<(O5NtorHandshakeState, Vec<u8>)> {
-    let my_public = curve25519::PublicKey::from(&my_sk);
-    let bx = my_sk.diffie_hellman(&relay_public.pk);
-
-    let (enc_key, mut mac) = kdf_msgkdf(&bx, relay_public, &my_public, verification)?;
-
-    //encrypted_msg = ENC(ENC_K1, CM)
-    // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
-    let encrypted_msg = encrypt(&enc_key, client_msg);
-    let msg_mac: DigestVal = {
-        use digest::Digest;
-        mac.write(&encrypted_msg)?;
-        mac.take().finalize().into()
-    };
-
-    let mut message = Vec::new();
-    message.write(&relay_public.id)?;
-    message.write(&relay_public.pk.as_bytes())?;
-    message.write(&my_public.as_bytes())?;
-    message.write(&encrypted_msg)?;
-    message.write(&msg_mac)?;
-
-    let state = O5NtorHandshakeState {
-        relay_public: relay_public.clone(),
-        my_sk,
-        my_public,
-        shared_secret: bx,
-        msg_mac,
-    };
-
-    Ok((state, message))
-}
 
 /// Trait for an object that handle and incoming client message and
 /// return a server's reply.
@@ -515,33 +436,30 @@ where
 ///
 /// On success, return the server handshake message to send, and an XofReader
 /// to use in generating circuit keys.
-fn server_handshake_obfs4<RNG: CryptoRng + RngCore, REPLY: MsgReply>(
-    rng: &mut RNG,
+fn server_handshake_o5<REPLY: MsgReply>(
     reply_fn: &mut REPLY,
     message: &[u8],
     keys: &[O5NtorSecretKey],
     verification: &[u8],
-) -> RelayHandshakeResult<(Vec<u8>, Obfs4NtorXofReader)> {
+) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
+    let mut rng = rand::thread_rng();
     let secret_key_y = curve25519::StaticSecret::random_from_rng(rng);
-    server_handshake_obfs4_no_keygen(reply_fn, &secret_key_y, message, keys, verification)
+    server_handshake_o5_no_keygen(reply_fn, &secret_key_y, message, keys, verification)
 }
 
-/// As `server_handshake_obfs4`, but take a secret key instead of an RNG.
-fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
+/// As `server_handshake_o5`, but take a secret key instead of an RNG.
+fn server_handshake_o5_no_keygen<REPLY: MsgReply>(
     reply_fn: &mut REPLY,
     secret_key_y: &curve25519::StaticSecret,
     message: &[u8],
     keys: &[O5NtorSecretKey],
     verification: &[u8],
-) -> RelayHandshakeResult<(Vec<u8>, Obfs4NtorXofReader)> {
+) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     // Decode the message.
     let mut r = Reader::from_slice(message);
     let id: Ed25519Identity = r.extract()?;
-
-    let pk_buf: [u8;32] = r.extract()?;
-    let requested_pk = curve25519::PublicKey::from(pk_buf);
-    let pk_buf: [u8;32] = r.extract()?;
-    let client_pk = curve25519::PublicKey::from(pk_buf);
+    let requested_pk: curve25519::PublicKey = r.extract()?;
+    let client_pk: curve25519::PublicKey = r.extract()?;
     let client_msg = if let Some(msg_len) = r.remaining().checked_sub(MAC_LEN) {
         r.take(msg_len)?
     } else {
@@ -559,7 +477,7 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
 
     let xb = keypair.sk.diffie_hellman(&client_pk);
     let (enc_key, mut mac) = kdf_msgkdf(&xb, &keypair.pk, &client_pk, verification)
-        .map_err(into_internal!("Can't apply obfs4 kdf."))?;
+        .map_err(into_internal!("Can't apply ntor3 kdf."))?;
     // Verify the message we received.
     let computed_mac: DigestVal = {
         use digest::Digest;
@@ -590,15 +508,15 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
 
     let secret_input = {
         let mut si = SecretBuf::new();
-        si.write(&xy.as_bytes())
-            .and_then(|_| si.write(&xb.as_bytes()))
+        si.write(&xy)
+            .and_then(|_| si.write(&xb))
             .and_then(|_| si.write(&keypair.pk.id))
-            .and_then(|_| si.write(&keypair.pk.pk.as_bytes()))
-            .and_then(|_| si.write(&client_pk.as_bytes()))
-            .and_then(|_| si.write(&y_pk.as_bytes()))
+            .and_then(|_| si.write(&keypair.pk.pk))
+            .and_then(|_| si.write(&client_pk))
+            .and_then(|_| si.write(&y_pk))
             .and_then(|_| si.write(PROTOID))
             .and_then(|_| si.write(&Encap(verification)))
-            .map_err(into_internal!("can't derive obfs4 secret_input"))?;
+            .map_err(into_internal!("can't derive ntor3 secret_input"))?;
         si
     };
     let ntor_key_seed = h_key_seed(&secret_input);
@@ -609,7 +527,7 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
         let mut xof = DigestWriter(Shake256::default());
         xof.write(&T_FINAL)
             .and_then(|_| xof.write(&ntor_key_seed))
-            .map_err(into_internal!("can't generate obfs4 xof."))?;
+            .map_err(into_internal!("can't generate ntor3 xof."))?;
         let mut r = xof.take().finalize_xof();
         let mut enc_key = Zeroizing::new([0_u8; ENC_KEY_LEN]);
         r.read(&mut enc_key[..]);
@@ -618,156 +536,219 @@ fn server_handshake_obfs4_no_keygen<REPLY: MsgReply>(
     let encrypted_reply = encrypt(&enc_key, &reply);
     let auth: DigestVal = {
         use digest::Digest;
-        let mut auth = DigestWriter(Sha256::default());
+        let mut auth = DigestWriter(Sha3_256::default());
         auth.write(&T_AUTH)
             .and_then(|_| auth.write(&verify))
             .and_then(|_| auth.write(&keypair.pk.id))
-            .and_then(|_| auth.write(&keypair.pk.pk.as_bytes()))
-            .and_then(|_| auth.write(&y_pk.as_bytes()))
-            .and_then(|_| auth.write(&client_pk.as_bytes()))
+            .and_then(|_| auth.write(&keypair.pk.pk))
+            .and_then(|_| auth.write(&y_pk))
+            .and_then(|_| auth.write(&client_pk))
             .and_then(|_| auth.write(&msg_mac))
             .and_then(|_| auth.write(&Encap(&encrypted_reply)))
             .and_then(|_| auth.write(PROTOID))
             .and_then(|_| auth.write(&b"Server"[..]))
-            .map_err(into_internal!("can't derive obfs4 authentication"))?;
+            .map_err(into_internal!("can't derive ntor3 authentication"))?;
         auth.take().finalize().into()
     };
 
     let reply = {
         let mut reply = Vec::new();
         reply
-            .write(&y_pk.as_bytes())
+            .write(&y_pk)
             .and_then(|_| reply.write(&auth))
             .and_then(|_| reply.write(&encrypted_reply))
-            .map_err(into_internal!("can't encode obfs4 reply."))?;
+            .map_err(into_internal!("can't encode ntor3 reply."))?;
         reply
     };
 
     if okay.into() {
-        Ok((reply, Obfs4NtorXofReader(keystream)))
+        Ok((reply, NtorV3XofReader(keystream)))
     } else {
         Err(RelayHandshakeError::BadClientHandshake)
     }
 }
 
-/// Finalize the handshake on the client side.
-///
-/// Called after we've received a message from the relay: try to
-/// complete the handshake and verify its correctness.
-///
-/// On success, return the server's reply to our original encrypted message,
-/// and an `XofReader` to use in generating circuit keys.
-fn client_handshake_obfs4_part2(
-    state: &O5NtorHandshakeState,
-    relay_handshake: &[u8],
-    verification: &[u8],
-) -> Result<(Vec<u8>, Obfs4NtorXofReader)> {
-    let mut reader = Reader::from_slice(relay_handshake);
-    let pk_buf: [u8;32] = reader
-        .extract()
-        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
-    let y_pk = curve25519::PublicKey::from(pk_buf);
-    let auth: DigestVal = reader
-        .extract()
-        .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
-    let encrypted_msg = reader.into_rest();
 
-    // TODO: Some of this code is duplicated from the server handshake code!  It
-    // would be better to factor it out.
-    let yx = state.my_sk.diffie_hellman(&y_pk);
-    let secret_input = {
-        let mut si = SecretBuf::new();
-        si.write(&yx.as_bytes())
-            .and_then(|_| si.write(&state.shared_secret.as_bytes()))
-            .and_then(|_| si.write(&state.relay_public.id))
-            .and_then(|_| si.write(&state.relay_public.pk.as_bytes()))
-            .and_then(|_| si.write(&state.my_public.as_bytes()))
-            .and_then(|_| si.write(&y_pk.as_bytes()))
-            .and_then(|_| si.write(PROTOID))
-            .and_then(|_| si.write(&Encap(verification)))
-            .map_err(into_internal!("error encoding obfs4 secret_input"))?;
-        si
-    };
-    let ntor_key_seed = h_key_seed(&secret_input);
-    let verify = h_verify(&secret_input);
 
-    let computed_auth: DigestVal = {
-        use digest::Digest;
-        let mut auth = DigestWriter(Sha256::default());
-        auth.write(&T_AUTH)
-            .and_then(|_| auth.write(&verify))
-            .and_then(|_| auth.write(&state.relay_public.id))
-            .and_then(|_| auth.write(&state.relay_public.pk.as_bytes()))
-            .and_then(|_| auth.write(&y_pk.as_bytes()))
-            .and_then(|_| auth.write(&state.my_public.as_bytes()))
-            .and_then(|_| auth.write(&state.msg_mac))
-            .and_then(|_| auth.write(&Encap(encrypted_msg)))
-            .and_then(|_| auth.write(PROTOID))
-            .and_then(|_| auth.write(&b"Server"[..]))
-            .map_err(into_internal!("error encoding obfs4 authentication input"))?;
-        auth.take().finalize().into()
-    };
+#[cfg(test)]
+#[allow(non_snake_case)] // to enable variable names matching the spec.
+#[allow(clippy::many_single_char_names)] // ibid
+mod test {
+    // @@ begin test lint list maintained by maint/add_warning @@
+    #![allow(clippy::bool_assert_comparison)]
+    #![allow(clippy::clone_on_copy)]
+    #![allow(clippy::dbg_macro)]
+    #![allow(clippy::mixed_attributes_style)]
+    #![allow(clippy::print_stderr)]
+    #![allow(clippy::print_stdout)]
+    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unchecked_duration_subtraction)]
+    #![allow(clippy::useless_vec)]
+    #![allow(clippy::needless_pass_by_value)]
+    //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
+    use super::*;
+    use hex_literal::hex;
+    use tor_basic_utils::test_rng::testing_rng;
 
-    let okay = computed_auth.ct_eq(&auth)
-        & ct::bool_to_choice(yx.was_contributory())
-        & ct::bool_to_choice(state.shared_secret.was_contributory());
+    #[test]
+    fn test_ntor3_roundtrip() {
+        let mut rng = rand::thread_rng();
+        let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
 
-    let (enc_key, keystream) = {
-        use digest::{ExtendableOutput, XofReader};
-        let mut xof = DigestWriter(Shake256::default());
-        xof.write(&T_FINAL)
-            .and_then(|_| xof.write(&ntor_key_seed))
-            .map_err(into_internal!("error encoding obfs4 xof input"))?;
-        let mut r = xof.take().finalize_xof();
-        let mut enc_key = Zeroizing::new([0_u8; ENC_KEY_LEN]);
-        r.read(&mut enc_key[..]);
-        println!("{}", hex::encode(&enc_key));
-        (enc_key, r)
-    };
-    let server_reply = decrypt(&enc_key, encrypted_msg);
+        let verification = &b"shared secret"[..];
+        let client_message = &b"Hello. I am a client. Let's be friends!"[..];
+        let relay_message = &b"Greetings, client. I am a robot. Beep boop."[..];
 
-    if okay.into() {
-        Ok((server_reply, Obfs4NtorXofReader(keystream)))
-    } else {
-        Err(Error::BadCircHandshakeAuth)
+        let (c_state, c_handshake) =
+            client_handshake_o5(&relay_private.pk, client_message, verification).unwrap();
+
+        struct Rep(Vec<u8>, Vec<u8>);
+        impl MsgReply for Rep {
+            fn reply(&mut self, msg: &[u8]) -> Option<Vec<u8>> {
+                self.0 = msg.to_vec();
+                Some(self.1.clone())
+            }
+        }
+        let mut rep = Rep(Vec::new(), relay_message.to_vec());
+
+        let (s_handshake, mut s_keygen) =
+            server_handshake_o5(&mut rep, &c_handshake, &[relay_private], verification)
+                .unwrap();
+
+        let (s_msg, mut c_keygen) =
+            client_handshake_o5_part2(&c_state, &s_handshake, verification).unwrap();
+
+        assert_eq!(rep.0[..], client_message[..]);
+        assert_eq!(s_msg[..], relay_message[..]);
+        use digest::XofReader;
+        let mut s_keys = [0_u8; 100];
+        let mut c_keys = [0_u8; 1000];
+        s_keygen.read(&mut s_keys);
+        c_keygen.read(&mut c_keys);
+        assert_eq!(s_keys[..], c_keys[..100]);
     }
-}
 
-fn derive_ntor_shared(
-    secret_input: impl AsRef<[u8]>,
-    id: &ID,
-    b: &PublicKey,
-    x: &PublicKey,
-    y: &PublicKey,
-) -> (KeySeed, Auth) {
-    let mut key_seed = KeySeed::default();
-    let mut auth = Auth::default();
+    // Same as previous test, but use the higher-level APIs instead.
+    #[test]
+    fn test_ntor3_roundtrip_highlevel() {
+        let mut rng = rand::thread_rng();
+        let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
 
-    let mut message = secret_input.as_ref().to_vec();
-    message.append(&mut b.to_bytes().to_vec());
-    message.append(&mut x.to_bytes().to_vec());
-    message.append(&mut y.to_bytes().to_vec());
-    message.append(&mut PROTO_ID.to_vec());
-    message.append(&mut id.to_bytes().to_vec());
+        let (c_state, c_handshake) = O5Client::client1(&relay_private.pk, &[]).unwrap();
 
-    let mut h = HmacSha256::new_from_slice(&T_KEY[..]).unwrap();
-    h.update(message.as_ref());
-    let tmp: &[u8] = &h.finalize().into_bytes()[..];
-    key_seed.0 = tmp.try_into().expect("unable to write key_seed");
+        let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-    let mut h = HmacSha256::new_from_slice(&T_VERIFY[..]).unwrap();
-    h.update(message.as_ref());
-    let mut verify = h.finalize().into_bytes().to_vec();
+        let mut s = O5Server {};
+        let (s_keygen, s_handshake) = s.server(&mut rep, &[relay_private], &c_handshake).unwrap();
 
-    // auth_input = verify | ID | B | Y | X | PROTOID | "Server"
-    verify.append(&mut message.to_vec());
-    verify.append(&mut b"Server".to_vec());
-    let mut h = HmacSha256::new_from_slice(&T_MAC[..]).unwrap();
-    h.update(verify.as_ref());
-    let mut tmp = &h.finalize().into_bytes()[..];
-    auth.0 = tmp.try_into().expect("unable to write auth");
+        let (extensions, keygen) = O5Client::client2(c_state, s_handshake).unwrap();
 
-    (key_seed, auth)
+        assert!(extensions.is_empty());
+        let c_keys = keygen.expand(1000).unwrap();
+        let s_keys = s_keygen.expand(100).unwrap();
+        assert_eq!(s_keys[..], c_keys[..100]);
+    }
+
+    // Same as previous test, but encode some congestion control extensions.
+    #[test]
+    fn test_ntor3_roundtrip_highlevel_cc() {
+        let mut rng = rand::thread_rng();
+        let relay_private = O5NtorSecretKey::generate_for_test(&mut testing_rng());
+
+        let client_exts = vec![NtorV3Extension::RequestCongestionControl];
+        let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
+
+        let (c_state, c_handshake) = O5Client::client1(
+            &relay_private.pk,
+            &[NtorV3Extension::RequestCongestionControl],
+        )
+        .unwrap();
+
+        let mut rep = |msg: &[NtorV3Extension]| -> Option<Vec<NtorV3Extension>> {
+            assert_eq!(msg, client_exts);
+            Some(reply_exts.clone())
+        };
+
+        let (s_keygen, s_handshake) =
+            O5Server::server(&mut rng, &mut rep, &[relay_private], &c_handshake).unwrap();
+
+        let (extensions, keygen) = O5Client::client2(c_state, s_handshake).unwrap();
+
+        assert_eq!(extensions, reply_exts);
+        let c_keys = keygen.expand(1000).unwrap();
+        let s_keys = s_keygen.expand(100).unwrap();
+        assert_eq!(s_keys[..], c_keys[..100]);
+    }
+
+    #[test]
+    fn test_ntor3_testvec() {
+        let b = hex!("4051daa5921cfa2a1c27b08451324919538e79e788a81b38cbed097a5dff454a");
+        let id = hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2");
+        let x = hex!("b825a3719147bcbe5fb1d0b0fcb9c09e51948048e2e3283d2ab7b45b5ef38b49");
+        let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
+        let b: curve25519::StaticSecret = b.into();
+        let B: curve25519::PublicKey = (&b).into();
+        let id: Ed25519Identity = id.into();
+        let x: curve25519::StaticSecret = x.into();
+        //let X = (&x).into();
+        let y: curve25519::StaticSecret = y.into();
+
+        let client_message = hex!("68656c6c6f20776f726c64");
+        let verification = hex!("78797a7a79");
+        let server_message = hex!("486f6c61204d756e646f");
+
+        let materials = CHSMaterials{
+            node_pubkey: O5NtorPublicKey { pk: B, id },
+        };
+        let relay_private = O5NtorSecretKey {
+            sk: b,
+            pk: materials.node_pubkey.clone(),
+        };
+
+        let (state, client_handshake) =
+            client_handshake_o5_no_keygen(&materials.node_pubkey, &client_message, &verification, x)
+                .unwrap();
+
+        assert_eq!(client_handshake[..], hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2f8307a2bc1870b00b828bb74dbb8fd88e632a6375ab3bcd1ae706aaa8b6cdd1d252fe9ae91264c91d4ecb8501f79d0387e34ad8ca0f7c995184f7d11d5da4f463bebd9151fd3b47c180abc9e044d53565f04d82bbb3bebed3d06cea65db8be9c72b68cd461942088502f67")[..]);
+
+        struct Replier(Vec<u8>, Vec<u8>, bool);
+        impl MsgReply for Replier {
+            fn reply(&mut self, msg: &[u8]) -> Option<Vec<u8>> {
+                assert_eq!(msg, &self.0);
+                self.2 = true;
+                Some(self.1.clone())
+            }
+        }
+        let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
+
+        let (server_handshake, mut server_keygen) = server_handshake_o5_no_keygen(
+            &mut rep,
+            &y,
+            &client_handshake,
+            &[relay_private],
+            &verification,
+        )
+        .unwrap();
+        assert!(rep.2);
+
+        assert_eq!(server_handshake[..], hex!("4bf4814326fdab45ad5184f5518bd7fae25dc59374062698201a50a22954246d2fc5f8773ca824542bc6cf6f57c7c29bbf4e5476461ab130c5b18ab0a91276651202c3e1e87c0d32054c")[..]);
+
+        let (server_msg_received, mut client_keygen) =
+            client_handshake_o5_part2(&state, &server_handshake, &verification).unwrap();
+        assert_eq!(&server_msg_received, &server_message);
+
+        let (c_keys, s_keys) = {
+            use digest::XofReader;
+            let mut c = [0_u8; 256];
+            let mut s = [0_u8; 256];
+            client_keygen.read(&mut c);
+            server_keygen.read(&mut s);
+            (c, s)
+        };
+        assert_eq!(c_keys, s_keys);
+        assert_eq!(c_keys[..], hex!("9c19b631fd94ed86a817e01f6c80b0743a43f5faebd39cfaa8b00fa8bcc65c3bfeaa403d91acbd68a821bf6ee8504602b094a254392a07737d5662768c7a9fb1b2814bb34780eaee6e867c773e28c212ead563e98a1cd5d5b4576f5ee61c59bde025ff2851bb19b721421694f263818e3531e43a9e4e3e2c661e2ad547d8984caa28ebecd3e4525452299be26b9185a20a90ce1eac20a91f2832d731b54502b09749b5a2a2949292f8cfcbeffb790c7790ed935a9d251e7e336148ea83b063a5618fcff674a44581585fd22077ca0e52c59a24347a38d1a1ceebddbf238541f226b8f88d0fb9c07a1bcd2ea764bbbb5dacdaf5312a14c0b9e4f06309b0333b4a")[..]);
+    }
 }
 
 #[cfg(test)]

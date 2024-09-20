@@ -3,7 +3,7 @@
 use tor_llcrypto::pk::rsa::RSA_ID_LEN;
 
 use crate::{
-    common::{x25519_elligator2::REPRESENTATIVE_LENGTH, drbg},
+    common::{drbg, x25519_elligator2::REPRESENTATIVE_LENGTH},
     framing,
     // handshake::AUTHCODE_LENGTH,
 };
