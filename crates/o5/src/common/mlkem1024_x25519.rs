@@ -1,28 +1,31 @@
-
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{Ciphertext, DecapsulationKey, EncapsulationKey, Encode, EncodeError};
+use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, EncodeError};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
-use x25519_dalek::{PublicKey, ReusableSecret};
+use x25519_dalek::ReusableSecret;
 
-pub struct HybridKey {
+pub struct SessionKeyPair(HybridKey);
+
+pub struct IdentityKeyPair(HybridKey);
+
+struct HybridKey {
     x25519: ReusableSecret,
     mlkem: DecapsulationKey<ml_kem::MlKem1024>,
-    pub_key: HybridKeyPublic,
+    pub_key: PublicKey,
 }
 
-pub struct HybridKeyPublic {
-    x25519: PublicKey,
+struct PublicKey {
+    x25519: x25519_dalek::PublicKey,
     mlkem: EncapsulationKey<ml_kem::MlKem1024>,
 }
 
 #[derive(PartialEq)]
-pub struct HybridSharedSecret {
+pub struct SharedSecret {
     x25519: [u8; 32],
     mlkem: [u8; 32],
 }
 
-impl core::fmt::Debug for HybridSharedSecret {
+impl core::fmt::Debug for SharedSecret {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -34,13 +37,13 @@ impl core::fmt::Debug for HybridSharedSecret {
 }
 
 impl HybridKey {
-    pub fn new<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
+    fn new<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
         let (dk, ek) = kemeleon::MlKem1024::generate(rng);
         let x25519 = ReusableSecret::random_from_rng(rng);
 
         Self {
-            pub_key: HybridKeyPublic {
-                x25519: PublicKey::from(&x25519),
+            pub_key: PublicKey {
+                x25519: x25519_dalek::PublicKey::from(&x25519),
                 mlkem: ek,
             },
             mlkem: dk,
@@ -48,11 +51,11 @@ impl HybridKey {
         }
     }
 
-    pub fn public_key(&self) -> &HybridKeyPublic {
+    fn public_key(&self) -> &PublicKey {
         &self.pub_key
     }
 
-    pub fn with_pub<'a>(&'a self, pubkey: &'a HybridKeyPublic) -> KeyMix<'a> {
+    fn with_pub<'a>(&'a self, pubkey: &'a PublicKey) -> KeyMix<'a> {
         KeyMix {
             local_private: self,
             remote_public: pubkey,
@@ -62,27 +65,27 @@ impl HybridKey {
 
 pub struct KeyMix<'a> {
     local_private: &'a HybridKey,
-    remote_public: &'a HybridKeyPublic,
+    remote_public: &'a PublicKey,
 }
 
-impl Encapsulate<HybridCiphertext, HybridSharedSecret> for KeyMix<'_> {
+impl Encapsulate<Ciphertext, SharedSecret> for KeyMix<'_> {
     type Error = EncodeError;
 
     // Diffie Helman  / Encapsulate
     fn encapsulate(
         &self,
         rng: &mut impl CryptoRngCore,
-    ) -> Result<(HybridCiphertext, HybridSharedSecret), Self::Error> {
+    ) -> Result<(Ciphertext, SharedSecret), Self::Error> {
         let (ciphertext, local_ss_mlkem) = self.remote_public.mlkem.encapsulate(rng).unwrap();
         let local_ss_x25519 = self
             .local_private
             .x25519
             .diffie_hellman(&self.remote_public.x25519);
-        let ss = HybridSharedSecret {
+        let ss = SharedSecret {
             mlkem: local_ss_mlkem.into(),
             x25519: local_ss_x25519.to_bytes(),
         };
-        let mut ct = PublicKey::from(&self.local_private.x25519)
+        let mut ct = x25519_dalek::PublicKey::from(&self.local_private.x25519)
             .as_bytes()
             .to_vec();
         ct.append(&mut ciphertext.as_bytes().to_vec());
@@ -90,32 +93,30 @@ impl Encapsulate<HybridCiphertext, HybridSharedSecret> for KeyMix<'_> {
     }
 }
 
-type HybridCiphertext = Vec<u8>;
+type Ciphertext = Vec<u8>;
 
-impl Decapsulate<HybridCiphertext, HybridSharedSecret> for HybridKey {
+impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
     type Error = EncodeError;
 
     // Required method
     fn decapsulate(
         &self,
-        encapsulated_key: &HybridCiphertext,
-    ) -> Result<HybridSharedSecret, Self::Error> {
-        let arr = Ciphertext::try_from(&encapsulated_key[32..])?;
+        encapsulated_key: &Ciphertext,
+    ) -> Result<SharedSecret, Self::Error> {
+        let arr = kemeleon::Ciphertext::try_from(&encapsulated_key[32..])?;
         let local_ss_mlkem = self.mlkem.decapsulate(&arr)?;
 
         let mut remote_public = [0u8; 32];
         remote_public[..32].copy_from_slice(&encapsulated_key[..32]);
-        let local_ss_x25519 = self.x25519.diffie_hellman(&PublicKey::from(remote_public));
+        let local_ss_x25519 = self
+            .x25519
+            .diffie_hellman(&x25519_dalek::PublicKey::from(remote_public));
 
-        Ok(HybridSharedSecret {
+        Ok(SharedSecret {
             mlkem: local_ss_mlkem.into(),
             x25519: local_ss_x25519.to_bytes(),
         })
     }
-}
-
-fn main() {
-    println!("see package tests for example usage")
 }
 
 #[cfg(test)]
@@ -143,7 +144,7 @@ mod test {
         // --- Generate Keypair (Alice) ---
         // x25519
         let alice_secret = ReusableSecret::random_from_rng(&mut rng);
-        let alice_public = PublicKey::from(&alice_secret);
+        let alice_public = x25519_dalek::PublicKey::from(&alice_secret);
         // kyber
         let (alice_kyber_dk, alice_kyber_ek) = MlKem1024::generate(&mut rng);
 
@@ -158,7 +159,7 @@ mod test {
         // --- Generate Keypair (Bob) ---
         // x25519
         let bob_secret = ReusableSecret::random_from_rng(&mut rng);
-        let bob_public = PublicKey::from(&bob_secret);
+        let bob_public = x25519_dalek::PublicKey::from(&bob_secret);
 
         // (Imagine) upon receiving the kyberx25519 public key bob parses them
         // into their respective structs from bytes
@@ -250,4 +251,3 @@ mod test {
     }
     */
 }
-
