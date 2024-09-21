@@ -6,7 +6,7 @@ authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 description = "Pure rust implementation of the obfs4 pluggable transport"
-keywords = ["tor", "networking", "censorship", "circumvention",  "pluggable", "transports"]
+keywords = ["tor", "networking", "censorship", "circumvention",  "pluggable-transport"]
 categories = ["network-programming", "cryptography"]
 repository = "https://github.com/jmwample/ptrs"
 
