@@ -74,9 +74,9 @@ use ptrs::{ServerBuilder, ServerTransport};
 ### Loose Ends:
 
 - [X] server / client compatibility test go-to-rust and rust-to-go.
+- [X] double check the bit randomization and clearing for high two bits in the `dalek` representative
 - [ ] length distribution things
 - [ ] iat mode handling
-- [ ] double check the bit randomization and clearing for high two bits in the `dalek` representative
 
 ## Performance
 
