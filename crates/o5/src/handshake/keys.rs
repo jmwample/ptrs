@@ -63,7 +63,6 @@ impl NtorV3SecretKey {
     ///
     /// Used to perform a constant-time secret key lookup.
     pub(crate) fn matches(&self, id: Ed25519Identity, pk: PublicKey) -> Choice {
-        // TODO: use similar pattern in ntor_v1!
         id.as_bytes().ct_eq(self.pk.id.as_bytes()) & pk.as_bytes().ct_eq(self.pk.pk.as_bytes())
     }
 }

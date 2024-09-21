@@ -5,16 +5,15 @@
 use crate::{
     common::{
         colorize, discard, drbg,
-        ntor_arti::{ClientHandshake, RelayHandshakeError, ServerHandshake},
+        ntor_arti::{ClientHandshake, KeyGenerator, RelayHandshakeError, ServerHandshake},
     },
     constants::*,
     framing,
-    handshake::{
-        CHSMaterials, NtorV3PublicKey, NtorV3SecretKey, O5Keygen, O5NtorHandshake, SHSMaterials,
-    },
+    handshake::{CHSMaterials, NtorV3Client, NtorV3PublicKey, NtorV3SecretKey, SHSMaterials},
     proto::{O4Stream, O5Stream, IAT},
-    server::Server,
-    Error, Result,
+    // server::Server,
+    Error,
+    Result,
 };
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -228,11 +227,11 @@ impl ClientSession<Initialized> {
         mut stream: T,
         materials: CHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<(BytesMut, impl O5Keygen)>
+    ) -> Result<(BytesMut, impl KeyGenerator)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let (state, chs_message) = O5NtorHandshake::client1(&materials, &())?;
+        let (state, chs_message) = NtorV3Client::client1(&materials, &())?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
@@ -258,7 +257,7 @@ impl ClientSession<Initialized> {
                 buf.len()
             );
 
-            match O5NtorHandshake::client2(state.clone(), &buf[..n]) {
+            match NtorV3Client::client2(state, &buf[..n]) {
                 Ok(r) => return Ok(r),
                 Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => continue,
                 Err(e) => {
@@ -449,7 +448,7 @@ impl Server {
         mut stream: T,
         materials: SHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<impl O5Keygen>
+    ) -> Result<impl KeyGenerator>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
