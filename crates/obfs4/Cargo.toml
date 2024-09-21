@@ -1,12 +1,12 @@
 [package]
 name = "obfs4"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
-rust-version = "1.70"
+rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 description = "Pure rust implementation of the obfs4 pluggable transport"
-keywords = ["tor", "censorship", "pluggable", "transports"]
+keywords = ["tor", "networking", "censorship", "circumvention",  "pluggable", "transports"]
 categories = ["network-programming", "cryptography"]
 repository = "https://github.com/jmwample/ptrs"
 
@@ -21,7 +21,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ## Local
 ptrs = { path="../ptrs", version="0.1.0" }
-
 
 ## PRNG
 getrandom = "0.2.11"
@@ -85,10 +84,6 @@ tor-basic-utils = "0.22.0"
 
 # benches
 # criterion = "0.5"
-
-# # o5 pqc test
-# pqc_kyber = {version="0.7.1", features=["kyber1024", "std"]}
-# ml-kem = "0.1.0"
 
 [lints.rust]
 # unexpected_cfgs are used to disable incomplete / WIP features and tests. This is

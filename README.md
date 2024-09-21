@@ -21,8 +21,9 @@ lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
 |                 Crate                    |   Description  | Crates.io | Docs | MSRV |
 -------------------------------------------|----------------|-----------|------|------|
 | [`ptrs`](./crates/ptrs) | A library supporting implementation and integration of Pluggable Transport protocols. | [![](https://img.shields.io/crates/v/ptrs.svg)](https://crates.io/crates/ptrs) | [![](https://img.shields.io/docsrs/ptrs)](https://docs.rs/ptrs) | 1.70 |
-| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/lyrebird.svg)](https://crates.io/crates/lyrebird) | [![](https://docs.rs/lyrebird/badge.svg)](https://docs.rs/lyrebird) | 1.75 |
+| [`lyrebird`](./crates/lyrebird) | Implementation of the `Lyrebird` Tor bridge and a forward proxy compatible with `ptrs`. | [![](https://img.shields.io/crates/v/___lyrebird.svg)](https://crates.io/crates/___lyrebird) | [![](https://docs.rs/___lyrebird/badge.svg)](https://docs.rs/___lyrebird) | 1.75 |
 | [`obfs4`](./crates/obfs4) | An implementation of obfs4 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/obfs4.svg)](https://crates.io/crates/obfs4) | [![](https://docs.rs/obfs4/badge.svg)](https://docs.rs/obfs4) | 1.75 |
+| [`o5`](./crates/o5) | An implementation of o5 pluggable transport library in pure rust. | [![](https://img.shields.io/crates/v/o5.svg)](https://crates.io/crates/o5) | [![](https://docs.rs/o5/badge.svg)](https://docs.rs/o5) | 1.75 |
 
 ## MSRV
 
