@@ -5,7 +5,7 @@ use crate::{
         mlkem1024_x25519::{PublicKey, StaticSecret},
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
     },
-    handshake::{constants::*, *},
+    handshake::*,
     Error, Server,
 };
 

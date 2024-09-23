@@ -1,5 +1,5 @@
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, EncodeError};
+use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, EncodeError, OKemCore};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 use x25519_dalek::ReusableSecret;
@@ -49,10 +49,34 @@ impl From<&StaticSecret> for PublicKey {
     }
 }
 
+impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
+    type Error = mlkem1024_x25519::EncodeError;
+    fn try_from(value: [u8; PUBKEY_LEN]) -> Result<Self, Self::Error> {
+        let mut x25519 = [0u8; X25519_PUBKEY_LEN];
+        x25519.copy_from_slice(&value[..X25519_PUBKEY_LEN]);
+
+        let mlkem = EncapsulationKey::try_from_bytes(&value[X25519_PUBKEY_LEN..])?;
+
+        Ok(Self {
+            x25519: x25519.into(),
+            mlkem,
+            pub_key: value,
+        })
+    }
+}
+
 #[derive(PartialEq)]
 pub struct SharedSecret {
     x25519: [u8; 32],
     mlkem: [u8; 32],
+}
+
+impl SharedSecret {
+    // TODO: Test this layout to make sure this works.
+    // SAFETY: the type of the SharedSecret object means this should never fail
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.x25519.as_ptr(), 64) }
+    }
 }
 
 impl core::fmt::Debug for SharedSecret {

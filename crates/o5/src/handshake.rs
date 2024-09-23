@@ -9,13 +9,13 @@
 
 use crate::common::mlkem1024_x25519::{PublicKey, SharedSecret};
 
+use cipher::{KeyIvInit as _, StreamCipher as _};
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use tor_llcrypto::d::{Sha3_256, Shake256};
 use zeroize::Zeroizing;
 
 mod keys;
-use keys::*;
 pub use keys::{NtorV3KeyGen, NtorV3PublicKey, NtorV3SecretKey};
 
 mod client;
@@ -24,24 +24,21 @@ pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
 mod server;
 pub(crate) use server::HandshakeMaterials as SHSMaterials;
 
-pub(crate) mod constants {
-    /// The verification string to be used for circuit extension.
-    pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
+/// The verification string to be used for circuit extension.
+pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
 
-    /// The size of an encryption key in bytes.
-    pub const ENC_KEY_LEN: usize = 32;
-    /// The size of a MAC key in bytes.
-    pub const MAC_KEY_LEN: usize = 32;
-    /// The size of a curve25519 public key in bytes.
-    pub const PUB_KEY_LEN: usize = 32;
-    /// The size of a digest output in bytes.
-    pub const DIGEST_LEN: usize = 32;
-    /// The length of a MAC output in bytes.
-    pub const MAC_LEN: usize = 32;
-    /// The length of a node identity in bytes.
-    pub const ID_LEN: usize = 32;
-}
-use constants::*;
+/// The size of an encryption key in bytes.
+pub const ENC_KEY_LEN: usize = 32;
+/// The size of a MAC key in bytes.
+pub const MAC_KEY_LEN: usize = 32;
+/// The size of a curve25519 public key in bytes.
+pub const PUB_KEY_LEN: usize = 32;
+/// The size of a digest output in bytes.
+pub const DIGEST_LEN: usize = 32;
+/// The length of a MAC output in bytes.
+pub const MAC_LEN: usize = 32;
+/// The length of a node identity in bytes.
+pub const ID_LEN: usize = 32;
 
 /// The output of the digest, as an array.
 type DigestVal = [u8; DIGEST_LEN];
@@ -260,6 +257,7 @@ mod test {
 
     use super::*;
     use hex_literal::hex;
+    use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
     use tor_llcrypto::pk::ed25519::Ed25519Identity;
@@ -304,7 +302,6 @@ mod test {
 
         assert_eq!(rep.0[..], client_message[..]);
         assert_eq!(s_msg[..], relay_message[..]);
-        use digest::XofReader;
         let mut s_keys = [0_u8; 100];
         let mut c_keys = [0_u8; 1000];
         s_keygen.read(&mut s_keys);
@@ -321,7 +318,7 @@ mod test {
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-        let server = Server {};
+        let server = Server::new_from_random(thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();
@@ -353,7 +350,7 @@ mod test {
             Some(reply_exts.clone())
         };
 
-        let server = Server {};
+        let server = Server::new_from_random(thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();

@@ -63,7 +63,7 @@ curve25519-elligator2 = { version="0.1.0-alpha.1", features=["elligator2"] }
 # o5 pqc
 ml-kem = "0.2.1"
 kem = "0.3.0-pre.0"
-kemeleon = "0.1.0-rc.1"
+kemeleon = { version="0.1.0-rc.1", git="https://github.com/jmwample/kemeleon", branch="cleanup"}
 
 [dev-dependencies]
 anyhow = "1.0"

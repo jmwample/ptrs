@@ -4,9 +4,7 @@ use super::*;
 use crate::{
     client::ClientBuilder,
     common::{
-        colorize,
-        curve25519::{PublicKey, StaticSecret},
-        drbg,
+        colorize, drbg,
         replay_filter::{self, ReplayFilter},
         HmacSha256,
     },
@@ -19,7 +17,9 @@ use crate::{
 };
 use ptrs::args::Args;
 
-use std::{borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
+use std::{
+    borrow::BorrowMut, marker::PhantomData, ops::Deref, str::FromStr, string::ToString, sync::Arc,
+};
 
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
@@ -45,7 +45,7 @@ pub struct ServerBuilder<T> {
 
 impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
-        let identity_keys = NtorV3SecretKey::getrandom();
+        let identity_keys = NtorV3SecretKey::random_from_rng(&mut rand::thread_rng());
         Self {
             iat_mode: IAT::Off,
             statefile_path: None,
@@ -104,7 +104,7 @@ impl<T> ServerBuilder<T> {
         params.encode_smethod_args()
     }
 
-    pub fn build(&self) -> Server {
+    pub fn build(self) -> Server {
         Server(Arc::new(ServerInner {
             identity_keys: self.identity_keys,
             iat_mode: self.iat_mode,
@@ -296,11 +296,6 @@ impl Server {
 
         let identity_keys = NtorV3SecretKey::new(sk, id.into());
 
-        Self::new_from_key(identity_keys)
-    }
-
-    pub fn getrandom() -> Self {
-        let identity_keys = NtorV3SecretKey::getrandom();
         Self::new_from_key(identity_keys)
     }
 
