@@ -6,7 +6,7 @@ use crate::{
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
     },
     handshake::{constants::*, *},
-    Error,
+    Error, Server,
 };
 
 use cipher::KeyIvInit;
@@ -52,10 +52,7 @@ impl<'a> HandshakeMaterials {
     }
 }
 
-/// Server side of the ntor v3 handshake.
-pub(crate) struct NtorV3Server;
-
-impl ServerHandshake for NtorV3Server {
+impl ServerHandshake for Server {
     type KeyType = NtorV3SecretKey;
     type KeyGen = NtorV3KeyGenerator;
     type ClientAuxData = [NtorV3Extension];

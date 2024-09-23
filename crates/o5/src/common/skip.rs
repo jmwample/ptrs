@@ -2,8 +2,6 @@ use crate::Result;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-// use std::pin::Pin;
-// use std::task::{Context, Poll};
 use std::time::Duration;
 
 /// copies all data from the reader to a sink. If the reader closes before

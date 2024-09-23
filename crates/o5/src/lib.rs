@@ -2,11 +2,11 @@
 
 // pub mod client;
 pub mod common;
-// pub mod server;
 pub mod framing;
 pub mod proto;
+pub mod server;
 // pub use client::{Client, ClientBuilder};
-// pub use server::{Server, ServerBuilder};
+pub use server::{Server, ServerBuilder};
 
 pub(crate) mod constants;
 pub(crate) mod handshake;

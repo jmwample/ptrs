@@ -8,7 +8,6 @@
 // TODO:  Make ntorv3 terminology and variable names consistent with spec.
 
 use crate::common::mlkem1024_x25519::{PublicKey, SharedSecret};
-use crate::common::ntor_arti::KeyGenerator;
 
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
@@ -17,13 +16,13 @@ use zeroize::Zeroizing;
 
 mod keys;
 use keys::*;
-pub use keys::{NtorV3PublicKey, NtorV3SecretKey};
+pub use keys::{NtorV3KeyGen, NtorV3PublicKey, NtorV3SecretKey};
 
 mod client;
 pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
 
 mod server;
-pub(crate) use server::{HandshakeMaterials as SHSMaterials, NtorV3Server};
+pub(crate) use server::HandshakeMaterials as SHSMaterials;
 
 pub(crate) mod constants {
     /// The verification string to be used for circuit extension.
@@ -257,7 +256,7 @@ mod test {
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
     use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
-    use crate::handshake::{client::NtorV3Client, server::NtorV3Server};
+    use crate::Server;
 
     use super::*;
     use hex_literal::hex;
@@ -322,7 +321,7 @@ mod test {
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-        let server = NtorV3Server {};
+        let server = Server {};
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();
@@ -354,7 +353,7 @@ mod test {
             Some(reply_exts.clone())
         };
 
-        let server = NtorV3Server {};
+        let server = Server {};
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();

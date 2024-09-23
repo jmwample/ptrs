@@ -12,9 +12,31 @@
 //! for circuits on today's Tor.
 use std::borrow::Borrow;
 
-use crate::Result;
+use crate::{common::colorize, Result};
 //use zeroize::Zeroizing;
 use tor_bytes::SecretBuf;
+
+pub const SESSION_ID_LEN: usize = 8;
+#[derive(PartialEq, PartialOrd)]
+pub struct SessionID([u8; SESSION_ID_LEN]);
+
+impl core::fmt::Display for SessionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]", colorize(hex::encode(&self.0)))
+    }
+}
+
+impl core::fmt::Debug for SessionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl From<[u8; SESSION_ID_LEN]> for SessionID {
+    fn from(value: [u8; SESSION_ID_LEN]) -> Self {
+        SessionID(value)
+    }
+}
 
 /// A ClientHandshake is used to generate a client onionskin and
 /// handle a relay onionskin.
@@ -113,6 +135,11 @@ pub(crate) trait ServerHandshake {
 pub trait KeyGenerator {
     /// Consume the key
     fn expand(self, keylen: usize) -> Result<SecretBuf>;
+}
+
+pub trait SessionIdentifier {
+    type ID: core::fmt::Display + core::fmt::Debug + PartialEq;
+    fn new_session_id(&mut self) -> Self::ID;
 }
 
 /// Generates keys based on SHAKE-256.

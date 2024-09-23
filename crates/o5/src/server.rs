@@ -12,7 +12,7 @@ use crate::{
     },
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
-    handshake::{O5NtorPublicKey, O5NtorSecretKey},
+    handshake::{NtorV3PublicKey, NtorV3SecretKey},
     proto::{MaybeTimeout, O5Stream, IAT},
     sessions::Session,
     Error, Result,
@@ -37,7 +37,7 @@ const STATE_FILENAME: &str = "obfs4_state.json";
 pub struct ServerBuilder<T> {
     pub iat_mode: IAT,
     pub statefile_path: Option<String>,
-    pub(crate) identity_keys: O5NtorSecretKey,
+    pub(crate) identity_keys: NtorV3SecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
     // pub(crate) drbg: Drbg, // TODO: build in DRBG
     _stream_type: PhantomData<T>,
@@ -45,7 +45,7 @@ pub struct ServerBuilder<T> {
 
 impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
-        let identity_keys = O5NtorSecretKey::getrandom();
+        let identity_keys = NtorV3SecretKey::getrandom();
         Self {
             iat_mode: IAT::Off,
             statefile_path: None,
@@ -106,7 +106,7 @@ impl<T> ServerBuilder<T> {
 
     pub fn build(&self) -> Server {
         Server(Arc::new(ServerInner {
-            identity_keys: self.identity_keys.clone(),
+            identity_keys: self.identity_keys,
             iat_mode: self.iat_mode,
             biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
@@ -196,7 +196,7 @@ impl JsonServerState {
 }
 
 pub(crate) struct RequiredServerState {
-    pub(crate) private_key: O5NtorSecretKey,
+    pub(crate) private_key: NtorV3SecretKey,
     pub(crate) drbg_seed: drbg::Drbg,
     pub(crate) iat_mode: IAT,
 }
@@ -225,7 +225,7 @@ impl TryFrom<&Args> for RequiredServerState {
         };
 
         let secret_key = StaticSecret::from(sk);
-        let private_key = O5NtorSecretKey::new(secret_key, RsaIdentity::from(node_id));
+        let private_key = NtorV3SecretKey::new(secret_key, RsaIdentity::from(node_id));
 
         Ok(RequiredServerState {
             private_key,
@@ -242,7 +242,7 @@ pub struct ServerInner {
     pub(crate) handshake_timeout: Option<tokio::time::Duration>,
     pub(crate) iat_mode: IAT,
     pub(crate) biased: bool,
-    pub(crate) identity_keys: O5NtorSecretKey,
+    pub(crate) identity_keys: NtorV3SecretKey,
 
     pub(crate) replay_filter: ReplayFilter,
     // pub(crate) metrics: Metrics,
@@ -258,17 +258,17 @@ impl Deref for Server {
 impl Server {
     pub fn new(sec: [u8; KEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
         let sk = StaticSecret::from(sec);
-        let pk = O5NtorPublicKey {
+        let pk = NtorV3PublicKey {
             pk: PublicKey::from(&sk),
             id: id.into(),
         };
 
-        let identity_keys = O5NtorSecretKey { pk, sk };
+        let identity_keys = NtorV3SecretKey::new(sk, id.into());
 
         Self::new_from_key(identity_keys)
     }
 
-    pub(crate) fn new_from_key(identity_keys: O5NtorSecretKey) -> Self {
+    pub(crate) fn new_from_key(identity_keys: NtorV3SecretKey) -> Self {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
@@ -289,18 +289,18 @@ impl Server {
         // so we can use the regular dalek_x25519 key generation.
         let sk = StaticSecret::random_from_rng(rng);
 
-        let pk = O5NtorPublicKey {
+        let pk = NtorV3PublicKey {
             pk: PublicKey::from(&sk),
             id: id.into(),
         };
 
-        let identity_keys = O5NtorSecretKey { pk, sk };
+        let identity_keys = NtorV3SecretKey::new(sk, id.into());
 
         Self::new_from_key(identity_keys)
     }
 
     pub fn getrandom() -> Self {
-        let identity_keys = O5NtorSecretKey::getrandom();
+        let identity_keys = NtorV3SecretKey::getrandom();
         Self::new_from_key(identity_keys)
     }
 
@@ -348,7 +348,6 @@ impl Server {
         rand::thread_rng().fill_bytes(&mut session_id);
         Ok(sessions::ServerSession {
             // fixed by server
-            identity_keys: self.identity_keys.clone(),
             biased: self.biased,
 
             // generated per session
@@ -370,9 +369,11 @@ mod tests {
     use ptrs::trace;
     use tokio::net::TcpStream;
 
+    use crate::test_utils::init_subscriber;
+
     #[test]
     fn parse_json_state() -> Result<()> {
-        crate::test_utils::init_subscriber();
+        init_subscriber();
 
         let mut args = Args::new();
         let test_state = format!(

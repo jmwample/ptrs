@@ -1,7 +1,15 @@
 [package]
 name = "o5"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
+authors = ["Jack Wampler <jack.wampler@colorado.edu>"]
+rust-version = "1.81"
+license = "MIT OR Apache-2.0"
+description = "Pure rust implementation of the o5 pluggable transport"
+keywords = ["tor", "censorship", "pluggable", "transports"]
+categories = ["network-programming", "cryptography"]
+repository = "https://github.com/jmwample/ptrs"
+
 
 [lib]
 name = "o5"

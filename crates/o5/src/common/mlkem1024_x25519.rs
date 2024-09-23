@@ -4,7 +4,17 @@ use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 use x25519_dalek::ReusableSecret;
 
+pub(crate) const X25519_PUBKEY_LEN: usize = 32;
+pub(crate) const MLKEM1024_PUBKEY_LEN: usize = 1530;
+pub(crate) const PUBKEY_LEN: usize = MLKEM1024_PUBKEY_LEN + X25519_PUBKEY_LEN;
+
 pub struct StaticSecret(HybridKey);
+
+impl StaticSecret {
+    pub fn random_from_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+        Self(HybridKey::new(rng))
+    }
+}
 
 pub struct IdentityKeyPair(HybridKey);
 
@@ -14,9 +24,29 @@ struct HybridKey {
     pub_key: PublicKey,
 }
 
+#[derive(Clone, PartialEq)]
 pub(crate) struct PublicKey {
     x25519: x25519_dalek::PublicKey,
     mlkem: EncapsulationKey<ml_kem::MlKem1024>,
+    pub_key: [u8; PUBKEY_LEN],
+}
+
+impl core::fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.as_bytes()))
+    }
+}
+
+impl PublicKey {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.pub_key
+    }
+}
+
+impl From<&StaticSecret> for PublicKey {
+    fn from(value: &StaticSecret) -> Self {
+        value.0.public_key().clone()
+    }
 }
 
 #[derive(PartialEq)]
@@ -40,11 +70,16 @@ impl HybridKey {
     fn new<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
         let (dk, ek) = kemeleon::MlKem1024::generate(rng);
         let x25519 = ReusableSecret::random_from_rng(rng);
+        let x25519_pub = x25519_dalek::PublicKey::from(&x25519);
+        let mut pub_key = [0u8; PUBKEY_LEN];
+        pub_key[..X25519_PUBKEY_LEN].copy_from_slice(x25519_pub.as_bytes());
+        pub_key[X25519_PUBKEY_LEN..].copy_from_slice(&ek.as_bytes());
 
         Self {
             pub_key: PublicKey {
                 x25519: x25519_dalek::PublicKey::from(&x25519),
                 mlkem: ek,
+                pub_key,
             },
             mlkem: dk,
             x25519,
