@@ -59,12 +59,12 @@ impl<T> Default for ServerBuilder<T> {
 impl<T> ServerBuilder<T> {
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
-    pub fn node_keys(&mut self, keys: [u8; KEY_LENGTH * 2]) -> &Self {
-        let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
-        let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
-        self.identity_keys.sk = sk.into();
-        self.identity_keys.pk.pk = (&self.identity_keys.sk).into();
-        self
+    pub fn node_keys(&mut self, keys: impl AsRef<[u8]>) -> Result<&Self> {
+        let sk = NtorV3SecretKey::try_from(keys)?;
+        // let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
+        // let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
+        self.identity_keys = sk;
+        Ok(self)
     }
 
     pub fn statefile_path(&mut self, path: &str) -> &Self {

@@ -7,7 +7,7 @@ use crate::{
     },
     constants::*,
     framing::O5Codec,
-    Result,
+    Error, Result,
 };
 
 #[cfg(test)]
@@ -89,6 +89,18 @@ impl NtorV3SecretKey {
             },
             sk,
         }
+    }
+
+    pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
+        let buf = bytes.as_ref();
+        if buf.len() < mlkem1024_x25519::PRIVKEY_LEN + NODE_ID_LEN {
+            return Err(Error::new("bad station identity cert provided"));
+        }
+
+        let mut id = [0u8; NODE_ID_LENGTH];
+        id.copy_from_slice(&buf[..NODE_ID_LENGTH]);
+        let sk = StaticSecret::try_from_bytes(&buf[NODE_ID_LENGTH..])?;
+        Ok(Self::new(sk, id.into()))
     }
 
     /// Generate a key using the given `rng`, suitable for testing.

@@ -5,7 +5,7 @@ use crate::{
         ntor_arti::ClientHandshake,
     },
     constants::*,
-    handshake::{constants::*, *},
+    handshake::*,
     Error, Result,
 };
 
