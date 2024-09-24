@@ -4,7 +4,7 @@ use tor_llcrypto::pk::rsa::RSA_ID_LEN;
 
 pub use crate::common::ntor_arti::SESSION_ID_LEN;
 use crate::{
-    common::{drbg, x25519_elligator2::REPRESENTATIVE_LENGTH},
+    common::{drbg, mlkem1024_x25519, x25519_elligator2::REPRESENTATIVE_LENGTH},
     framing,
     // handshake::AUTHCODE_LENGTH,
 };
@@ -77,4 +77,4 @@ pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
 pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::MESSAGE_OVERHEAD;
 
 pub const NODE_ID_LENGTH: usize = RSA_ID_LEN;
-pub const NODE_PUBKEY_LENGTH: usize = 32;
+pub const NODE_PUBKEY_LENGTH: usize = mlkem1024_x25519::PUBKEY_LEN;

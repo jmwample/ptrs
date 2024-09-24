@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    framing::KEY_MATERIAL_LENGTH,
     common::{
         kdf::{Kdf, Ntor1Kdf},
         mlkem1024_x25519::{self, PublicKey, StaticSecret},
@@ -10,11 +11,14 @@ use crate::{
     Error, Result,
 };
 
-#[cfg(test)]
-use rand::{CryptoRng, RngCore};
+use hmac::{Hmac, Mac};
 use subtle::{Choice, ConstantTimeEq};
 use tor_bytes::SecretBuf;
 use tor_llcrypto::pk::rsa::RsaIdentity;
+use tor_llcrypto::d::Sha256;
+use base64::{Engine, engine::general_purpose::{STANDARD, STANDARD_NO_PAD}};
+
+use rand::{CryptoRng, RngCore};
 
 /// Key information about a relay used for the ntor v3 handshake.
 ///
@@ -26,6 +30,12 @@ pub struct NtorV3PublicKey {
     pub(crate) id: RsaIdentity,
     /// The relay's onion key.
     pub(crate) pk: PublicKey,
+}
+
+impl From<&NtorV3SecretKey> for NtorV3PublicKey {
+    fn from(value: &NtorV3SecretKey) -> Self {
+        value.pk.clone()
+    }
 }
 
 impl NtorV3PublicKey {
@@ -93,7 +103,7 @@ impl NtorV3SecretKey {
 
     pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let buf = bytes.as_ref();
-        if buf.len() < mlkem1024_x25519::PRIVKEY_LEN + NODE_ID_LEN {
+        if buf.len() < mlkem1024_x25519::PRIVKEY_LEN + NODE_ID_LENGTH {
             return Err(Error::new("bad station identity cert provided"));
         }
 
@@ -120,6 +130,13 @@ impl NtorV3SecretKey {
     }
 }
 
+impl TryFrom<&[u8]> for NtorV3SecretKey {
+    type Error = Error;
+    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
+        Self::try_from_bytes(value)
+    }
+}
+
 pub trait NtorV3KeyGen: KeyGenerator + SessionIdentifier + Into<O5Codec> {}
 
 // /// An instantiatable  key generator returned from an ntor v3 handshake.
@@ -132,7 +149,6 @@ pub trait NtorV3KeyGen: KeyGenerator + SessionIdentifier + Into<O5Codec> {}
 //
 // impl KeyGenerator for NtorV3KeyGenerator {
 //     fn expand(mut self, keylen: usize) -> Result<SecretBuf> {
-//         use digest::XofReader;
 //         let mut ret: SecretBuf = vec![0; keylen].into();
 //         self.reader.read(ret.as_mut());
 //         Ok(ret)
@@ -205,13 +221,13 @@ impl NtorHkdfKeyGenerator {
     }
 
     fn kdf(seed: impl AsRef<[u8]>, keylen: usize) -> Result<SecretBuf> {
-        Ntor1Kdf::new(&T_KEY[..], &M_EXPAND[..]).derive(seed.as_ref(), keylen)
+        Ntor1Kdf::new(&T_KEY_SEED[..], &M_EXPAND[..]).derive(seed.as_ref(), keylen)
     }
 }
 
 impl KeyGenerator for NtorHkdfKeyGenerator {
     fn expand(self, keylen: usize) -> Result<SecretBuf> {
-        let ntor1_key = &T_KEY[..];
+        let ntor1_key = &T_KEY_SEED[..];
         let ntor1_expand = &M_EXPAND[..];
         Ntor1Kdf::new(ntor1_key, ntor1_expand).derive(&self.seed[..], keylen)
     }
@@ -248,7 +264,7 @@ fn ntor_derive(
     suffix.write(&server_pk.pk.as_bytes())?; // b
     suffix.write(x.as_bytes())?; // x
     suffix.write(y.as_bytes())?; // y
-    suffix.write(PROTO_ID)?; // PROTOID
+    suffix.write(PROTOID)?; // PROTOID
     suffix.write(&server_pk.id)?; // ID
 
     // secret_input = EXP(X,y) | EXP(X,b)   OR    = EXP(Y,x) | EXP(B,x)

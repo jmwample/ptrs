@@ -1,11 +1,11 @@
 use crate::{
     common::{
-        colorize, discard, drbg,
-        ntor_arti::{ClientHandshake, KeyGenerator, RelayHandshakeError, SessionIdentifier},
+        discard, drbg,
+        ntor_arti::{ClientHandshake, KeyGenerator, RelayHandshakeError, SessionIdentifier, SessionID},
     },
     constants::*,
     framing,
-    handshake::{CHSMaterials, NtorV3Client, NtorV3PublicKey},
+    handshake::{CHSMaterials, NtorV3Client, NtorV3KeyGen, NtorV3PublicKey},
     proto::{O4Stream, O5Stream, IAT},
     sessions::{Established, Fault, Initialized, Session},
     // server::Server,
@@ -28,7 +28,7 @@ use tokio_util::codec::Decoder;
 
 pub(crate) struct ClientSession<S: ClientSessionState> {
     node_pubkey: NtorV3PublicKey,
-    session_id: [u8; SESSION_ID_LEN],
+    session_id: SessionID,
     iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
 
@@ -56,14 +56,14 @@ impl Fault for ClientHandshakeFailed {}
 
 impl<S: ClientSessionState> ClientSession<S> {
     pub fn session_id(&self) -> String {
-        String::from("c-") + &colorize(self.session_id)
+        String::from("c-") + &self.session_id.to_string()
     }
 
-    pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
+    pub(crate) fn set_session_id(&mut self, id: SessionID) {
         debug!(
             "{} -> {} client updating session id",
-            colorize(self.session_id),
-            colorize(id)
+            self.session_id,
+            id
         );
         self.session_id = id;
     }
@@ -113,7 +113,7 @@ pub fn new_client_session(
     rand::thread_rng().fill_bytes(&mut session_id);
     ClientSession {
         node_pubkey: station_pubkey,
-        session_id,
+        session_id: session_id.into(),
         iat_mode,
         epoch_hour: "".into(),
         biased: false,
@@ -139,7 +139,7 @@ impl ClientSession<Initialized> {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
 
-        let materials = CHSMaterials::new(session.node_pubkey, session.session_id());
+        let materials = CHSMaterials::new(&session.node_pubkey, session.session_id());
 
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
@@ -167,7 +167,7 @@ impl ClientSession<Initialized> {
             };
 
         // post-handshake state updates
-        session.set_session_id(keygen.new_session_id());
+        session.set_session_id(keygen.session_id());
         let mut codec: framing::O5Codec = keygen.into();
 
         let res = codec.decode(&mut remainder);
@@ -194,7 +194,7 @@ impl ClientSession<Initialized> {
         mut stream: T,
         materials: CHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<(BytesMut, impl KeyGenerator)>
+    ) -> Result<(BytesMut, impl NtorV3KeyGen<ID=SessionID>)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

@@ -60,9 +60,7 @@ impl<T> ServerBuilder<T> {
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
     pub fn node_keys(&mut self, keys: impl AsRef<[u8]>) -> Result<&Self> {
-        let sk = NtorV3SecretKey::try_from(keys)?;
-        // let sk: [u8; KEY_LENGTH] = keys[..KEY_LENGTH].try_into().unwrap();
-        // let pk: [u8; KEY_LENGTH] = keys[KEY_LENGTH..].try_into().unwrap();
+        let sk = NtorV3SecretKey::try_from(keys.as_ref())?;
         self.identity_keys = sk;
         Ok(self)
     }
@@ -224,8 +222,7 @@ impl TryFrom<&Args> for RequiredServerState {
             None => IAT::default(),
         };
 
-        let secret_key = StaticSecret::from(sk);
-        let private_key = NtorV3SecretKey::new(secret_key, RsaIdentity::from(node_id));
+        let private_key = NtorV3SecretKey::try_from_bytes(sk)?;
 
         Ok(RequiredServerState {
             private_key,
@@ -256,16 +253,8 @@ impl Deref for Server {
 }
 
 impl Server {
-    pub fn new(sec: [u8; KEY_LENGTH], id: [u8; NODE_ID_LENGTH]) -> Self {
-        let sk = StaticSecret::from(sec);
-        let pk = NtorV3PublicKey {
-            pk: PublicKey::from(&sk),
-            id: id.into(),
-        };
-
-        let identity_keys = NtorV3SecretKey::new(sk, id.into());
-
-        Self::new_from_key(identity_keys)
+    pub fn new(identity: NtorV3SecretKey) -> Self {
+        Self::new_from_key(identity)
     }
 
     pub(crate) fn new_from_key(identity_keys: NtorV3SecretKey) -> Self {
@@ -280,21 +269,14 @@ impl Server {
         }))
     }
 
-    pub fn new_from_random<R: RngCore + CryptoRng>(mut rng: R) -> Self {
+    pub fn new_from_random<R: RngCore + CryptoRng>(rng: &mut  R) -> Self {
         let mut id = [0_u8; 20];
-        // Random bytes will work for testing, but aren't necessarily actually a valid id.
-        rng.fill_bytes(&mut id);
 
         // Generated identity secret key does not need to be elligator2 representable
         // so we can use the regular dalek_x25519 key generation.
-        let sk = StaticSecret::random_from_rng(rng);
+        let identity_keys = NtorV3SecretKey::random_from_rng(rng);
 
-        let pk = NtorV3PublicKey {
-            pk: PublicKey::from(&sk),
-            id: id.into(),
-        };
-
-        let identity_keys = NtorV3SecretKey::new(sk, id.into());
+        let pk = NtorV3PublicKey::from(&identity_keys);
 
         Self::new_from_key(identity_keys)
     }
@@ -346,7 +328,7 @@ impl Server {
             biased: self.biased,
 
             // generated per session
-            session_id,
+            session_id: session_id.into(),
             len_seed: drbg::Seed::new().unwrap(),
             iat_seed: drbg::Seed::new().unwrap(),
 

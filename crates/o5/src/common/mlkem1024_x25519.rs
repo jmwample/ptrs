@@ -51,10 +51,12 @@ impl StaticSecret {
         }))
     }
 
-    pub fn to_bytes(self) -> [u8; PRIVKEY_LEN + PUBKEY_LEN] {
+    pub fn as_bytes(&self) -> [u8; PRIVKEY_LEN + PUBKEY_LEN] {
         let mut out = [0u8; PRIVKEY_LEN + PUBKEY_LEN];
-        //out[..PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
-        todo!("to bytes not implemented");
+        out[..X25519_PRIVKEY_LEN].copy_from_slice(&self.0.x25519.to_bytes()[..]);
+        out[X25519_PRIVKEY_LEN .. PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
+        out[PRIVKEY_LEN .. PRIVKEY_LEN+PUBKEY_LEN].copy_from_slice(&self.0.pub_key.as_bytes());
+        out
     }
 }
 

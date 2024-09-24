@@ -9,6 +9,7 @@
 
 use crate::common::mlkem1024_x25519::{PublicKey, SharedSecret};
 
+use digest::{ExtendableOutput, Digest, XofReader};
 use cipher::{KeyIvInit as _, StreamCipher as _};
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
@@ -17,6 +18,7 @@ use zeroize::Zeroizing;
 
 mod keys;
 pub use keys::{NtorV3KeyGen, NtorV3PublicKey, NtorV3SecretKey};
+use keys::NtorHkdfKeyGenerator;
 
 mod client;
 pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
@@ -31,8 +33,6 @@ pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
 pub const ENC_KEY_LEN: usize = 32;
 /// The size of a MAC key in bytes.
 pub const MAC_KEY_LEN: usize = 32;
-/// The size of a curve25519 public key in bytes.
-pub const PUB_KEY_LEN: usize = 32;
 /// The size of a digest output in bytes.
 pub const DIGEST_LEN: usize = 32;
 /// The length of a MAC output in bytes.
@@ -90,6 +90,8 @@ macro_rules! define_tweaks {
     }
 }
 
+pub(crate) const T_KEY: &[u8; 36] = b"ntor-curve25519-sha256-1:key_extract";
+
 define_tweaks! {
     /// Protocol ID: concatenated with other things in the protocol to
     /// prevent hash confusion.
@@ -97,6 +99,7 @@ define_tweaks! {
 
     /// Message MAC tweak: used to compute the MAC of an encrypted client
     /// message.
+    // in obfs4 -> b"ntor-curve25519-sha256-1:mac"
     T_MSGMAC <= "msg_mac";
     /// Message KDF tweak: used when deriving keys for encrypting and MACing
     /// client message.
@@ -104,6 +107,7 @@ define_tweaks! {
     /// Key seeding tweak: used to derive final KDF input from secret_input.
     T_KEY_SEED <= "key_seed";
     /// Verifying tweak: used to derive 'verify' value from secret_input.
+    // in obfs4 ->  b"ntor-curve25519-sha256-1:key_verify"
     T_VERIFY <= "verify";
     /// Final KDF tweak: used to derive keys for encrypting relay message
     /// and for the actual tor circuit.
@@ -111,11 +115,12 @@ define_tweaks! {
     /// Authentication tweak: used to derive the final authentication
     /// value for the handshake.
     T_AUTH <= "auth_final";
+    /// Key Expansion Tweak: obfs4 tweak used for expanding seed into key
+    M_EXPAND <= "key_expand";
 }
 
 /// Compute a tweaked hash.
 fn hash(t: &Encap<'_>, data: &[u8]) -> DigestVal {
-    use digest::Digest;
     let mut d = Sha3_256::new();
     d.update((t.len() as u64).to_be_bytes());
     d.update(t.data());
@@ -179,7 +184,6 @@ fn kdf_msgkdf(
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
     // phase1_keys = KDF_msgkdf(secret_input_phase1)
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
-    use digest::{ExtendableOutput, XofReader};
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
     msg_kdf.write(xb)?;
@@ -252,7 +256,7 @@ mod test {
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
-    use crate::common::ntor_arti::{ClientHandshake, ServerHandshake};
+    use crate::common::ntor_arti::{ClientHandshake, ServerHandshake, KeyGenerator};
     use crate::Server;
 
     use super::*;
@@ -260,12 +264,12 @@ mod test {
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
-    use tor_llcrypto::pk::ed25519::Ed25519Identity;
+    use tor_llcrypto::pk::rsa::RsaIdentity;
 
     #[test]
     fn test_ntor3_roundtrip() {
         let mut rng = rand::thread_rng();
-        let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
+        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
 
         let verification = &b"shared secret"[..];
         let client_message = &b"Hello. I am a client. Let's be friends!"[..];
@@ -312,13 +316,13 @@ mod test {
     // Same as previous test, but use the higher-level APIs instead.
     #[test]
     fn test_ntor3_roundtrip_highlevel() {
-        let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
+        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
 
         let (c_state, c_handshake) = NtorV3Client::client1(&relay_private.pk, &[]).unwrap();
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-        let server = Server::new_from_random(thread_rng());
+        let server = Server::new_from_random(&mut thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();
@@ -334,7 +338,7 @@ mod test {
     // Same as previous test, but encode some congestion control extensions.
     #[test]
     fn test_ntor3_roundtrip_highlevel_cc() {
-        let relay_private = NtorV3SecretKey::generate_for_test(&mut testing_rng());
+        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
 
         let client_exts = vec![NtorV3Extension::RequestCongestionControl];
         let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
@@ -350,7 +354,7 @@ mod test {
             Some(reply_exts.clone())
         };
 
-        let server = Server::new_from_random(thread_rng());
+        let server = Server::new_from_random(&mut thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &[relay_private], &c_handshake)
             .unwrap();
@@ -366,12 +370,12 @@ mod test {
     #[test]
     fn test_ntor3_testvec() {
         let b = hex!("4051daa5921cfa2a1c27b08451324919538e79e788a81b38cbed097a5dff454a");
-        let id = hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2");
+        let id = hex!("9fad2af287ef942632833d21f946c6260c33fae6");
         let x = hex!("b825a3719147bcbe5fb1d0b0fcb9c09e51948048e2e3283d2ab7b45b5ef38b49");
         let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
         let b: StaticSecret = b.into();
         let B: PublicKey = (&b).into();
-        let id: Ed25519Identity = id.into();
+        let id: RsaIdentity = id.into();
         let x: StaticSecret = x.into();
         //let X = (&x).into();
         let y: StaticSecret = y.into();
@@ -424,7 +428,6 @@ mod test {
         assert_eq!(&server_msg_received, &server_message);
 
         let (c_keys, s_keys) = {
-            use digest::XofReader;
             let mut c = [0_u8; 256];
             let mut s = [0_u8; 256];
             client_keygen.read(&mut c);
@@ -439,22 +442,22 @@ mod test {
     fn mlkem1024_x25519_3way_handshake_flow() {
         let mut rng = rand::thread_rng();
         // long-term server id and keys
-        let server_id_keys = StaticSecret::new(&mut rng);
-        let _server_id_pub = server_id_keys.public_key();
+        let server_id_keys = StaticSecret::random_from_rng(&mut rng);
+        let _server_id_pub = PublicKey::from(&server_id_keys);
         // let server_id = ID::new();
 
         // client open session, generating the associated ephemeral keys
-        let client_session = StaticSecret::new(&mut rng);
+        let client_session = StaticSecret::random_from_rng(&mut rng);
 
         // client sends mlkem1024_x25519 session pubkey(s)
-        let _cpk = client_session.public_key();
+        let _cpk = PublicKey::from(&client_session);
 
         // server computes mlkem1024_x25519 combined shared secret
-        let _server_session = StaticSecret::new(&mut rng);
+        let _server_session = StaticSecret::random_from_rng(&mut rng);
         // let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
 
         // server sends mlkemx25519 session pubkey(s)
-        let _spk = client_session.public_key();
+        let _spk = PublicKey::from(&client_session);
 
         // // client computes mlkem1024_x25519 combined shared secret
         // let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);

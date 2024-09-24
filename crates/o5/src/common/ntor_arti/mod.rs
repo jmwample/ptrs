@@ -11,8 +11,9 @@
 //! Currently, this module implements only the "ntor" handshake used
 //! for circuits on today's Tor.
 use std::borrow::Borrow;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use crate::{common::colorize, Result};
+use crate::{common::colorize, Result, Error};
 //use zeroize::Zeroizing;
 use tor_bytes::SecretBuf;
 
@@ -35,6 +36,17 @@ impl core::fmt::Debug for SessionID {
 impl From<[u8; SESSION_ID_LEN]> for SessionID {
     fn from(value: [u8; SESSION_ID_LEN]) -> Self {
         SessionID(value)
+    }
+}
+
+impl TryFrom<&[u8]> for SessionID {
+    type Error=Error;
+    fn try_from(buf: &[u8]) -> Result<Self> {
+        if buf.len() < SESSION_ID_LEN {
+            return Err(IoError::new(IoErrorKind::InvalidInput, "too few bytes for session id").into());
+        }
+        let v: [u8;SESSION_ID_LEN] = core::array::from_fn(|i| buf[i]);
+        Ok(SessionID(v))
     }
 }
 

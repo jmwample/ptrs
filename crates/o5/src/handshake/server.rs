@@ -9,8 +9,9 @@ use crate::{
     Error, Server,
 };
 
-use cipher::KeyIvInit;
-use hmac::Hmac;
+// use cipher::KeyIvInit;
+use digest::{Digest, ExtendableOutput, XofReader};
+use hmac::{Hmac, Mac};
 use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -24,20 +25,18 @@ use zeroize::Zeroizing;
 
 /// Server Materials needed for completing a handshake
 pub(crate) struct HandshakeMaterials {
-    pub(crate) identity_keys: NtorV3SecretKey,
     pub(crate) session_id: String,
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
 
 impl<'a> HandshakeMaterials {
-    pub fn get_hmac(&self) -> Hmac<Sha256> {
-        let mut key = self.identity_keys.pk.pk.as_bytes().to_vec();
-        key.append(&mut self.identity_keys.pk.id.as_bytes().to_vec());
+    pub fn get_hmac<'b>(&self, identity_keys: &'b NtorV3SecretKey) -> Hmac<Sha256> {
+        let mut key = identity_keys.pk.pk.as_bytes().to_vec();
+        key.append(&mut identity_keys.pk.id.as_bytes().to_vec());
         Hmac::<Sha256>::new_from_slice(&key[..]).unwrap()
     }
 
     pub fn new<'b>(
-        identity_keys: &'b NtorV3SecretKey,
         session_id: String,
         len_seed: [u8; SEED_LENGTH],
     ) -> Self
@@ -45,7 +44,6 @@ impl<'a> HandshakeMaterials {
         'b: 'a,
     {
         HandshakeMaterials {
-            identity_keys: identity_keys.clone(),
             session_id,
             len_seed,
         }
@@ -54,7 +52,7 @@ impl<'a> HandshakeMaterials {
 
 impl ServerHandshake for Server {
     type KeyType = NtorV3SecretKey;
-    type KeyGen = NtorV3KeyGenerator;
+    type KeyGen = NtorHkdfKeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
 
@@ -80,7 +78,7 @@ impl ServerHandshake for Server {
             key,
             NTOR3_CIRC_VERIFICATION,
         )?;
-        Ok((NtorV3KeyGenerator { reader }, res))
+        Ok((NtorHkdfKeyGenerator { reader }, res))
     }
 }
 
@@ -142,7 +140,6 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
         .map_err(into_internal!("Can't apply ntor3 kdf."))?;
     // Verify the message we received.
     let computed_mac: DigestVal = {
-        use digest::Digest;
         mac.write(client_msg)
             .map_err(into_internal!("Can't compute MAC input."))?;
         mac.take().finalize().into()
@@ -185,7 +182,6 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     let verify = h_verify(&secret_input);
 
     let (enc_key, keystream) = {
-        use digest::{ExtendableOutput, XofReader};
         let mut xof = DigestWriter(Shake256::default());
         xof.write(&T_FINAL)
             .and_then(|_| xof.write(&ntor_key_seed))
@@ -197,7 +193,6 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     };
     let encrypted_reply = encrypt(&enc_key, &reply);
     let auth: DigestVal = {
-        use digest::Digest;
         let mut auth = DigestWriter(Sha3_256::default());
         auth.write(&T_AUTH)
             .and_then(|_| auth.write(&verify))

@@ -12,7 +12,7 @@ use crate::{
 use core::borrow::Borrow;
 
 use cipher::KeyIvInit;
-use rand::{CryptoRng, RngCore};
+use rand::{CryptoRng, RngCore, Rng};
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
@@ -28,9 +28,9 @@ pub(crate) struct HandshakeMaterials {
 }
 
 impl HandshakeMaterials {
-    pub(crate) fn new(node_pubkey: NtorV3PublicKey, session_id: String) -> Self {
+    pub(crate) fn new(node_pubkey: &NtorV3PublicKey, session_id: String) -> Self {
         HandshakeMaterials {
-            node_pubkey,
+            node_pubkey: node_pubkey.clone(),
             session_id,
             pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
         }

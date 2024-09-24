@@ -1,7 +1,7 @@
 use crate::{
     common::{
-        colorize, discard, drbg,
-        ntor_arti::{RelayHandshakeError, ServerHandshake, SessionIdentifier},
+        discard, drbg,
+        ntor_arti::{RelayHandshakeError, ServerHandshake, SessionIdentifier, SessionID},
     },
     constants::*,
     framing,
@@ -29,7 +29,7 @@ pub(crate) struct ServerSession<S: ServerSessionState> {
     // pub(crate) server: &'a Server,
 
     // generated per session
-    pub(crate) session_id: [u8; SESSION_ID_LEN],
+    pub(crate) session_id: SessionID,
     pub(crate) len_seed: drbg::Seed,
     pub(crate) iat_seed: drbg::Seed,
 
@@ -53,7 +53,7 @@ impl Fault for ServerHandshakeFailed {}
 
 impl<S: ServerSessionState> ServerSession<S> {
     pub fn session_id(&self) -> String {
-        String::from("s-") + &colorize(self.session_id)
+        String::from("s-") + &self.session_id.to_string()
     }
 
     pub(crate) fn biased(&self) -> bool {
@@ -64,11 +64,11 @@ impl<S: ServerSessionState> ServerSession<S> {
         self.len_seed.clone()
     }
 
-    pub(crate) fn set_session_id(&mut self, id: [u8; SESSION_ID_LEN]) {
+    pub(crate) fn set_session_id(&mut self, id: SessionID) {
         debug!(
             "{} -> {} server updating session id",
-            colorize(self.session_id),
-            colorize(id)
+            self.session_id,
+            id
         );
         self.session_id = id;
     }
@@ -119,7 +119,6 @@ impl ServerSession<Initialized> {
         let mut session = self.transition(ServerHandshaking {});
 
         let materials = SHSMaterials::new(
-            &server.identity_keys,
             session.session_id(),
             session.len_seed.to_bytes(),
         );
@@ -151,7 +150,7 @@ impl ServerSession<Initialized> {
             };
 
         // post handshake state updates
-        session.set_session_id(keygen.new_session_id());
+        session.set_session_id(keygen.session_id());
         let mut codec: framing::O5Codec = keygen.into();
 
         // mark session as Established
@@ -173,7 +172,7 @@ impl Server {
         mut stream: T,
         materials: SHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<impl NtorV3KeyGen>
+    ) -> Result<impl NtorV3KeyGen<ID=SessionID>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
