@@ -3,7 +3,7 @@ use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, EncodeError, OKemCore
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 
-use crate::{Result, Error};
+use crate::{Error, Result};
 
 pub(crate) const X25519_PUBKEY_LEN: usize = 32;
 pub(crate) const X25519_PRIVKEY_LEN: usize = 32;
@@ -54,8 +54,8 @@ impl StaticSecret {
     pub fn as_bytes(&self) -> [u8; PRIVKEY_LEN + PUBKEY_LEN] {
         let mut out = [0u8; PRIVKEY_LEN + PUBKEY_LEN];
         out[..X25519_PRIVKEY_LEN].copy_from_slice(&self.0.x25519.to_bytes()[..]);
-        out[X25519_PRIVKEY_LEN .. PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
-        out[PRIVKEY_LEN .. PRIVKEY_LEN+PUBKEY_LEN].copy_from_slice(&self.0.pub_key.as_bytes());
+        out[X25519_PRIVKEY_LEN..PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
+        out[PRIVKEY_LEN..PRIVKEY_LEN + PUBKEY_LEN].copy_from_slice(&self.0.pub_key.as_bytes());
         out
     }
 }
@@ -188,7 +188,10 @@ impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
     type Error = EncodeError;
 
     // Required method
-    fn decapsulate(&self, encapsulated_key: &Ciphertext) -> std::result::Result<SharedSecret, Self::Error> {
+    fn decapsulate(
+        &self,
+        encapsulated_key: &Ciphertext,
+    ) -> std::result::Result<SharedSecret, Self::Error> {
         let arr = kemeleon::Ciphertext::try_from(&encapsulated_key[32..])?;
         let local_ss_mlkem = self.mlkem.decapsulate(&arr)?;
 

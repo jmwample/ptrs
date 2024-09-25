@@ -2,7 +2,6 @@ use crate::{
     common::{
         ct,
         drbg::SEED_LENGTH,
-        mlkem1024_x25519::{PublicKey, StaticSecret},
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
     },
     handshake::*,
@@ -12,6 +11,7 @@ use crate::{
 // use cipher::KeyIvInit;
 use digest::{Digest, ExtendableOutput, XofReader};
 use hmac::{Hmac, Mac};
+use keys::NtorV3KeyGenerator;
 use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -36,10 +36,7 @@ impl<'a> HandshakeMaterials {
         Hmac::<Sha256>::new_from_slice(&key[..]).unwrap()
     }
 
-    pub fn new<'b>(
-        session_id: String,
-        len_seed: [u8; SEED_LENGTH],
-    ) -> Self
+    pub fn new<'b>(session_id: String, len_seed: [u8; SEED_LENGTH]) -> Self
     where
         'b: 'a,
     {
@@ -52,7 +49,7 @@ impl<'a> HandshakeMaterials {
 
 impl ServerHandshake for Server {
     type KeyType = NtorV3SecretKey;
-    type KeyGen = NtorHkdfKeyGenerator;
+    type KeyGen = NtorV3KeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
 
@@ -78,7 +75,7 @@ impl ServerHandshake for Server {
             key,
             NTOR3_CIRC_VERIFICATION,
         )?;
-        Ok((NtorHkdfKeyGenerator { reader }, res))
+        Ok((NtorV3KeyGenerator::new::<ServerRole>(reader), res))
     }
 }
 
@@ -99,14 +96,14 @@ pub(crate) fn server_handshake_ntor_v3<RNG: CryptoRng + RngCore, REPLY: MsgReply
     keys: &[NtorV3SecretKey],
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
-    let secret_key_y = StaticSecret::random_from_rng(rng);
+    let secret_key_y = NtorV3SecretKey::random_from_rng(rng);
     server_handshake_ntor_v3_no_keygen(reply_fn, &secret_key_y, message, keys, verification)
 }
 
 /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.
 pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     reply_fn: &mut REPLY,
-    secret_key_y: &StaticSecret,
+    secret_key_y: &NtorV3SecretKey,
     message: &[u8],
     keys: &[NtorV3SecretKey],
     verification: &[u8],
@@ -114,8 +111,8 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     // Decode the message.
     let mut r = Reader::from_slice(message);
     let id: Ed25519Identity = r.extract()?;
-    let requested_pk: PublicKey = r.extract()?;
-    let client_pk: PublicKey = r.extract()?;
+    let requested_pk: NtorV3PublicKey = r.extract()?;
+    let client_pk: NtorV3PublicKey = r.extract()?;
     let client_msg = if let Some(msg_len) = r.remaining().checked_sub(MAC_LEN) {
         r.take(msg_len)?
     } else {
@@ -129,7 +126,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     r.should_be_exhausted()?;
 
     // See if we recognize the provided (id,requested_pk) pair.
-    let keypair = ct_lookup(keys, |key| key.matches(id, requested_pk));
+    let keypair = ct_lookup(keys, |key| key.matches(id, requested_pk.pk));
     let keypair = match keypair {
         Some(k) => k,
         None => return Err(RelayHandshakeError::MissingKey),
@@ -144,7 +141,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
             .map_err(into_internal!("Can't compute MAC input."))?;
         mac.take().finalize().into()
     };
-    let y_pk: PublicKey = (secret_key_y).into();
+    let y_pk = NtorV3PublicKey::from(secret_key_y);
     let xy = secret_key_y.diffie_hellman(&client_pk);
 
     let mut okay = computed_mac.ct_eq(&msg_mac)
@@ -170,9 +167,9 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
         si.write(&xy)
             .and_then(|_| si.write(&xb))
             .and_then(|_| si.write(&keypair.pk.id))
-            .and_then(|_| si.write(&keypair.pk.pk))
-            .and_then(|_| si.write(&client_pk))
-            .and_then(|_| si.write(&y_pk))
+            .and_then(|_| si.write(&keypair.pk.pk.as_bytes()))
+            .and_then(|_| si.write(&client_pk.pk.as_bytes()))
+            .and_then(|_| si.write(&y_pk.pk.as_bytes()))
             .and_then(|_| si.write(PROTOID))
             .and_then(|_| si.write(&Encap(verification)))
             .map_err(into_internal!("can't derive ntor3 secret_input"))?;
@@ -197,9 +194,9 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
         auth.write(&T_AUTH)
             .and_then(|_| auth.write(&verify))
             .and_then(|_| auth.write(&keypair.pk.id))
-            .and_then(|_| auth.write(&keypair.pk.pk))
-            .and_then(|_| auth.write(&y_pk))
-            .and_then(|_| auth.write(&client_pk))
+            .and_then(|_| auth.write(&keypair.pk.pk.as_bytes()))
+            .and_then(|_| auth.write(&y_pk.pk.as_bytes()))
+            .and_then(|_| auth.write(&client_pk.pk.as_bytes()))
             .and_then(|_| auth.write(&msg_mac))
             .and_then(|_| auth.write(&Encap(&encrypted_reply)))
             .and_then(|_| auth.write(PROTOID))
@@ -211,7 +208,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     let reply = {
         let mut reply = Vec::new();
         reply
-            .write(&y_pk)
+            .write(&y_pk.pk.as_bytes())
             .and_then(|_| reply.write(&auth))
             .and_then(|_| reply.write(&encrypted_reply))
             .map_err(into_internal!("can't encode ntor3 reply."))?;
@@ -219,7 +216,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
     };
 
     if okay.into() {
-        Ok((reply, NtorV3XofReader(keystream)))
+        Ok((reply, NtorV3XofReader::new(keystream)))
     } else {
         Err(RelayHandshakeError::BadClientHandshake)
     }

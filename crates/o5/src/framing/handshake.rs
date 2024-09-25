@@ -1,46 +1,47 @@
 use crate::{
     common::{
         utils::{get_epoch_hour, make_hs_pad},
-        x25519_elligator2::{PublicKey, PublicRepresentative},
+        // x25519_elligator2::{PublicKey, PublicRepresentative},
         HmacSha256,
     },
     constants::*,
-    // handshake::Authcode,
-    Result,
+    handshake::{Authcode, NtorV3PublicKey, AUTHCODE_LENGTH},
+    Error, Result,
 };
 
 use bytes::BufMut;
 use hmac::Mac;
 use ptrs::trace;
 use rand::Rng;
-
-// ----------------------[ taken from handshake/ for now ]----------------------
-
-type Authcode = [u8; 32];
+use tor_cell::relaycell::extend::NtorV3Extension;
 
 // -----------------------------[ Server ]-----------------------------
 
 pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
-    repres: PublicRepresentative,
-    pubkey: Option<PublicKey>,
+    client_pubkey: NtorV3PublicKey,
+    session_pubkey: NtorV3PublicKey,
     epoch_hour: String,
 }
 
 impl ServerHandshakeMessage {
-    pub fn new(
-        repres: PublicRepresentative,
-        server_auth: [u8; AUTHCODE_LENGTH],
-        epoch_hr: String,
-    ) -> Self {
+    pub fn new(client_pubkey: NtorV3PublicKey, session_pubkey: NtorV3PublicKey) -> Self {
         Self {
-            server_auth,
+            server_auth: [0u8; AUTHCODE_LENGTH],
             pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
-            repres,
-            pubkey: None,
             epoch_hour: epoch_hr,
         }
+    }
+
+    pub fn with_pad_len(&mut self, pad_len: usize) -> &Self {
+        self.pad_len = pad_len;
+        self
+    }
+
+    pub fn with_aux_data(&mut self, aux_data: Vec<NtorV3Extension>) -> &Self {
+        self.aux_data = aux_data;
+        self
     }
 
     pub fn server_pubkey(&mut self) -> PublicKey {
@@ -100,23 +101,33 @@ impl ServerHandshakeMessage {
 /// connection from a client to a potential server.
 pub struct ClientHandshakeMessage {
     pub(crate) pad_len: usize,
-    pub(crate) repres: PublicRepresentative,
-    pub(crate) pubkey: Option<PublicKey>,
+    pub(crate) node_pubkey: NtorV3PublicKey,
+    pub(crate) aux_data: Vec<NtorV3Extension>,
 
     // only used when parsing (i.e. on the server side)
     pub(crate) epoch_hour: String,
 }
 
 impl ClientHandshakeMessage {
-    pub fn new(repres: PublicRepresentative, pad_len: usize, epoch_hour: String) -> Self {
+    pub fn new(node_pubkey: NtorV3PublicKey) -> Self {
         Self {
-            pad_len,
-            repres,
-            pubkey: None,
+            node_pubkey,
+            pad_len: 0,
+            aux_data: vec![],
 
             // only used when parsing (i.e. on the server side)
-            epoch_hour,
+            epoch_hour: get_epoch_hour().to_string(),
         }
+    }
+
+    pub fn with_pad_len(&mut self, pad_len: usize) -> &Self {
+        self.pad_len = pad_len;
+        self
+    }
+
+    pub fn with_aux_data(&mut self, aux_data: Vec<NtorV3Extension>) -> &Self {
+        self.aux_data = aux_data;
+        self
     }
 
     pub fn get_public(&mut self) -> PublicKey {
@@ -144,6 +155,10 @@ impl ClientHandshakeMessage {
 
     pub fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
         trace!("serializing client handshake");
+
+        todo!("when this is causing panic re-visit");
+        NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
+            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
 
         h.reset(); // disambiguate reset() implementations Mac v digest
         h.update(self.repres.as_bytes().as_ref());

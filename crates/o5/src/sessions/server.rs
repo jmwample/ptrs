@@ -1,7 +1,7 @@
 use crate::{
     common::{
         discard, drbg,
-        ntor_arti::{RelayHandshakeError, ServerHandshake, SessionIdentifier, SessionID},
+        ntor_arti::{RelayHandshakeError, ServerHandshake, SessionID, SessionIdentifier},
     },
     constants::*,
     framing,
@@ -65,11 +65,7 @@ impl<S: ServerSessionState> ServerSession<S> {
     }
 
     pub(crate) fn set_session_id(&mut self, id: SessionID) {
-        debug!(
-            "{} -> {} server updating session id",
-            self.session_id,
-            id
-        );
+        debug!("{} -> {} server updating session id", self.session_id, id);
         self.session_id = id;
     }
 
@@ -118,10 +114,7 @@ impl ServerSession<Initialized> {
         // set up for handshake
         let mut session = self.transition(ServerHandshaking {});
 
-        let materials = SHSMaterials::new(
-            session.session_id(),
-            session.len_seed.to_bytes(),
-        );
+        let materials = SHSMaterials::new(session.session_id(), session.len_seed.to_bytes());
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
@@ -172,7 +165,7 @@ impl Server {
         mut stream: T,
         materials: SHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<impl NtorV3KeyGen<ID=SessionID>>
+    ) -> Result<impl NtorV3KeyGen<ID = SessionID>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

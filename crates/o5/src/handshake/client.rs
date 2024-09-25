@@ -1,18 +1,18 @@
 use crate::{
-    common::{
-        ct,
-        mlkem1024_x25519::{PublicKey, SharedSecret, StaticSecret},
-        ntor_arti::ClientHandshake,
-    },
+    common::{ct, mlkem1024_x25519::SharedSecret, ntor_arti::ClientHandshake},
     constants::*,
+    framing::handshake,
     handshake::*,
     Error, Result,
 };
 
 use core::borrow::Borrow;
 
-use cipher::KeyIvInit;
-use rand::{CryptoRng, RngCore, Rng};
+use hmac::{Hmac, Mac};
+use keys::NtorV3KeyGenerator;
+// use cipher::KeyIvInit;
+use rand::{CryptoRng, Rng, RngCore};
+use subtle::ConstantTimeEq;
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
@@ -44,11 +44,14 @@ impl HandshakeMaterials {
 /// The client needs to hold this state between when it sends its part
 /// of the handshake and when it receives the relay's reply.
 pub(crate) struct HandshakeState {
+    /// Relay public identity key and ID value.
+    relay_public: NtorV3PublicKey,
+
     /// The temporary curve25519 secret (x) that we've generated for
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: StaticSecret,
+    my_sk: NtorV3SecretKey,
 
     /// handshake materials
     materials: HandshakeMaterials,
@@ -103,9 +106,9 @@ impl ClientHandshake for NtorV3Client {
         client_aux_data: &M,
     ) -> Result<(Self::StateType, Vec<u8>)> {
         let mut rng = rand::thread_rng();
-        let mut message = Vec::new();
-        NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
-            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
+
+        let message = handshake::ClientHandshakeMessage::new(client_aux_data);
+
         Ok(
             client_handshake_ntor_v3(&mut rng, key, &message, NTOR3_CIRC_VERIFICATION)
                 .map_err(into_internal!("Can't encode ntor3 client handshake."))?,
@@ -126,7 +129,7 @@ impl ClientHandshake for NtorV3Client {
             object: "ntor v3 extensions",
             err,
         })?;
-        let keygen = NtorV3KeyGenerator { reader: xofreader };
+        let keygen = NtorV3KeyGenerator::new::<ClientRole>(xofreader);
 
         Ok((extensions, keygen))
     }
@@ -143,7 +146,7 @@ pub(crate) fn client_handshake_ntor_v3<R: RngCore + CryptoRng>(
     client_msg: &[u8],
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let my_sk = StaticSecret::random_from_rng(rng);
+    let my_sk = NtorV3SecretKey::random_from_rng(rng);
     client_handshake_ntor_v3_no_keygen(relay_public, client_msg, verification, my_sk)
 }
 
@@ -153,35 +156,44 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen(
     relay_public: &NtorV3PublicKey,
     client_msg: &[u8],
     verification: &[u8],
-    my_sk: StaticSecret,
+    my_sk: NtorV3SecretKey,
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let my_public = PublicKey::from(&my_sk);
-    let bx = my_sk.diffie_hellman(&relay_public.pk);
+    {
+        let my_public = NtorV3PublicKey::from(&my_sk);
+        let bx = my_sk.diffie_hellman(&relay_public.pk);
 
-    let (enc_key, mut mac) = kdf_msgkdf(&bx, relay_public, &my_public, verification)?;
+        let (enc_key, mut mac) = kdf_msgkdf(&bx, relay_public, &my_public, verification)?;
 
-    //encrypted_msg = ENC(ENC_K1, CM)
-    // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
-    let encrypted_msg = encrypt(&enc_key, client_msg);
-    let msg_mac: DigestVal = {
-        use digest::Digest;
-        mac.write(&encrypted_msg)?;
-        mac.take().finalize().into()
-    };
+        //encrypted_msg = ENC(ENC_K1, CM)
+        // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
+        let encrypted_msg = encrypt(&enc_key, client_msg);
+        let msg_mac: DigestVal = {
+            use digest::Digest;
+            mac.write(&encrypted_msg)?;
+            mac.take().finalize().into()
+        };
 
-    let mut message = Vec::new();
-    message.write(&relay_public.id)?;
-    message.write(&relay_public.pk)?;
-    message.write(&my_public)?;
-    message.write(&encrypted_msg)?;
-    message.write(&msg_mac)?;
+        let mut message = Vec::new();
+        message.write(&relay_public.id)?;
+        message.write(&relay_public.pk.as_bytes())?;
+        message.write(&my_public.pk.as_bytes())?;
+        message.write(&encrypted_msg)?;
+        message.write(&msg_mac)?;
+    }
+
+    let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
+    let mut key = materials.node_pubkey.pk.as_bytes().to_vec();
+    key.append(&mut materials.node_pubkey.id.as_bytes().to_vec());
+    let h = Hmac::<Sha3_256>::new_from_slice(&key[..]).unwrap();
+    chs_msg.marshall(&mut buf, h);
+    let message = buf.to_vec();
 
     let state = HandshakeState {
         relay_public: relay_public.clone(),
         my_sk,
-        my_public,
         shared_secret: bx,
         msg_mac,
+        epoch_hr: chs_msg.get_epoch_hr(),
     };
 
     Ok((state, message))
@@ -200,13 +212,14 @@ pub(crate) fn client_handshake_ntor_v3_part2(
     verification: &[u8],
 ) -> Result<(Vec<u8>, NtorV3XofReader)> {
     let mut reader = Reader::from_slice(relay_handshake);
-    let y_pk: PublicKey = reader
+    let y_pk: NtorV3PublicKey = reader
         .extract()
         .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     let auth: DigestVal = reader
         .extract()
         .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     let encrypted_msg = reader.into_rest();
+    let my_public = NtorV3PublicKey::from(&state.my_sk);
 
     // TODO: Some of this code is duplicated from the server handshake code!  It
     // would be better to factor it out.
@@ -214,11 +227,11 @@ pub(crate) fn client_handshake_ntor_v3_part2(
     let secret_input = {
         let mut si = SecretBuf::new();
         si.write(&yx)
-            .and_then(|_| si.write(&state.shared_secret))
+            .and_then(|_| si.write(&state.shared_secret.as_bytes()))
             .and_then(|_| si.write(&state.relay_public.id))
-            .and_then(|_| si.write(&state.relay_public.pk))
-            .and_then(|_| si.write(&state.my_public))
-            .and_then(|_| si.write(&y_pk))
+            .and_then(|_| si.write(&state.relay_public.pk.as_bytes()))
+            .and_then(|_| si.write(&my_public.pk.as_bytes()))
+            .and_then(|_| si.write(&y_pk.pk.as_bytes()))
             .and_then(|_| si.write(PROTOID))
             .and_then(|_| si.write(&Encap(verification)))
             .map_err(into_internal!("error encoding ntor3 secret_input"))?;
@@ -233,9 +246,9 @@ pub(crate) fn client_handshake_ntor_v3_part2(
         auth.write(&T_AUTH)
             .and_then(|_| auth.write(&verify))
             .and_then(|_| auth.write(&state.relay_public.id))
-            .and_then(|_| auth.write(&state.relay_public.pk))
-            .and_then(|_| auth.write(&y_pk))
-            .and_then(|_| auth.write(&state.my_public))
+            .and_then(|_| auth.write(&state.relay_public.pk.as_bytes()))
+            .and_then(|_| auth.write(&y_pk.pk.as_bytes()))
+            .and_then(|_| auth.write(&my_public.pk.as_bytes()))
             .and_then(|_| auth.write(&state.msg_mac))
             .and_then(|_| auth.write(&Encap(encrypted_msg)))
             .and_then(|_| auth.write(PROTOID))
@@ -262,7 +275,7 @@ pub(crate) fn client_handshake_ntor_v3_part2(
     let server_reply = decrypt(&enc_key, encrypted_msg);
 
     if okay.into() {
-        Ok((server_reply, NtorV3XofReader(keystream)))
+        Ok((server_reply, NtorV3XofReader::new(keystream)))
     } else {
         Err(Error::BadCircHandshakeAuth)
     }

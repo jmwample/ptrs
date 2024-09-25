@@ -1,7 +1,9 @@
 use crate::{
     common::{
         discard, drbg,
-        ntor_arti::{ClientHandshake, KeyGenerator, RelayHandshakeError, SessionIdentifier, SessionID},
+        ntor_arti::{
+            ClientHandshake, KeyGenerator, RelayHandshakeError, SessionID, SessionIdentifier,
+        },
     },
     constants::*,
     framing,
@@ -60,11 +62,7 @@ impl<S: ClientSessionState> ClientSession<S> {
     }
 
     pub(crate) fn set_session_id(&mut self, id: SessionID) {
-        debug!(
-            "{} -> {} client updating session id",
-            self.session_id,
-            id
-        );
+        debug!("{} -> {} client updating session id", self.session_id, id);
         self.session_id = id;
     }
 
@@ -194,7 +192,7 @@ impl ClientSession<Initialized> {
         mut stream: T,
         materials: CHSMaterials,
         deadline: Option<Instant>,
-    ) -> Result<(BytesMut, impl NtorV3KeyGen<ID=SessionID>)>
+    ) -> Result<(BytesMut, impl NtorV3KeyGen<ID = SessionID>)>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

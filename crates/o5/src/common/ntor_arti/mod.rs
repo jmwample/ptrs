@@ -13,7 +13,7 @@
 use std::borrow::Borrow;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use crate::{common::colorize, Result, Error};
+use crate::{common::colorize, Error, Result};
 //use zeroize::Zeroizing;
 use tor_bytes::SecretBuf;
 
@@ -40,12 +40,14 @@ impl From<[u8; SESSION_ID_LEN]> for SessionID {
 }
 
 impl TryFrom<&[u8]> for SessionID {
-    type Error=Error;
+    type Error = Error;
     fn try_from(buf: &[u8]) -> Result<Self> {
         if buf.len() < SESSION_ID_LEN {
-            return Err(IoError::new(IoErrorKind::InvalidInput, "too few bytes for session id").into());
+            return Err(
+                IoError::new(IoErrorKind::InvalidInput, "too few bytes for session id").into(),
+            );
         }
-        let v: [u8;SESSION_ID_LEN] = core::array::from_fn(|i| buf[i]);
+        let v: [u8; SESSION_ID_LEN] = core::array::from_fn(|i| buf[i]);
         Ok(SessionID(v))
     }
 }

@@ -7,18 +7,36 @@
 
 // TODO:  Make ntorv3 terminology and variable names consistent with spec.
 
-use crate::common::mlkem1024_x25519::{PublicKey, SharedSecret};
-
-use digest::{ExtendableOutput, Digest, XofReader};
 use cipher::{KeyIvInit as _, StreamCipher as _};
+use digest::{Digest, ExtendableOutput, XofReader};
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use tor_llcrypto::d::{Sha3_256, Shake256};
 use zeroize::Zeroizing;
 
 mod keys;
+use keys::NtorV3XofReader;
+pub(crate) use keys::{Authcode, AUTHCODE_LENGTH};
 pub use keys::{NtorV3KeyGen, NtorV3PublicKey, NtorV3SecretKey};
-use keys::NtorHkdfKeyGenerator;
+
+/// Super trait to be used where we require a distinction between client and server roles.
+trait Role {
+    fn is_client() -> bool;
+}
+
+struct ClientRole {}
+impl Role for ClientRole {
+    fn is_client() -> bool {
+        true
+    }
+}
+
+struct ServerRole {}
+impl Role for ServerRole {
+    fn is_client() -> bool {
+        false
+    }
+}
 
 mod client;
 pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
@@ -176,9 +194,9 @@ fn h_verify(d: &[u8]) -> DigestVal {
 /// diffie-hellman as Bx or Xb), the relay's public key information,
 /// the client's public key (B), and the shared verification string.
 fn kdf_msgkdf(
-    xb: &SharedSecret,
+    xb: &NtorV3SecretKey,
     relay_public: &NtorV3PublicKey,
-    client_public: &PublicKey,
+    client_public: &NtorV3PublicKey,
     verification: &[u8],
 ) -> EncodeResult<(EncKey, DigestWriter<Sha3_256>)> {
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
@@ -186,10 +204,10 @@ fn kdf_msgkdf(
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
-    msg_kdf.write(xb)?;
+    msg_kdf.write(&xb.sk.as_bytes())?;
     msg_kdf.write(&relay_public.id)?;
-    msg_kdf.write(client_public)?;
-    msg_kdf.write(&relay_public.pk)?;
+    msg_kdf.write(&client_public.pk.as_bytes())?;
+    msg_kdf.write(&relay_public.pk.as_bytes())?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
     let mut r = msg_kdf.take().finalize_xof();
@@ -203,19 +221,12 @@ fn kdf_msgkdf(
         mac.write(&T_MSGMAC)?;
         mac.write(&Encap(&mac_key[..]))?;
         mac.write(&relay_public.id)?;
-        mac.write(&relay_public.pk)?;
-        mac.write(client_public)?;
+        mac.write(&relay_public.pk.as_bytes())?;
+        mac.write(&client_public.pk.as_bytes())?;
     }
 
     Ok((enc_key, mac))
 }
-
-/// Struct containing associated function for the PQ Obfs handshake.
-///
-/// In the obfs4 implementationI used the equivalent object (Obfs4NtorHandshake) because I needed
-/// to implement the `ntor_arti::ClientHandshake` interface on. It is only used for client though
-/// as the `ntor_arti::ServerHandshake` gets implemented on the `Server` type.
-pub(crate) struct PqObfsHandshake;
 
 /// Trait for an object that handle and incoming client message and
 /// return a server's reply.
@@ -256,7 +267,7 @@ mod test {
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
-    use crate::common::ntor_arti::{ClientHandshake, ServerHandshake, KeyGenerator};
+    use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
     use crate::Server;
 
     use super::*;

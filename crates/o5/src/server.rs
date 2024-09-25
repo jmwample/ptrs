@@ -269,7 +269,7 @@ impl Server {
         }))
     }
 
-    pub fn new_from_random<R: RngCore + CryptoRng>(rng: &mut  R) -> Self {
+    pub fn new_from_random<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         let mut id = [0_u8; 20];
 
         // Generated identity secret key does not need to be elligator2 representable

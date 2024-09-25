@@ -6,12 +6,10 @@ pub use crate::common::ntor_arti::SESSION_ID_LEN;
 use crate::{
     common::{drbg, mlkem1024_x25519, x25519_elligator2::REPRESENTATIVE_LENGTH},
     framing,
-    // handshake::AUTHCODE_LENGTH,
+    handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;
-
-pub const AUTHCODE_LENGTH: usize = 32;
 
 //=========================[Framing/Msgs]=====================================//
 
