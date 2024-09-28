@@ -1,8 +1,8 @@
 use crate::{
     constants::*,
-    handshake::O5NtorPublicKey,
+    handshake::NtorV3PublicKey,
     proto::{O5Stream, IAT},
-    Error, OBFS4_NAME,
+    Error, TRANSPORT_NAME,
 };
 use ptrs::{args::Args, FutureResult as F};
 
@@ -28,7 +28,7 @@ pub struct Transport<T> {
     _p: PhantomData<T>,
 }
 impl<T> Transport<T> {
-    pub const NAME: &'static str = OBFS4_NAME;
+    pub const NAME: &'static str = TRANSPORT_NAME;
 }
 
 impl<T> ptrs::PluggableTransport<T> for Transport<T>
@@ -39,7 +39,7 @@ where
     type ServerBuilder = crate::ServerBuilder<T>;
 
     fn name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     fn client_builder() -> <Self as ptrs::PluggableTransport<T>>::ClientBuilder {
@@ -64,7 +64,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
@@ -114,7 +114,7 @@ where
     type Transport = Transport<T>;
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     /// Builds a new PtCommonParameters.
@@ -136,10 +136,7 @@ where
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
                 trace!("cert string: {}", &cert_strs);
-                let ntor_pk = O5NtorPublicKey::from_str(&cert_strs)?;
-                let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
-                let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
-                (pk, id)
+                NtorV3PublicKey::from_str(&cert_strs)?
             }
             None => {
                 // The "old" style (version <= 0.0.2) bridge lines use separate Node ID
@@ -154,10 +151,8 @@ where
                     .retrieve(PUBLIC_KEY_ARG)
                     .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
 
-                let pk = <[u8; 32]>::from_hex(public_key_strs)
-                    .map_err(|e| format!("malformed public key: {e}"))?;
-                // O5NtorPublicKey::new(pk, node_id)
-                (pk, id)
+                NtorV3PublicKey::from_str(&public_key_strs)
+                    .map_err(|e| format!("malformed public key: {e}"))?
             }
         };
 
@@ -167,8 +162,8 @@ where
             .ok_or(format!("missing argument '{IAT_ARG}'"))?;
         let iat_mode = IAT::from_str(&iat_strs)?;
 
-        self.with_node_pubkey(server_materials.0)
-            .with_node_id(server_materials.1)
+        self.with_node_pubkey(server_materials.pk)
+            .with_node_id(server_materials.id)
             .with_iat_mode(iat_mode);
         trace!(
             "node_pubkey: {}, node_id: {}, iat: {}",
@@ -226,7 +221,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 }
 
@@ -244,7 +239,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 }
 

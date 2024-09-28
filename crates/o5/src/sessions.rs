@@ -5,7 +5,7 @@
 use crate::common::drbg;
 
 mod client;
-use client::*;
+pub(crate) use client::{new_client_session, ClientSession};
 
 mod server;
 pub(crate) use server::ServerSession;

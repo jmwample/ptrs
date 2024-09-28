@@ -10,7 +10,6 @@
 //!
 //! Currently, this module implements only the "ntor" handshake used
 //! for circuits on today's Tor.
-use std::borrow::Borrow;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use crate::{common::colorize, Error, Result};
@@ -52,27 +51,34 @@ impl TryFrom<&[u8]> for SessionID {
     }
 }
 
+pub trait ClientHandshakeMaterials {
+    /// The type for the onion key.
+    type IdentityKeyType;
+    /// Type of extra data sent from client (without forward secrecy).
+    type ClientAuxData: ?Sized;
+
+    fn node_pubkey(&self) -> &Self::IdentityKeyType;
+    fn aux_data(&self) -> Option<&Self::ClientAuxData>;
+}
+
 /// A ClientHandshake is used to generate a client onionskin and
 /// handle a relay onionskin.
-pub(crate) trait ClientHandshake {
-    /// The type for the onion key.
-    type KeyType;
+pub trait ClientHandshake {
+    type HandshakeMaterials: ClientHandshakeMaterials;
     /// The type for the state that the client holds while waiting for a reply.
     type StateType;
     /// A type that is returned and used to generate session keys.x
     type KeyGen;
-    /// Type of extra data sent from client (without forward secrecy).
-    type ClientAuxData: ?Sized;
     /// Type of extra data returned by server (without forward secrecy).
     type ServerAuxData;
+
     /// Generate a new client onionskin for a relay with a given onion key,
     /// including `client_aux_data` to be sent without forward secrecy.
     ///
     /// On success, return a state object that will be used to
     /// complete the handshake, along with the message to send.
-    fn client1<M: Borrow<Self::ClientAuxData>>(
-        key: &Self::KeyType,
-        client_aux_data: &M,
+    fn client1(
+        materials: Self::HandshakeMaterials,
     ) -> Result<(Self::StateType, Vec<u8>)>;
     /// Handle an onionskin from a relay, and produce aux data returned
     /// from the server, and a key generator.

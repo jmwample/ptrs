@@ -1,22 +1,22 @@
 #![doc = include_str!("../README.md")]
 
-// pub mod client;
+pub mod client;
 pub mod common;
 pub mod framing;
 pub mod proto;
 pub mod server;
-// pub use client::{Client, ClientBuilder};
+pub use client::{Client, ClientBuilder};
 pub use server::{Server, ServerBuilder};
 
 pub(crate) mod constants;
 pub(crate) mod handshake;
 pub(crate) mod sessions;
 
-// #[cfg(test)]
-// mod testing;
-//
-// mod pt;
-// pub use pt::{O5PT, Transport};
+#[cfg(test)]
+mod testing;
+
+mod pt;
+pub use pt::{O5PT, Transport};
 
 mod error;
 pub use error::{Error, Result};

@@ -15,7 +15,7 @@ use base64::{
     Engine,
 };
 use subtle::{Choice, ConstantTimeEq};
-use tor_bytes::SecretBuf;
+use tor_bytes::{SecretBuf, Readable};
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::{d::Shake256Reader, pk::ed25519::Ed25519Identity};
 
@@ -78,6 +78,12 @@ impl std::string::ToString for NtorV3PublicKey {
         let mut s = Vec::from(self.id.as_bytes());
         s.extend(self.pk.as_bytes());
         STANDARD_NO_PAD.encode(s)
+    }
+}
+
+impl Readable for NtorV3PublicKey {
+    fn take_from(b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
+        todo!("NtorV3PublicKey Reader needs implemented");
     }
 }
 

@@ -1,13 +1,14 @@
 use crate::{
-    common::{ct, mlkem1024_x25519::SharedSecret, ntor_arti::ClientHandshake},
+    common::{ct, mlkem1024_x25519::SharedSecret, ntor_arti::{ClientHandshake, ClientHandshakeMaterials}},
     constants::*,
-    framing::handshake,
+    framing::{handshake::ClientHandshakeMessage, ServerHandshakeMessage},
     handshake::*,
     Error, Result,
 };
 
 use core::borrow::Borrow;
 
+use bytes::BytesMut;
 use hmac::{Hmac, Mac};
 use keys::NtorV3KeyGenerator;
 // use cipher::KeyIvInit;
@@ -18,24 +19,6 @@ use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
 use tor_llcrypto::d::{Sha3_256, Shake256};
 use zeroize::Zeroizing;
-
-/// materials required to initiate a handshake from the client role.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct HandshakeMaterials {
-    pub(crate) node_pubkey: NtorV3PublicKey,
-    pub(crate) pad_len: usize,
-    pub(crate) session_id: String,
-}
-
-impl HandshakeMaterials {
-    pub(crate) fn new(node_pubkey: &NtorV3PublicKey, session_id: String) -> Self {
-        HandshakeMaterials {
-            node_pubkey: node_pubkey.clone(),
-            session_id,
-            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
-        }
-    }
-}
 
 //------------------------------[obfs4]-----------------------------------------//
 
@@ -67,50 +50,65 @@ pub(crate) struct HandshakeState {
 }
 
 //-----------------------------[ntorv3]----------------------------------------//
-
-// /// Client state for the ntor v3 handshake.
-// ///
-// /// The client needs to hold this state between when it sends its part
-// /// of the handshake and when it receives the relay's reply.
-// pub(crate) struct HandshakeState {
-//     /// The public key of the relay we're communicating with.
-//     relay_public: NtorV3PublicKey, // B, ID.
-//     /// Our ephemeral secret key for this handshake.
-//     my_sk: StaticSecret, // x
-//     /// Our ephemeral public key for this handshake.
-//     my_public: PublicKey, // X
 //
-//     /// The shared secret generated as Bx or Xb.
-//     shared_secret: SharedSecret, // Bx
-//     /// The MAC of our original encrypted message.
-//     msg_mac: MessageMac, // msg_mac
-// }
+/// materials required to initiate a handshake from the client role.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct HandshakeMaterials {
+    pub(crate) node_pubkey: NtorV3PublicKey,
+    pub(crate) pad_len: usize,
+    pub(crate) session_id: String,
+    aux_data: Vec<NtorV3Extension>,
+}
+
+impl HandshakeMaterials {
+    pub(crate) fn new(node_pubkey: &NtorV3PublicKey, session_id: String) -> Self {
+        HandshakeMaterials {
+            node_pubkey: node_pubkey.clone(),
+            session_id,
+            pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
+            aux_data: vec![],
+        }
+    }
+}
+
+
+impl ClientHandshakeMaterials for HandshakeMaterials {
+    type IdentityKeyType = NtorV3PublicKey;
+    type ClientAuxData = Vec<NtorV3Extension>;
+
+    fn node_pubkey(&self) -> &Self::IdentityKeyType {
+        &self.node_pubkey
+    }
+
+    fn aux_data(&self) -> Option<&Self::ClientAuxData> {
+        Some(&self.aux_data)
+    }
+}
+
 
 /// Client side of the ntor v3 handshake.
 pub(crate) struct NtorV3Client;
 
 impl ClientHandshake for NtorV3Client {
-    type KeyType = NtorV3PublicKey;
     type StateType = HandshakeState;
     type KeyGen = NtorV3KeyGenerator;
-    type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
+    type HandshakeMaterials = HandshakeMaterials;
 
     /// Generate a new client onionskin for a relay with a given onion key.
     /// If any `extensions` are provided, encode them into to the onionskin.
     ///
     /// On success, return a state object that will be used to complete the handshake, along
     /// with the message to send.
-    fn client1<M: Borrow<Self::ClientAuxData>>(
-        key: &Self::KeyType,
-        client_aux_data: &M,
+    fn client1(
+        hs_materials: Self::HandshakeMaterials,
     ) -> Result<(Self::StateType, Vec<u8>)> {
         let mut rng = rand::thread_rng();
 
-        let message = handshake::ClientHandshakeMessage::new(client_aux_data);
+        let key = hs_materials.node_pubkey();
 
         Ok(
-            client_handshake_ntor_v3(&mut rng, key, &message, NTOR3_CIRC_VERIFICATION)
+            client_handshake_ntor_v3(&mut rng, hs_materials, NTOR3_CIRC_VERIFICATION)
                 .map_err(into_internal!("Can't encode ntor3 client handshake."))?,
         )
     }
@@ -153,11 +151,12 @@ pub(crate) fn client_handshake_ntor_v3<R: RngCore + CryptoRng>(
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH
 /// key: instead take that key an arguments `my_sk`.
 pub(crate) fn client_handshake_ntor_v3_no_keygen(
-    relay_public: &NtorV3PublicKey,
-    client_msg: &[u8],
-    verification: &[u8],
     my_sk: NtorV3SecretKey,
+    materials: HandshakeMaterials,
+    verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
+    let client_msg = ClientHandshakeMessage::new(my_sk.pk.clone(), &materials);
+
     {
         let my_public = NtorV3PublicKey::from(&my_sk);
         let bx = my_sk.diffie_hellman(&relay_public.pk);
@@ -185,15 +184,15 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen(
     let mut key = materials.node_pubkey.pk.as_bytes().to_vec();
     key.append(&mut materials.node_pubkey.id.as_bytes().to_vec());
     let h = Hmac::<Sha3_256>::new_from_slice(&key[..]).unwrap();
-    chs_msg.marshall(&mut buf, h);
+    client_msg.marshall(&mut buf, h);
     let message = buf.to_vec();
 
     let state = HandshakeState {
-        relay_public: relay_public.clone(),
+        materials,
         my_sk,
         shared_secret: bx,
         msg_mac,
-        epoch_hr: chs_msg.get_epoch_hr(),
+        epoch_hr: client_msg.get_epoch_hr(),
     };
 
     Ok((state, message))

@@ -1,11 +1,9 @@
 use crate::{
     common::{
-        utils::{get_epoch_hour, make_hs_pad},
-        // x25519_elligator2::{PublicKey, PublicRepresentative},
-        HmacSha256,
+        utils::{get_epoch_hour, make_hs_pad}, HmacSha256
     },
     constants::*,
-    handshake::{Authcode, NtorV3PublicKey, AUTHCODE_LENGTH},
+    handshake::{Authcode, CHSMaterials, NtorV3PublicKey, AUTHCODE_LENGTH},
     Error, Result,
 };
 
@@ -20,13 +18,14 @@ use tor_cell::relaycell::extend::NtorV3Extension;
 pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
-    client_pubkey: NtorV3PublicKey,
     session_pubkey: NtorV3PublicKey,
     epoch_hour: String,
+    aux_data: Vec<NtorV3Extension>,
 }
 
 impl ServerHandshakeMessage {
     pub fn new(client_pubkey: NtorV3PublicKey, session_pubkey: NtorV3PublicKey) -> Self {
+        todo!("SHS MSG - this should probably be built directly from the client HS MSG");
         Self {
             server_auth: [0u8; AUTHCODE_LENGTH],
             pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
@@ -44,15 +43,8 @@ impl ServerHandshakeMessage {
         self
     }
 
-    pub fn server_pubkey(&mut self) -> PublicKey {
-        match self.pubkey {
-            Some(pk) => pk,
-            None => {
-                let pk = PublicKey::from(&self.repres);
-                self.pubkey = Some(pk);
-                pk
-            }
-        }
+    pub fn server_pubkey(&mut self) -> NtorV3PublicKey {
+        self.session_pubkey.clone()
     }
 
     pub fn server_auth(self) -> Authcode {
@@ -63,7 +55,7 @@ impl ServerHandshakeMessage {
         trace!("serializing server handshake");
 
         h.reset();
-        h.update(self.repres.as_bytes().as_ref());
+        h.update(self.session_pubkey.as_bytes().as_ref());
         let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 
         // The server handshake is Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E) where:
@@ -99,53 +91,28 @@ impl ServerHandshakeMessage {
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
-pub struct ClientHandshakeMessage {
-    pub(crate) pad_len: usize,
-    pub(crate) node_pubkey: NtorV3PublicKey,
-    pub(crate) aux_data: Vec<NtorV3Extension>,
+pub struct ClientHandshakeMessage<'a> {
+    hs_materials: &'a CHSMaterials,
+    client_session_pubkey: NtorV3PublicKey,
 
     // only used when parsing (i.e. on the server side)
     pub(crate) epoch_hour: String,
 }
 
-impl ClientHandshakeMessage {
-    pub fn new(node_pubkey: NtorV3PublicKey) -> Self {
+impl<'a> ClientHandshakeMessage<'a> {
+    pub fn new(client_session_pubkey: NtorV3PublicKey, hs_materials: &'a CHSMaterials) -> Self {
         Self {
-            node_pubkey,
-            pad_len: 0,
-            aux_data: vec![],
+            hs_materials,
+            client_session_pubkey, 
 
             // only used when parsing (i.e. on the server side)
             epoch_hour: get_epoch_hour().to_string(),
         }
     }
 
-    pub fn with_pad_len(&mut self, pad_len: usize) -> &Self {
-        self.pad_len = pad_len;
-        self
-    }
-
-    pub fn with_aux_data(&mut self, aux_data: Vec<NtorV3Extension>) -> &Self {
-        self.aux_data = aux_data;
-        self
-    }
-
-    pub fn get_public(&mut self) -> PublicKey {
-        trace!("repr: {}", hex::encode(self.repres));
-        match self.pubkey {
-            Some(pk) => pk,
-            None => {
-                let pk = PublicKey::from(&self.repres);
-                self.pubkey = Some(pk);
-                pk
-            }
-        }
-    }
-
-    #[allow(unused)]
-    /// Return the elligator2 representative of the public key value.
-    pub fn get_representative(&self) -> PublicRepresentative {
-        self.repres
+    pub fn get_public(&mut self) -> NtorV3PublicKey {
+        // trace!("repr: {}", hex::encode(self.client_session_pubkey.id);
+        self.client_session_pubkey.clone()
     }
 
     /// return the epoch hour used in the ntor handshake.
@@ -194,3 +161,4 @@ impl ClientHandshakeMessage {
         Ok(())
     }
 }
+

@@ -11,6 +11,9 @@ use crate::{
 
 use std::time::Duration;
 
+
+pub const PUBLIC_KEY_LEN: usize = mlkem1024_x25519::PUBKEY_LEN;
+
 //=========================[Framing/Msgs]=====================================//
 
 /// Maximum handshake size including padding
