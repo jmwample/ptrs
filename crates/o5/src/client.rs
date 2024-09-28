@@ -106,10 +106,8 @@ impl ClientBuilder {
     pub fn build(&self) -> Client {
         Client {
             iat_mode: self.iat_mode,
-            station_pubkey: NtorV3PublicKey::new(
-                self.station_pubkey,
-                self.station_id,
-            ).expect("failed to build client - bad options."),
+            station_pubkey: NtorV3PublicKey::new(self.station_pubkey, self.station_id)
+                .expect("failed to build client - bad options."),
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }

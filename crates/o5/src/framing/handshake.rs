@@ -1,6 +1,7 @@
 use crate::{
     common::{
-        utils::{get_epoch_hour, make_hs_pad}, HmacSha256
+        utils::{get_epoch_hour, make_hs_pad},
+        HmacSha256,
     },
     constants::*,
     handshake::{Authcode, CHSMaterials, NtorV3PublicKey, AUTHCODE_LENGTH},
@@ -103,7 +104,7 @@ impl<'a> ClientHandshakeMessage<'a> {
     pub fn new(client_session_pubkey: NtorV3PublicKey, hs_materials: &'a CHSMaterials) -> Self {
         Self {
             hs_materials,
-            client_session_pubkey, 
+            client_session_pubkey,
 
             // only used when parsing (i.e. on the server side)
             epoch_hour: get_epoch_hour().to_string(),
@@ -161,4 +162,3 @@ impl<'a> ClientHandshakeMessage<'a> {
         Ok(())
     }
 }
-

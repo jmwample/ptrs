@@ -15,7 +15,7 @@ use base64::{
     Engine,
 };
 use subtle::{Choice, ConstantTimeEq};
-use tor_bytes::{SecretBuf, Readable};
+use tor_bytes::{Readable, SecretBuf};
 use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::{d::Shake256Reader, pk::ed25519::Ed25519Identity};
 

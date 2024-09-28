@@ -77,9 +77,7 @@ pub trait ClientHandshake {
     ///
     /// On success, return a state object that will be used to
     /// complete the handshake, along with the message to send.
-    fn client1(
-        materials: Self::HandshakeMaterials,
-    ) -> Result<(Self::StateType, Vec<u8>)>;
+    fn client1(materials: Self::HandshakeMaterials) -> Result<(Self::StateType, Vec<u8>)>;
     /// Handle an onionskin from a relay, and produce aux data returned
     /// from the server, and a key generator.
     ///
