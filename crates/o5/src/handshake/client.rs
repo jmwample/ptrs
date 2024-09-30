@@ -29,9 +29,6 @@ use zeroize::Zeroizing;
 /// The client needs to hold this state between when it sends its part
 /// of the handshake and when it receives the relay's reply.
 pub(crate) struct HandshakeState {
-    /// Relay public identity key and ID value.
-    relay_public: NtorV3PublicKey,
-
     /// The temporary curve25519 secret (x) that we've generated for
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
@@ -70,6 +67,11 @@ impl HandshakeMaterials {
             pad_len: rand::thread_rng().gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH),
             aux_data: vec![],
         }
+    }
+
+    pub fn with_aux_data(mut self, data: impl AsRef<[NtorV3Extension]>) -> Self {
+        self.aux_data = data.as_ref().to_vec();
+        self
     }
 }
 
@@ -152,28 +154,32 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen(
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
     let client_msg = ClientHandshakeMessage::new(my_sk.pk.clone(), &materials);
 
-    {
-        let my_public = NtorV3PublicKey::from(&my_sk);
-        let bx = my_sk.diffie_hellman(&relay_public.pk);
+    // --------
+    let node_pubkey = materials.node_pubkey();
+    let my_public = NtorV3PublicKey::from(&my_sk);
+    // let bx = my_sk.diffie_hellman(&node_pubkey);
+    let mut rng = rand::thread_rng();
+    let bx = my_sk.hpke(&mut rng, node_pubkey)?;
+    // .map_err(|e| Error::Crypto(e.to_string()));
 
-        let (enc_key, mut mac) = kdf_msgkdf(&bx, relay_public, &my_public, verification)?;
+    let (enc_key, mut mac) = kdf_msgkdf(&my_sk, node_pubkey, &my_public, verification)?;
 
-        // encrypted_msg = ENC(ENC_K1, CM)
-        // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
-        let encrypted_msg = encrypt(&enc_key, client_msg);
-        let msg_mac: DigestVal = {
-            use digest::Digest;
-            mac.write(&encrypted_msg)?;
-            mac.take().finalize().into()
-        };
+    // encrypted_msg = ENC(ENC_K1, CM)
+    // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
+    let encrypted_msg = encrypt(&enc_key, client_msg);
+    let msg_mac: DigestVal = {
+        use digest::Digest;
+        mac.write(&encrypted_msg)?;
+        mac.take().finalize().into()
+    };
 
-        let mut message = Vec::new();
-        message.write(&relay_public.id)?;
-        message.write(&relay_public.pk.as_bytes())?;
-        message.write(&my_public.pk.as_bytes())?;
-        message.write(&encrypted_msg)?;
-        message.write(&msg_mac)?;
-    }
+    let mut message = Vec::new();
+    message.write(&node_pubkey.id)?;
+    message.write(&node_pubkey.pk.as_bytes())?;
+    message.write(&my_public.pk.as_bytes())?;
+    message.write(&encrypted_msg)?;
+    message.write(&msg_mac)?;
+    // --------
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
     let mut key = materials.node_pubkey.pk.as_bytes().to_vec();

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     common::{
         // kdf::{Kdf, Ntor1Kdf},
-        mlkem1024_x25519::{self, PublicKey, StaticSecret},
+        mlkem1024_x25519::{self, Ciphertext, PublicKey, SharedSecret, StaticSecret},
         ntor_arti::{KeyGenerator, SessionID, SessionIdentifier},
     },
     constants::*,
@@ -14,6 +14,7 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine,
 };
+use kem::Encapsulate;
 use subtle::{Choice, ConstantTimeEq};
 use tor_bytes::{Readable, SecretBuf};
 use tor_llcrypto::pk::rsa::RsaIdentity;
@@ -134,6 +135,21 @@ impl NtorV3SecretKey {
     /// Used to perform a constant-time secret key lookup.
     pub(crate) fn matches(&self, id: Ed25519Identity, pk: PublicKey) -> Choice {
         id.as_bytes().ct_eq(self.pk.id.as_bytes()) & pk.as_bytes().ct_eq(self.pk.pk.as_bytes())
+    }
+
+    /// Hybrid Public Key Encryption (HPKE) handshake for ML-KEM1024 + X25519
+    ///
+    /// This is a custom interface for now as there isn't an example interface that I am aware of.
+    /// (Read - this will likely change in the future)
+    pub fn hpke<R: RngCore + CryptoRng>(
+        &self,
+        rng: &mut R,
+        pubkey: &NtorV3PublicKey,
+    ) -> Result<(Ciphertext, SharedSecret)> {
+        self.sk
+            .with_pub(&pubkey.pk)
+            .encapsulate(rng)
+            .map_err(|e| Error::Crypto(e.to_string()))
     }
 }
 

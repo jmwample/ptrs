@@ -285,14 +285,10 @@ mod test {
         let verification = &b"shared secret"[..];
         let client_message = &b"Hello. I am a client. Let's be friends!"[..];
         let relay_message = &b"Greetings, client. I am a robot. Beep boop."[..];
+        let materials = CHSMaterials::new(&relay_private.pk, "fake_session_id-1".into());
 
-        let (c_state, c_handshake) = client::client_handshake_ntor_v3(
-            &mut rng,
-            &relay_private.pk,
-            client_message,
-            verification,
-        )
-        .unwrap();
+        let (c_state, c_handshake) =
+            client::client_handshake_ntor_v3(&mut rng, materials, verification).unwrap();
 
         struct Rep(Vec<u8>, Vec<u8>);
         impl MsgReply for Rep {
@@ -329,7 +325,8 @@ mod test {
     fn test_ntor3_roundtrip_highlevel() {
         let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
 
-        let (c_state, c_handshake) = NtorV3Client::client1(&relay_private.pk, &[]).unwrap();
+        let materials = CHSMaterials::new(&relay_private.pk, "fake_session_id-1".into());
+        let (c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
@@ -353,12 +350,10 @@ mod test {
 
         let client_exts = vec![NtorV3Extension::RequestCongestionControl];
         let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
+        let materials = CHSMaterials::new(&relay_private.pk, "client_session_1".into())
+            .with_aux_data([NtorV3Extension::RequestCongestionControl]);
 
-        let (c_state, c_handshake) = NtorV3Client::client1(
-            &relay_private.pk,
-            &[NtorV3Extension::RequestCongestionControl],
-        )
-        .unwrap();
+        let (c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
 
         let mut rep = |msg: &[NtorV3Extension]| -> Option<Vec<NtorV3Extension>> {
             assert_eq!(msg, client_exts);
@@ -386,8 +381,7 @@ mod test {
         let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
         let b: StaticSecret = b.into();
         let B: PublicKey = (&b).into();
-        let id: RsaIdentity = id.into();
-        let x: StaticSecret = x.into();
+        let x: NtorV3SecretKey = NtorV3SecretKey::new(x.into(), id.into());
         //let X = (&x).into();
         let y: StaticSecret = y.into();
 
@@ -395,19 +389,15 @@ mod test {
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_public = NtorV3PublicKey { pk: B, id };
+        let relay_public = NtorV3PublicKey::from(&b); // { pk: B, id };
         let relay_private = NtorV3SecretKey {
             sk: b,
             pk: relay_public.clone(),
         };
 
-        let (state, client_handshake) = client::client_handshake_ntor_v3_no_keygen(
-            &relay_public,
-            &client_message,
-            &verification,
-            x,
-        )
-        .unwrap();
+        let mut chs_materials = CHSMaterials::new(&relay_public, "".into());
+        let (state, client_handshake) =
+            client::client_handshake_ntor_v3_no_keygen(x, chs_materials, &verification).unwrap();
 
         assert_eq!(client_handshake[..], hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2f8307a2bc1870b00b828bb74dbb8fd88e632a6375ab3bcd1ae706aaa8b6cdd1d252fe9ae91264c91d4ecb8501f79d0387e34ad8ca0f7c995184f7d11d5da4f463bebd9151fd3b47c180abc9e044d53565f04d82bbb3bebed3d06cea65db8be9c72b68cd461942088502f67")[..]);
 

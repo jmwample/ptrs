@@ -1,9 +1,28 @@
+//! Combined Kyber (ML-KEM) 1024 and X25519 Hybrid Public Key Encryption (HPKE) scheme.
+//!
+//! > For the client's share, the key_exchange value contains the
+//! > concatenation of the client's X25519 ephemeral share (32 bytes) and
+//! > the client's Kyber768Draft00 public key (1184 bytes).  The resulting
+//! > key_exchange value is 1216 bytes in length.
+//! >
+//! > For the server's share, the key_exchange value contains the
+//! > concatenation of the server's X25519 ephemeral share (32 bytes) and
+//! > the Kyber768Draft00 ciphertext (1088 bytes) returned from
+//! > encapsulation for the client's public key.  The resulting
+//! > key_exchange value is 1120 bytes in length.
+//! >
+//! > The shared secret is calculated as the concatenation of the X25519
+//! > shared secret (32 bytes) and the Kyber768Draft00 shared secret (32
+//! > bytes).  The resulting shared secret value is 64 bytes in length.
+
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, EncodeError, OKemCore};
+use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, OKemCore};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 
 use crate::{Error, Result};
+
+pub(crate) use kemeleon::EncodeError;
 
 pub(crate) const X25519_PUBKEY_LEN: usize = 32;
 pub(crate) const X25519_PRIVKEY_LEN: usize = 32;
@@ -57,6 +76,10 @@ impl StaticSecret {
         out[X25519_PRIVKEY_LEN..PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
         out[PRIVKEY_LEN..PRIVKEY_LEN + PUBKEY_LEN].copy_from_slice(&self.0.pub_key.as_bytes());
         out
+    }
+
+    pub fn with_pub<'a>(&'a self, pubkey: &'a PublicKey) -> KeyMix<'a> {
+        self.0.with_pub(pubkey)
     }
 }
 
@@ -182,7 +205,7 @@ impl Encapsulate<Ciphertext, SharedSecret> for KeyMix<'_> {
     }
 }
 
-type Ciphertext = Vec<u8>;
+pub type Ciphertext = Vec<u8>;
 
 impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
     type Error = EncodeError;

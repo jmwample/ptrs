@@ -89,19 +89,20 @@ impl ServerHandshake for Server {
 ///
 /// On success, return the server handshake message to send, and an XofReader
 /// to use in generating circuit keys.
-pub(crate) fn server_handshake_ntor_v3<RNG: CryptoRng + RngCore, REPLY: MsgReply>(
-    rng: &mut RNG,
+pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
+    rng: &mut R,
     reply_fn: &mut REPLY,
     message: &[u8],
     keys: &[NtorV3SecretKey],
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     let secret_key_y = NtorV3SecretKey::random_from_rng(rng);
-    server_handshake_ntor_v3_no_keygen(reply_fn, &secret_key_y, message, keys, verification)
+    server_handshake_ntor_v3_no_keygen(rng, reply_fn, &secret_key_y, message, keys, verification)
 }
 
 /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.
-pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
+pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: MsgReply>(
+    rng: &mut R,
     reply_fn: &mut REPLY,
     secret_key_y: &NtorV3SecretKey,
     message: &[u8],
@@ -132,7 +133,9 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
         None => return Err(RelayHandshakeError::MissingKey),
     };
 
-    let xb = keypair.sk.diffie_hellman(&client_pk);
+    let xb = keypair
+        .hpke(rng, &client_pk)
+        .map_err(|e| Error::Crypto(e.into()))?;
     let (enc_key, mut mac) = kdf_msgkdf(&xb, &keypair.pk, &client_pk, verification)
         .map_err(into_internal!("Can't apply ntor3 kdf."))?;
     // Verify the message we received.
@@ -142,7 +145,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<REPLY: MsgReply>(
         mac.take().finalize().into()
     };
     let y_pk = NtorV3PublicKey::from(secret_key_y);
-    let xy = secret_key_y.diffie_hellman(&client_pk);
+    let xy = secret_key_y.hpke(rng, &client_pk);
 
     let mut okay = computed_mac.ct_eq(&msg_mac)
         & ct::bool_to_choice(xy.was_contributory())

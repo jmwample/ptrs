@@ -12,7 +12,10 @@
 //! for circuits on today's Tor.
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use crate::{common::colorize, Error, Result};
+use crate::{
+    common::{colorize, mlkem1024_x25519},
+    Error, Result,
+};
 //use zeroize::Zeroizing;
 use tor_bytes::SecretBuf;
 
@@ -182,7 +185,7 @@ impl KeyGenerator for ShakeKeyGenerator {
 }
 
 /// An error produced by a Relay's attempt to handle a client's onion handshake.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum RelayHandshakeError {
     /// Occurs when a check did not fail, but requires updated input from the
     /// calling context. For example, a handshake that requires more bytes to
@@ -193,6 +196,10 @@ pub enum RelayHandshakeError {
     /// An error in parsing  a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
+
+    /// Error happened during cryptographic handshake
+    #[error("")]
+    CryptoError(mlkem1024_x25519::EncodeError),
 
     /// The client asked for a key we didn't have.
     #[error("Client asked for a key or ID that we don't have")]

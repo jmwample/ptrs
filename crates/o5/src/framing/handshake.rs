@@ -27,11 +27,11 @@ pub struct ServerHandshakeMessage {
 impl ServerHandshakeMessage {
     pub fn new(client_pubkey: NtorV3PublicKey, session_pubkey: NtorV3PublicKey) -> Self {
         todo!("SHS MSG - this should probably be built directly from the client HS MSG");
-        Self {
-            server_auth: [0u8; AUTHCODE_LENGTH],
-            pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
-            epoch_hour: epoch_hr,
-        }
+        // Self {
+        //     server_auth: [0u8; AUTHCODE_LENGTH],
+        //     pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
+        //     epoch_hour: epoch_hr,
+        // }
     }
 
     pub fn with_pad_len(&mut self, pad_len: usize) -> &Self {
@@ -125,40 +125,40 @@ impl<'a> ClientHandshakeMessage<'a> {
         trace!("serializing client handshake");
 
         todo!("when this is causing panic re-visit");
-        NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
-            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
+        // NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
+        //     .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
 
-        h.reset(); // disambiguate reset() implementations Mac v digest
-        h.update(self.repres.as_bytes().as_ref());
-        let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
+        // h.reset(); // disambiguate reset() implementations Mac v digest
+        // h.update(self.repres.as_bytes().as_ref());
+        // let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 
-        // The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
-        //  * X is the client's ephemeral Curve25519 public key representative.
-        //  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
-        //  * M_C is HMAC-SHA256-128(serverIdentity | NodeID, X)
-        //  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, X .... E)
-        //  * E is the string representation of the number of hours since the UNIX
-        //    epoch.
+        // // The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
+        // //  * X is the client's ephemeral Curve25519 public key representative.
+        // //  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
+        // //  * M_C is HMAC-SHA256-128(serverIdentity | NodeID, X)
+        // //  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, X .... E)
+        // //  * E is the string representation of the number of hours since the UNIX
+        // //    epoch.
 
-        // Generate the padding
-        let pad = make_hs_pad(self.pad_len)?;
+        // // Generate the padding
+        // let pad = make_hs_pad(self.pad_len)?;
 
-        // Write X, P_C, M_C
-        let mut params = vec![];
-        params.extend_from_slice(self.repres.as_bytes());
-        params.extend_from_slice(&pad);
-        params.extend_from_slice(mark);
-        buf.put(params.as_slice());
+        // // Write X, P_C, M_C
+        // let mut params = vec![];
+        // params.extend_from_slice(self.repres.as_bytes());
+        // params.extend_from_slice(&pad);
+        // params.extend_from_slice(mark);
+        // buf.put(params.as_slice());
 
-        // Calculate and write MAC
-        h.update(&params);
-        self.epoch_hour = format!("{}", get_epoch_hour());
-        h.update(self.epoch_hour.as_bytes());
-        let mac = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
-        buf.put(mac);
+        // // Calculate and write MAC
+        // h.update(&params);
+        // self.epoch_hour = format!("{}", get_epoch_hour());
+        // h.update(self.epoch_hour.as_bytes());
+        // let mac = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
+        // buf.put(mac);
 
-        trace!("mark: {}, mac: {}", hex::encode(mark), hex::encode(mac));
+        // trace!("mark: {}, mac: {}", hex::encode(mark), hex::encode(mac));
 
-        Ok(())
+        // Ok(())
     }
 }
