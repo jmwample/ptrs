@@ -1,9 +1,44 @@
 #![doc = include_str!("../README.md")]
 
+pub mod client;
+pub mod common;
+pub mod server;
 
-mod framing;
-// mod handshake;
-// mod transport;
+pub mod framing;
+pub mod proto;
+pub use client::{Client, ClientBuilder};
+pub use server::{Server, ServerBuilder};
+
+pub(crate) mod constants;
+pub(crate) mod handshake;
+pub(crate) mod sessions;
+
+#[cfg(test)]
+mod testing;
+
+mod pt;
+pub use pt::{O5PT, Transport};
+
+mod error;
+pub use error::{Error, Result};
+
+pub const OBFS4_NAME: &str = "obfs4";
+
+#[cfg(test)]
+pub(crate) mod test_utils;
+
+#[cfg(debug_assertions)]
+pub mod dev {
+    /// Pre-generated / shared key for use while running in debug mode.
+    pub const DEV_PRIV_KEY: &[u8; 32] = b"0123456789abcdeffedcba9876543210";
+
+    /// Client obfs4 arguments based on pre-generated dev key `DEV_PRIV_KEY`.
+    pub const CLIENT_ARGS: &str =
+        "cert=AAAAAAAAAAAAAAAAAAAAAAAAAADTSFvsGKxNFPBcGdOCBSgpEtJInG9zCYZezBPVBuBWag;iat-mode=0";
+
+    /// Server obfs4 arguments based on pre-generated dev key `DEV_PRIV_KEY`.
+    pub const SERVER_ARGS: &str = "drbg-seed=0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d0e0f;node-id=0000000000000000000000000000000000000000;private-key=3031323334353637383961626364656666656463626139383736353433323130;iat-mode=0";
+}
 
 #[cfg(test)]
 #[allow(unused)]
