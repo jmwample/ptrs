@@ -5,7 +5,7 @@ use crate::{
     },
     constants::*,
     framing,
-    handshake::{CHSMaterials, NtorV3Client, NtorV3KeyGen, NtorV3PublicKey},
+    handshake::{CHSMaterials, IdentityPublicKey, NtorV3Client, NtorV3KeyGen},
     proto::{O5Stream, ObfuscatedStream},
     sessions::{Established, Fault, Initialized, Session},
     Error, Result,
@@ -25,7 +25,7 @@ use tokio_util::codec::Decoder;
 // ================================================================ //
 
 pub(crate) struct ClientSession<S: ClientSessionState> {
-    node_pubkey: NtorV3PublicKey,
+    node_pubkey: IdentityPublicKey,
     session_id: SessionID,
     epoch_hour: String,
 
@@ -96,7 +96,7 @@ impl<S: ClientSessionState> ClientSession<S> {
     }
 }
 
-pub fn new_client_session(station_pubkey: NtorV3PublicKey) -> ClientSession<Initialized> {
+pub fn new_client_session(station_pubkey: IdentityPublicKey) -> ClientSession<Initialized> {
     let mut session_id = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut session_id);
     ClientSession {

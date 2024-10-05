@@ -19,6 +19,7 @@ use kem::{Decapsulate, Encapsulate};
 use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, OKemCore};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
+use subtle::ConstantTimeEq;
 
 use crate::{Error, Result};
 
@@ -81,6 +82,20 @@ impl StaticSecret {
     pub fn with_pub<'a>(&'a self, pubkey: &'a PublicKey) -> KeyMix<'a> {
         self.0.with_pub(pubkey)
     }
+
+    /// Hybrid Public Key Encryption (HPKE) handshake for ML-KEM1024 + X25519
+    ///
+    /// This is a custom interface for now as there isn't an example interface that I am aware of.
+    /// (Read - this will likely change in the future)
+    pub fn hpke<R: RngCore + CryptoRng>(
+        &self,
+        rng: &mut R,
+        pubkey: &PublicKey,
+    ) -> Result<(Ciphertext, SharedSecret)> {
+        self.with_pub(&pubkey)
+            .encapsulate(rng)
+            .map_err(|e| Error::Crypto(e.to_string()))
+    }
 }
 
 impl core::fmt::Debug for PublicKey {
@@ -118,17 +133,29 @@ impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
     }
 }
 
-#[derive(PartialEq)]
 pub struct SharedSecret {
-    x25519: [u8; 32],
+    x25519: x25519_dalek::SharedSecret,
+    x25519_raw: [u8; 32],
     mlkem: [u8; 32],
+}
+
+impl PartialEq for SharedSecret {
+    fn eq(&self, other: &Self) -> bool {
+        self.x25519_raw.ct_eq(&other.x25519_raw).into() && self.mlkem.ct_eq(&other.mlkem).into()
+    }
 }
 
 impl SharedSecret {
     // TODO: Test this layout to make sure this works.
     // SAFETY: the type of the SharedSecret object means this should never fail
     pub fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.x25519.as_ptr(), 64) }
+        unsafe { std::slice::from_raw_parts(self.x25519_raw.as_ptr(), 64) }
+    }
+
+    /// Ensure in constant-time that the x25519 portion of this shared secret did not result
+    /// from a key exchange with non-contributory behaviour.
+    pub fn was_contributory(&self) -> bool {
+        self.x25519.was_contributory()
     }
 }
 
@@ -137,7 +164,7 @@ impl core::fmt::Debug for SharedSecret {
         write!(
             f,
             "{} {}",
-            hex::encode(self.x25519),
+            hex::encode(self.x25519_raw),
             hex::encode(self.mlkem)
         )
     }
@@ -194,8 +221,9 @@ impl Encapsulate<Ciphertext, SharedSecret> for KeyMix<'_> {
             .x25519
             .diffie_hellman(&self.remote_public.x25519);
         let ss = SharedSecret {
+            x25519_raw: (&local_ss_x25519).to_bytes(),
             mlkem: local_ss_mlkem.into(),
-            x25519: local_ss_x25519.to_bytes(),
+            x25519: local_ss_x25519,
         };
         let mut ct = x25519_dalek::PublicKey::from(&self.local_private.x25519)
             .as_bytes()
@@ -225,8 +253,9 @@ impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
             .diffie_hellman(&x25519_dalek::PublicKey::from(remote_public));
 
         Ok(SharedSecret {
+            x25519_raw: (&local_ss_x25519).to_bytes(),
             mlkem: local_ss_mlkem.into(),
-            x25519: local_ss_x25519.to_bytes(),
+            x25519: local_ss_x25519,
         })
     }
 }

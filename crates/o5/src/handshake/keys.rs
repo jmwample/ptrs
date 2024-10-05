@@ -26,23 +26,23 @@ use rand::{CryptoRng, RngCore};
 /// Contains a single curve25519 ntor onion key, and the relay's ed25519
 /// identity.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NtorV3PublicKey {
+pub struct IdentityPublicKey {
     /// The relay's identity.
     pub(crate) id: Ed25519Identity,
     /// The relay's onion key.
     pub(crate) pk: PublicKey,
 }
 
-impl From<&NtorV3SecretKey> for NtorV3PublicKey {
-    fn from(value: &NtorV3SecretKey) -> Self {
+impl From<&IdentitySecretKey> for IdentityPublicKey {
+    fn from(value: &IdentitySecretKey) -> Self {
         value.pk.clone()
     }
 }
 
-impl NtorV3PublicKey {
+impl IdentityPublicKey {
     const CERT_LENGTH: usize = mlkem1024_x25519::PUBKEY_LEN;
     const CERT_SUFFIX: &'static str = "==";
-    /// Construct a new NtorV3PublicKey from its components.
+    /// Construct a new IdentityPublicKey from its components.
     #[allow(unused)]
     pub(crate) fn new(
         pk: [u8; mlkem1024_x25519::PUBKEY_LEN],
@@ -55,7 +55,7 @@ impl NtorV3PublicKey {
     }
 }
 
-impl std::str::FromStr for NtorV3PublicKey {
+impl std::str::FromStr for IdentityPublicKey {
     type Err = Error;
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         let mut cert = String::from(s);
@@ -68,12 +68,12 @@ impl std::str::FromStr for NtorV3PublicKey {
         }
         let id: [u8; NODE_ID_LENGTH] = decoded[..NODE_ID_LENGTH].try_into()?;
         let pk: [u8; NODE_PUBKEY_LENGTH] = decoded[NODE_ID_LENGTH..].try_into()?;
-        NtorV3PublicKey::new(pk, id)
+        IdentityPublicKey::new(pk, id)
     }
 }
 
 #[allow(clippy::to_string_trait_impl)]
-impl std::string::ToString for NtorV3PublicKey {
+impl std::string::ToString for IdentityPublicKey {
     fn to_string(&self) -> String {
         let mut s = Vec::from(self.id.as_bytes());
         s.extend(self.pk.as_bytes());
@@ -81,26 +81,26 @@ impl std::string::ToString for NtorV3PublicKey {
     }
 }
 
-impl Readable for NtorV3PublicKey {
+impl Readable for IdentityPublicKey {
     fn take_from(b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
-        todo!("NtorV3PublicKey Reader needs implemented");
+        todo!("IdentityPublicKey Reader needs implemented");
     }
 }
 
 /// Secret key information used by a relay for the ntor v3 handshake.
-pub struct NtorV3SecretKey {
+pub struct IdentitySecretKey {
     /// The relay's public key information
-    pub(crate) pk: NtorV3PublicKey,
+    pub(crate) pk: IdentityPublicKey,
     /// The secret onion key.
     pub(super) sk: StaticSecret,
 }
 
-impl NtorV3SecretKey {
-    /// Construct a new NtorV3SecretKey from its components.
+impl IdentitySecretKey {
+    /// Construct a new IdentitySecretKey from its components.
     #[allow(unused)]
     pub(crate) fn new(sk: StaticSecret, id: Ed25519Identity) -> Self {
         Self {
-            pk: NtorV3PublicKey {
+            pk: IdentityPublicKey {
                 id,
                 pk: PublicKey::from(&sk),
             },
@@ -143,7 +143,7 @@ impl NtorV3SecretKey {
     pub fn hpke<R: RngCore + CryptoRng>(
         &self,
         rng: &mut R,
-        pubkey: &NtorV3PublicKey,
+        pubkey: &IdentityPublicKey,
     ) -> Result<(Ciphertext, SharedSecret)> {
         self.sk
             .with_pub(&pubkey.pk)
@@ -152,7 +152,7 @@ impl NtorV3SecretKey {
     }
 }
 
-impl TryFrom<&[u8]> for NtorV3SecretKey {
+impl TryFrom<&[u8]> for IdentitySecretKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
         Self::try_from_bytes(value)
@@ -246,71 +246,6 @@ impl From<NtorV3KeyGenerator> for O5Codec {
     }
 }
 
-// impl NtorV3KeyGen for NtorHkdfKeyGenerator {}
-//
-// /// KeyGenerator for use with  handshake.
-// pub(crate) struct NtorHkdfKeyGenerator {
-//     /// Secret key information derived from the handshake, used as input
-//     /// to HKDF
-//     seed: SecretBuf,
-//     codec: O5Codec,
-//     session_id: SessionID,
-// }
-//
-// impl SessionIdentifier for NtorHkdfKeyGenerator {
-//     type ID = SessionID;
-//
-//     fn session_id(&mut self) -> Self::ID {
-//         self.session_id
-//     }
-// }
-//
-// impl NtorHkdfKeyGenerator {
-//     /// Create a new key generator to expand a given seed
-//     pub(crate) fn new(seed: SecretBuf, is_client: bool) -> Self {
-//         // use the seed value to bootstrap Read / Write crypto codec.
-//         let okm = Self::kdf(&seed[..], KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN)
-//             .expect("bug: failed to derive key material from seed");
-//
-//         let ekm: [u8; KEY_MATERIAL_LENGTH] = okm[KEY_MATERIAL_LENGTH..KEY_MATERIAL_LENGTH * 2]
-//             .try_into()
-//             .unwrap();
-//         let dkm: [u8; KEY_MATERIAL_LENGTH] = okm[..KEY_MATERIAL_LENGTH].try_into().unwrap();
-//
-//         let session_id = okm[KEY_MATERIAL_LENGTH * 2..].try_into().unwrap();
-//
-//         // server ekm == client dkm and vice-versa
-//         let codec = match is_client {
-//             false => O5Codec::new(ekm, dkm),
-//             true => O5Codec::new(dkm, ekm),
-//         };
-//
-//         NtorHkdfKeyGenerator {
-//             seed,
-//             codec,
-//             session_id,
-//         }
-//     }
-//
-//     fn kdf(seed: impl AsRef<[u8]>, keylen: usize) -> Result<SecretBuf> {
-//         Ntor1Kdf::new(&T_KEY_SEED[..], &M_EXPAND[..]).derive(seed.as_ref(), keylen)
-//     }
-// }
-//
-// impl KeyGenerator for NtorHkdfKeyGenerator {
-//     fn expand(self, keylen: usize) -> Result<SecretBuf> {
-//         let ntor1_key = &T_KEY_SEED[..];
-//         let ntor1_expand = &M_EXPAND[..];
-//         Ntor1Kdf::new(ntor1_key, ntor1_expand).derive(&self.seed[..], keylen)
-//     }
-// }
-//
-// impl From<NtorHkdfKeyGenerator> for O5Codec {
-//     fn from(keygen: NtorHkdfKeyGenerator) -> Self {
-//         keygen.codec
-//     }
-// }
-
 /// Alias for an HMAC output, used to validate correctness of a handshake.
 pub(crate) type Authcode = [u8; 32];
 pub(crate) const AUTHCODE_LENGTH: usize = 32;
@@ -322,7 +257,7 @@ pub(crate) const AUTHCODE_LENGTH: usize = 32;
 // fn ntor_derive(
 //     xy: &SharedSecret,
 //     xb: &SharedSecret,
-//     server_pk: &NtorV3PublicKey,
+//     server_pk: &IdentityPublicKey,
 //     x: &PublicKey,
 //     y: &PublicKey,
 // ) -> EncodeResult<(SecretBuf, Authcode)> {

@@ -1,11 +1,10 @@
-use crate::{constants::*, handshake::NtorV3PublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
+use crate::{constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
 use ptrs::{args::Args, FutureResult as F};
 
 use std::{
     marker::PhantomData,
     net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
-    str::FromStr,
     time::Duration,
 };
 
@@ -129,7 +128,7 @@ where
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
                 trace!("cert string: {}", &cert_strs);
-                NtorV3PublicKey::from_str(&cert_strs)?
+                IdentityPublicKey::from_str(&cert_strs)?
             }
             None => {
                 // The "old" style (version <= 0.0.2) bridge lines use separate Node ID
@@ -144,7 +143,7 @@ where
                     .retrieve(PUBLIC_KEY_ARG)
                     .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
 
-                NtorV3PublicKey::from_str(&public_key_strs)
+                IdentityPublicKey::from_str(&public_key_strs)
                     .map_err(|e| format!("malformed public key: {e}"))?
             }
         };

@@ -2,13 +2,19 @@
 //!
 /// Session state management as a way to organize session establishment and
 /// steady state transfer.
-use crate::common::drbg;
+use crate::common::{drbg, mlkem1024_x25519};
 
 mod client;
 pub(crate) use client::{new_client_session, ClientSession};
 
 mod server;
 pub(crate) use server::ServerSession;
+
+/// Ephermeral single use session secret key type
+pub type SessionSecretKey = mlkem1024_x25519::StaticSecret;
+
+/// Public key type associated with SessionSecretKey.
+pub type SessionPublicKey = mlkem1024_x25519::PublicKey;
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;

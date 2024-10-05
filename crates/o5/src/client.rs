@@ -4,7 +4,7 @@ use crate::{
     common::{colorize, mlkem1024_x25519, HmacSha256},
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    handshake::NtorV3PublicKey,
+    handshake::IdentityPublicKey,
     proto::{MaybeTimeout, O5Stream},
     sessions, Error, Result,
 };
@@ -96,7 +96,7 @@ impl ClientBuilder {
 
     pub fn build(&self) -> Client {
         Client {
-            station_pubkey: NtorV3PublicKey::new(self.station_pubkey, self.station_id)
+            station_pubkey: IdentityPublicKey::new(self.station_pubkey, self.station_id)
                 .expect("failed to build client - bad options."),
             handshake_timeout: self.handshake_timeout.duration(),
         }
@@ -117,7 +117,7 @@ impl fmt::Display for ClientBuilder {
 
 /// Client implementing the obfs4 protocol.
 pub struct Client {
-    station_pubkey: NtorV3PublicKey,
+    station_pubkey: IdentityPublicKey,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 

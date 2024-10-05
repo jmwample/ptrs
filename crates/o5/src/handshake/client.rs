@@ -7,6 +7,7 @@ use crate::{
     constants::*,
     framing::handshake::ClientHandshakeMessage,
     handshake::*,
+    sessions::{SessionPublicKey, SessionSecretKey},
     Error, Result,
 };
 
@@ -19,7 +20,10 @@ use subtle::ConstantTimeEq;
 use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
-use tor_llcrypto::d::{Sha3_256, Shake256};
+use tor_llcrypto::{
+    d::{Sha3_256, Shake256},
+    pk::ed25519::Ed25519Identity,
+};
 use zeroize::Zeroizing;
 
 //------------------------------[obfs4]-----------------------------------------//
@@ -33,7 +37,7 @@ pub(crate) struct HandshakeState {
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: NtorV3SecretKey,
+    my_sk: SessionSecretKey,
 
     /// handshake materials
     materials: HandshakeMaterials,
@@ -48,19 +52,29 @@ pub(crate) struct HandshakeState {
     msg_mac: MessageMac, // msg_mac
 }
 
+impl HandshakeState {
+    fn node_pubkey(&self) -> &mlkem1024_x25519::PublicKey {
+        &self.materials.node_pubkey.pk
+    }
+
+    fn node_id(&self) -> Ed25519Identity {
+        self.materials.node_pubkey.id
+    }
+}
+
 //-----------------------------[ntorv3]----------------------------------------//
 
 /// materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct HandshakeMaterials {
-    pub(crate) node_pubkey: NtorV3PublicKey,
+    pub(crate) node_pubkey: IdentityPublicKey,
     pub(crate) pad_len: usize,
     pub(crate) session_id: String,
     aux_data: Vec<NtorV3Extension>,
 }
 
 impl HandshakeMaterials {
-    pub(crate) fn new(node_pubkey: &NtorV3PublicKey, session_id: String) -> Self {
+    pub(crate) fn new(node_pubkey: &IdentityPublicKey, session_id: String) -> Self {
         HandshakeMaterials {
             node_pubkey: node_pubkey.clone(),
             session_id,
@@ -76,7 +90,7 @@ impl HandshakeMaterials {
 }
 
 impl ClientHandshakeMaterials for HandshakeMaterials {
-    type IdentityKeyType = NtorV3PublicKey;
+    type IdentityKeyType = IdentityPublicKey;
     type ClientAuxData = Vec<NtorV3Extension>;
 
     fn node_pubkey(&self) -> &Self::IdentityKeyType {
@@ -141,28 +155,28 @@ pub(crate) fn client_handshake_ntor_v3<R: RngCore + CryptoRng>(
     materials: HandshakeMaterials,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let my_sk = NtorV3SecretKey::random_from_rng(rng);
+    let my_sk = SessionSecretKey::random_from_rng(rng);
     client_handshake_ntor_v3_no_keygen(my_sk, materials, verification)
 }
 
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH
 /// key: instead take that key an arguments `my_sk`.
 pub(crate) fn client_handshake_ntor_v3_no_keygen(
-    my_sk: NtorV3SecretKey,
+    my_sk: SessionSecretKey,
     materials: HandshakeMaterials,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let client_msg = ClientHandshakeMessage::new(my_sk.pk.clone(), &materials);
+    let my_public = SessionPublicKey::from(&my_sk);
+    let client_msg = ClientHandshakeMessage::new(my_public.clone(), &materials);
 
     // --------
     let node_pubkey = materials.node_pubkey();
-    let my_public = NtorV3PublicKey::from(&my_sk);
     // let bx = my_sk.diffie_hellman(&node_pubkey);
     let mut rng = rand::thread_rng();
-    let bx = my_sk.hpke(&mut rng, node_pubkey)?;
+    let (ct, bx) = my_sk.hpke(&mut rng, materials.node_pubkey.pk)?;
     // .map_err(|e| Error::Crypto(e.to_string()));
 
-    let (enc_key, mut mac) = kdf_msgkdf(&my_sk, node_pubkey, &my_public, verification)?;
+    let (enc_key, mut mac) = kdf_msgkdf(&bx, node_pubkey, &my_public, verification)?;
 
     // encrypted_msg = ENC(ENC_K1, CM)
     // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
@@ -176,7 +190,7 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen(
     let mut message = Vec::new();
     message.write(&node_pubkey.id)?;
     message.write(&node_pubkey.pk.as_bytes())?;
-    message.write(&my_public.pk.as_bytes())?;
+    message.write(&my_public.as_bytes())?;
     message.write(&encrypted_msg)?;
     message.write(&msg_mac)?;
     // --------
@@ -212,14 +226,14 @@ pub(crate) fn client_handshake_ntor_v3_part2(
     verification: &[u8],
 ) -> Result<(Vec<u8>, NtorV3XofReader)> {
     let mut reader = Reader::from_slice(relay_handshake);
-    let y_pk: NtorV3PublicKey = reader
+    let y_pk: SessionPublicKey = reader
         .extract()
         .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     let auth: DigestVal = reader
         .extract()
         .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     let encrypted_msg = reader.into_rest();
-    let my_public = NtorV3PublicKey::from(&state.my_sk);
+    let my_public = SessionPublicKey::from(&state.my_sk);
 
     // TODO: Some of this code is duplicated from the server handshake code!  It
     // would be better to factor it out.
@@ -228,10 +242,10 @@ pub(crate) fn client_handshake_ntor_v3_part2(
         let mut si = SecretBuf::new();
         si.write(&yx)
             .and_then(|_| si.write(&state.shared_secret.as_bytes()))
-            .and_then(|_| si.write(&state.relay_public.id))
-            .and_then(|_| si.write(&state.relay_public.pk.as_bytes()))
-            .and_then(|_| si.write(&my_public.pk.as_bytes()))
-            .and_then(|_| si.write(&y_pk.pk.as_bytes()))
+            .and_then(|_| si.write(&state.node_id()))
+            .and_then(|_| si.write(&state.node_pubkey().as_bytes()))
+            .and_then(|_| si.write(&my_public.as_bytes()))
+            .and_then(|_| si.write(&y_pk.as_bytes()))
             .and_then(|_| si.write(PROTOID))
             .and_then(|_| si.write(&Encap(verification)))
             .map_err(into_internal!("error encoding ntor3 secret_input"))?;
@@ -245,10 +259,10 @@ pub(crate) fn client_handshake_ntor_v3_part2(
         let mut auth = DigestWriter(Sha3_256::default());
         auth.write(&T_AUTH)
             .and_then(|_| auth.write(&verify))
-            .and_then(|_| auth.write(&state.relay_public.id))
-            .and_then(|_| auth.write(&state.relay_public.pk.as_bytes()))
-            .and_then(|_| auth.write(&y_pk.pk.as_bytes()))
-            .and_then(|_| auth.write(&my_public.pk.as_bytes()))
+            .and_then(|_| auth.write(&state.node_id()))
+            .and_then(|_| auth.write(&state.node_pubkey().as_bytes()))
+            .and_then(|_| auth.write(&y_pk.as_bytes()))
+            .and_then(|_| auth.write(&my_public.as_bytes()))
             .and_then(|_| auth.write(&state.msg_mac))
             .and_then(|_| auth.write(&Encap(encrypted_msg)))
             .and_then(|_| auth.write(PROTOID))

@@ -5,6 +5,7 @@ use crate::{
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
     },
     handshake::*,
+    sessions::SessionSecretKey,
     Error, Server,
 };
 
@@ -20,7 +21,6 @@ use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
 use tor_llcrypto::d::{Sha3_256, Shake256};
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
-use tor_llcrypto::util::ct::ct_lookup;
 use zeroize::Zeroizing;
 
 /// Server Materials needed for completing a handshake
@@ -30,7 +30,7 @@ pub(crate) struct HandshakeMaterials {
 }
 
 impl<'a> HandshakeMaterials {
-    pub fn get_hmac<'b>(&self, identity_keys: &'b NtorV3SecretKey) -> Hmac<Sha256> {
+    pub fn get_hmac<'b>(&self, identity_keys: &'b IdentitySecretKey) -> Hmac<Sha256> {
         let mut key = identity_keys.pk.pk.as_bytes().to_vec();
         key.append(&mut identity_keys.pk.id.as_bytes().to_vec());
         Hmac::<Sha256>::new_from_slice(&key[..]).unwrap()
@@ -93,10 +93,10 @@ pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
     rng: &mut R,
     reply_fn: &mut REPLY,
     message: &[u8],
-    keys: &NtorV3SecretKey,
+    keys: &IdentitySecretKey,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
-    let secret_key_y = NtorV3SecretKey::random_from_rng(rng);
+    let secret_key_y = SessionSecretKey::random_from_rng(rng);
     server_handshake_ntor_v3_no_keygen(rng, reply_fn, &secret_key_y, message, keys, verification)
 }
 
@@ -104,16 +104,16 @@ pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
 pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: MsgReply>(
     rng: &mut R,
     reply_fn: &mut REPLY,
-    secret_key_y: &NtorV3SecretKey,
+    secret_key_y: &SessionSecretKey,
     message: &[u8],
-    keys: &NtorV3SecretKey,
+    keys: &IdentitySecretKey,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     // Decode the message.
     let mut r = Reader::from_slice(message);
     let id: Ed25519Identity = r.extract()?;
-    let requested_pk: NtorV3PublicKey = r.extract()?;
-    let client_pk: NtorV3PublicKey = r.extract()?;
+    let requested_pk: IdentityPublicKey = r.extract()?;
+    let client_pk: SessionPublicKey = r.extract()?;
     let client_msg = if let Some(msg_len) = r.remaining().checked_sub(MAC_LEN) {
         r.take(msg_len)?
     } else {
@@ -143,8 +143,8 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
             .map_err(into_internal!("Can't compute MAC input."))?;
         mac.take().finalize().into()
     };
-    let y_pk = NtorV3PublicKey::from(secret_key_y);
-    let xy = secret_key_y.hpke(rng, &client_pk);
+    let y_pk = SessionPublicKey::from(secret_key_y);
+    let xy = secret_key_y.hpke(rng, &client_pk)?;
 
     let mut okay = computed_mac.ct_eq(&msg_mac)
         & ct::bool_to_choice(xy.was_contributory())
@@ -166,12 +166,12 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
 
     let secret_input = {
         let mut si = SecretBuf::new();
-        si.write(&xy)
-            .and_then(|_| si.write(&xb))
+        si.write(&xy.as_bytes())
+            .and_then(|_| si.write(&xb.as_bytes()))
             .and_then(|_| si.write(&keypair.pk.id))
             .and_then(|_| si.write(&keypair.pk.pk.as_bytes()))
-            .and_then(|_| si.write(&client_pk.pk.as_bytes()))
-            .and_then(|_| si.write(&y_pk.pk.as_bytes()))
+            .and_then(|_| si.write(&client_pk.as_bytes()))
+            .and_then(|_| si.write(&y_pk.as_bytes()))
             .and_then(|_| si.write(PROTOID))
             .and_then(|_| si.write(&Encap(verification)))
             .map_err(into_internal!("can't derive ntor3 secret_input"))?;
@@ -197,8 +197,8 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
             .and_then(|_| auth.write(&verify))
             .and_then(|_| auth.write(&keypair.pk.id))
             .and_then(|_| auth.write(&keypair.pk.pk.as_bytes()))
-            .and_then(|_| auth.write(&y_pk.pk.as_bytes()))
-            .and_then(|_| auth.write(&client_pk.pk.as_bytes()))
+            .and_then(|_| auth.write(&y_pk.as_bytes()))
+            .and_then(|_| auth.write(&client_pk.as_bytes()))
             .and_then(|_| auth.write(&msg_mac))
             .and_then(|_| auth.write(&Encap(&encrypted_reply)))
             .and_then(|_| auth.write(PROTOID))
@@ -210,7 +210,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
     let reply = {
         let mut reply = Vec::new();
         reply
-            .write(&y_pk.pk.as_bytes())
+            .write(&y_pk.as_bytes())
             .and_then(|_| reply.write(&auth))
             .and_then(|_| reply.write(&encrypted_reply))
             .map_err(into_internal!("can't encode ntor3 reply."))?;

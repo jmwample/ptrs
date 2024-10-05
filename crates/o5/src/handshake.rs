@@ -5,7 +5,7 @@
 //! encrypt data (without forward secrecy) after it sends the first
 //! message.
 
-// TODO:  Make ntorv3 terminology and variable names consistent with spec.
+use crate::sessions::SessionPublicKey;
 
 use cipher::{KeyIvInit as _, StreamCipher as _};
 use digest::{Digest, ExtendableOutput, XofReader};
@@ -17,7 +17,7 @@ use zeroize::Zeroizing;
 mod keys;
 use keys::NtorV3XofReader;
 pub(crate) use keys::{Authcode, AUTHCODE_LENGTH};
-pub use keys::{NtorV3KeyGen, NtorV3PublicKey, NtorV3SecretKey};
+pub use keys::{IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
 
 /// Super trait to be used where we require a distinction between client and server roles.
 trait Role {
@@ -43,6 +43,8 @@ pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
 
 mod server;
 pub(crate) use server::HandshakeMaterials as SHSMaterials;
+
+use crate::common::mlkem1024_x25519;
 
 /// The verification string to be used for circuit extension.
 pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
@@ -194,9 +196,9 @@ fn h_verify(d: &[u8]) -> DigestVal {
 /// diffie-hellman as Bx or Xb), the relay's public key information,
 /// the client's public key (B), and the shared verification string.
 fn kdf_msgkdf(
-    xb: &NtorV3SecretKey,
-    relay_public: &NtorV3PublicKey,
-    client_public: &NtorV3PublicKey,
+    xb: &mlkem1024_x25519::SharedSecret,
+    relay_public: &IdentityPublicKey,
+    client_public: &SessionPublicKey,
     verification: &[u8],
 ) -> EncodeResult<(EncKey, DigestWriter<Sha3_256>)> {
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
@@ -204,9 +206,9 @@ fn kdf_msgkdf(
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
-    msg_kdf.write(&xb.sk.as_bytes())?;
+    msg_kdf.write(&xb.as_bytes())?;
     msg_kdf.write(&relay_public.id)?;
-    msg_kdf.write(&client_public.pk.as_bytes())?;
+    msg_kdf.write(&client_public.as_bytes())?;
     msg_kdf.write(&relay_public.pk.as_bytes())?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
@@ -222,7 +224,7 @@ fn kdf_msgkdf(
         mac.write(&Encap(&mac_key[..]))?;
         mac.write(&relay_public.id)?;
         mac.write(&relay_public.pk.as_bytes())?;
-        mac.write(&client_public.pk.as_bytes())?;
+        mac.write(&client_public.as_bytes())?;
     }
 
     Ok((enc_key, mac))
@@ -268,10 +270,12 @@ mod test {
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
     use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
-    use crate::constants::NODE_ID_LENGTH;
+    use crate::constants::{NODE_ID_LENGTH, SEED_LENGTH};
     use crate::Server;
 
     use super::*;
+    use crate::{handshake::IdentitySecretKey, sessions::SessionSecretKey};
+
     use hex::FromHex;
     use hex_literal::hex;
     use rand::thread_rng;
@@ -281,7 +285,7 @@ mod test {
     #[test]
     fn test_ntor3_roundtrip() {
         let mut rng = rand::thread_rng();
-        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
+        let relay_private = IdentitySecretKey::random_from_rng(&mut testing_rng());
 
         let verification = &b"shared secret"[..];
         let client_message = &b"Hello. I am a client. Let's be friends!"[..];
@@ -324,7 +328,7 @@ mod test {
     // Same as previous test, but use the higher-level APIs instead.
     #[test]
     fn test_ntor3_roundtrip_highlevel() {
-        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
+        let relay_private = IdentitySecretKey::random_from_rng(&mut testing_rng());
 
         let materials = CHSMaterials::new(&relay_private.pk, "fake_session_id-1".into());
         let (c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
@@ -332,8 +336,12 @@ mod test {
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
         let server = Server::new_from_random(&mut thread_rng());
+        let shs_materials = SHSMaterials {
+            len_seed: [0u8; SEED_LENGTH],
+            session_id: "roundtrip_test_serverside".into(),
+        };
         let (s_keygen, s_handshake) = server
-            .server(&mut rep, &[relay_private], &c_handshake)
+            .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
 
         let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
@@ -347,7 +355,7 @@ mod test {
     // Same as previous test, but encode some congestion control extensions.
     #[test]
     fn test_ntor3_roundtrip_highlevel_cc() {
-        let relay_private = NtorV3SecretKey::random_from_rng(&mut testing_rng());
+        let relay_private = IdentitySecretKey::random_from_rng(&mut testing_rng());
 
         let client_exts = vec![NtorV3Extension::RequestCongestionControl];
         let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
@@ -361,9 +369,13 @@ mod test {
             Some(reply_exts.clone())
         };
 
+        let shs_materials = SHSMaterials {
+            len_seed: [0u8; SEED_LENGTH],
+            session_id: "roundtrip_test_serverside".into(),
+        };
         let server = Server::new_from_random(&mut thread_rng());
         let (s_keygen, s_handshake) = server
-            .server(&mut rep, &[relay_private], &c_handshake)
+            .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
 
         let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
@@ -386,7 +398,7 @@ mod test {
         let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
         let b: StaticSecret = b.into();
         let B: PublicKey = (&b).into();
-        let x: NtorV3SecretKey = NtorV3SecretKey::new(x.into(), id.into());
+        let x: SessionSecretKey = x.into();
         //let X = (&x).into();
         let y: StaticSecret = y.into();
 
@@ -394,11 +406,8 @@ mod test {
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_public = NtorV3PublicKey::from(&b); // { pk: B, id };
-        let relay_private = NtorV3SecretKey {
-            sk: b,
-            pk: relay_public.clone(),
-        };
+        let relay_private = IdentitySecretKey::new(b, id.into());
+        let relay_public = relay_private.pk; // { pk: B, id };
 
         let mut chs_materials = CHSMaterials::new(&relay_public, "".into());
         let (state, client_handshake) =
