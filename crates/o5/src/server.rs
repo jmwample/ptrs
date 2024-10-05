@@ -11,7 +11,7 @@ use crate::{
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
     handshake::{NtorV3PublicKey, NtorV3SecretKey},
-    proto::{MaybeTimeout, O5Stream, IAT},
+    proto::{MaybeTimeout, O5Stream},
     sessions::Session,
     Error, Result,
 };
@@ -30,12 +30,10 @@ use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::Encoder;
-use tor_llcrypto::pk::rsa::RsaIdentity;
 
 const STATE_FILENAME: &str = "obfs4_state.json";
 
 pub struct ServerBuilder<T> {
-    pub iat_mode: IAT,
     pub statefile_path: Option<String>,
     pub(crate) identity_keys: NtorV3SecretKey,
     pub(crate) handshake_timeout: MaybeTimeout,
@@ -47,7 +45,6 @@ impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
         let identity_keys = NtorV3SecretKey::random_from_rng(&mut rand::thread_rng());
         Self {
-            iat_mode: IAT::Off,
             statefile_path: None,
             identity_keys,
             handshake_timeout: MaybeTimeout::Default_,
@@ -75,11 +72,6 @@ impl<T> ServerBuilder<T> {
         self
     }
 
-    pub fn iat_mode(&mut self, iat: IAT) -> &Self {
-        self.iat_mode = iat;
-        self
-    }
-
     pub fn with_handshake_timeout(&mut self, d: Duration) -> &Self {
         self.handshake_timeout = MaybeTimeout::Length(d);
         self
@@ -98,14 +90,12 @@ impl<T> ServerBuilder<T> {
     pub fn client_params(&self) -> String {
         let mut params = Args::new();
         params.insert(CERT_ARG.into(), vec![self.identity_keys.pk.to_string()]);
-        params.insert(IAT_ARG.into(), vec![self.iat_mode.to_string()]);
         params.encode_smethod_args()
     }
 
     pub fn build(self) -> Server {
         Server(Arc::new(ServerInner {
             identity_keys: self.identity_keys,
-            iat_mode: self.iat_mode,
             biased: false,
             handshake_timeout: self.handshake_timeout.duration(),
 
@@ -169,8 +159,6 @@ struct JsonServerState {
     public_key: Option<String>,
     #[serde(rename = "drbg-seed")]
     drbg_seed: Option<String>,
-    #[serde(rename = "iat-mode")]
-    iat_mode: Option<String>,
 }
 
 impl JsonServerState {
@@ -187,16 +175,12 @@ impl JsonServerState {
         if let Some(seed) = self.drbg_seed {
             args.add(SEED_ARG, &seed);
         }
-        if let Some(mode) = self.iat_mode {
-            args.add(IAT_ARG, &mode);
-        }
     }
 }
 
 pub(crate) struct RequiredServerState {
     pub(crate) private_key: NtorV3SecretKey,
     pub(crate) drbg_seed: drbg::Drbg,
-    pub(crate) iat_mode: IAT,
 }
 
 impl TryFrom<&Args> for RequiredServerState {
@@ -217,17 +201,11 @@ impl TryFrom<&Args> for RequiredServerState {
             .ok_or("missing argument {NODE_ID_ARG}")?;
         let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(node_id_str)?;
 
-        let iat_mode = match value.retrieve(IAT_ARG) {
-            Some(s) => IAT::from_str(&s)?,
-            None => IAT::default(),
-        };
-
         let private_key = NtorV3SecretKey::try_from_bytes(sk)?;
 
         Ok(RequiredServerState {
             private_key,
             drbg_seed: drbg::Drbg::new(Some(drbg_seed))?,
-            iat_mode,
         })
     }
 }
@@ -237,7 +215,6 @@ pub struct Server(Arc<ServerInner>);
 
 pub struct ServerInner {
     pub(crate) handshake_timeout: Option<tokio::time::Duration>,
-    pub(crate) iat_mode: IAT,
     pub(crate) biased: bool,
     pub(crate) identity_keys: NtorV3SecretKey,
 
@@ -261,7 +238,6 @@ impl Server {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
-            iat_mode: IAT::Off,
             biased: false,
 
             // metrics: Arc::new(std::sync::Mutex::new(ServerMetrics {})),
@@ -291,11 +267,6 @@ impl Server {
         session.handshake(&self, stream, deadline).await
     }
 
-    // pub fn set_iat_mode(&mut self, mode: IAT) -> &Self {
-    //     self.iat_mode = mode;
-    //     self
-    // }
-
     pub fn set_args(&mut self, args: &dyn std::any::Any) -> Result<&Self> {
         Ok(self)
     }
@@ -312,7 +283,6 @@ impl Server {
         ClientBuilder {
             station_pubkey: *self.identity_keys.pk.pk.as_bytes(),
             station_id: self.identity_keys.pk.id.as_bytes().try_into().unwrap(),
-            iat_mode: self.iat_mode,
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
@@ -330,7 +300,7 @@ impl Server {
             // generated per session
             session_id: session_id.into(),
             len_seed: drbg::Seed::new().unwrap(),
-            iat_seed: drbg::Seed::new().unwrap(),
+            ipt_seed: drbg::Seed::new().unwrap(),
 
             _state: sessions::Initialized {},
         })
@@ -354,7 +324,7 @@ mod tests {
 
         let mut args = Args::new();
         let test_state = format!(
-            r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{IAT_ARG}": "0", "{SEED_ARG}": "abcdefabcdefabcdefabcdef"}}"#
+            r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{SEED_ARG}": "abcdefabcdefabcdefabcdef"}}"#
         );
         ServerBuilder::<TcpStream>::server_state_from_json(test_state.as_bytes(), &mut args)?;
         debug!("{:?}\n{}", args.encode_smethod_args(), test_state);

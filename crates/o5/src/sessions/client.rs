@@ -1,18 +1,14 @@
 use crate::{
     common::{
         discard, drbg,
-        ntor_arti::{
-            ClientHandshake, KeyGenerator, RelayHandshakeError, SessionID, SessionIdentifier,
-        },
+        ntor_arti::{ClientHandshake, RelayHandshakeError, SessionID, SessionIdentifier},
     },
     constants::*,
     framing,
     handshake::{CHSMaterials, NtorV3Client, NtorV3KeyGen, NtorV3PublicKey},
-    proto::{O4Stream, O5Stream, IAT},
+    proto::{O4Stream, O5Stream},
     sessions::{Established, Fault, Initialized, Session},
-    // server::Server,
-    Error,
-    Result,
+    Error, Result,
 };
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -31,7 +27,6 @@ use tokio_util::codec::Decoder;
 pub(crate) struct ClientSession<S: ClientSessionState> {
     node_pubkey: NtorV3PublicKey,
     session_id: SessionID,
-    iat_mode: IAT, // TODO: add IAT normal / paranoid writing modes
     epoch_hour: String,
 
     biased: bool,
@@ -79,7 +74,6 @@ impl<S: ClientSessionState> ClientSession<S> {
         ClientSession {
             node_pubkey: self.node_pubkey,
             session_id: self.session_id,
-            iat_mode: self.iat_mode,
             epoch_hour: self.epoch_hour,
             biased: self.biased,
 
@@ -93,7 +87,6 @@ impl<S: ClientSessionState> ClientSession<S> {
         ClientSession {
             node_pubkey: self.node_pubkey,
             session_id: self.session_id,
-            iat_mode: self.iat_mode,
             epoch_hour: self.epoch_hour,
             biased: self.biased,
 
@@ -103,16 +96,12 @@ impl<S: ClientSessionState> ClientSession<S> {
     }
 }
 
-pub fn new_client_session(
-    station_pubkey: NtorV3PublicKey,
-    iat_mode: IAT,
-) -> ClientSession<Initialized> {
+pub fn new_client_session(station_pubkey: NtorV3PublicKey) -> ClientSession<Initialized> {
     let mut session_id = [0u8; SESSION_ID_LEN];
     rand::thread_rng().fill_bytes(&mut session_id);
     ClientSession {
         node_pubkey: station_pubkey,
         session_id: session_id.into(),
-        iat_mode,
         epoch_hour: "".into(),
         biased: false,
 
@@ -196,7 +185,8 @@ impl ClientSession<Initialized> {
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
-        let (state, chs_message) = NtorV3Client::client1(&materials, &())?;
+        // let session_id = materials.session_id;
+        let (state, chs_message) = NtorV3Client::client1(materials)?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;
@@ -255,10 +245,9 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[ id:{}, ident_pk:{}, iat:{:?}, epoch_hr:{} ]",
+            "[ id:{}, ident_pk:{}, epoch_hr:{} ]",
             hex::encode(self.node_pubkey.id.as_bytes()),
             hex::encode(self.node_pubkey.pk.as_bytes()),
-            self.iat_mode,
             self.epoch_hour,
         )
     }

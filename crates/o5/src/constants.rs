@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use tor_llcrypto::pk::rsa::RSA_ID_LEN;
+use tor_llcrypto::pk::ed25519::ED25519_ID_LEN;
 
 pub use crate::common::ntor_arti::SESSION_ID_LEN;
 use crate::{
@@ -54,7 +54,6 @@ pub const NODE_ID_ARG: &str = "node-id";
 pub const PUBLIC_KEY_ARG: &str = "public-key";
 pub const PRIVATE_KEY_ARG: &str = "private-key";
 pub const SEED_ARG: &str = "drbg-seed";
-pub const IAT_ARG: &str = "iat-mode";
 pub const CERT_ARG: &str = "cert";
 
 pub const BIAS_CMD_ARG: &str = "obfs4-distBias";
@@ -76,5 +75,5 @@ pub const MAX_CLOSE_DELAY_BYTES: usize = MAX_HANDSHAKE_LENGTH;
 pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
 pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::MESSAGE_OVERHEAD;
 
-pub const NODE_ID_LENGTH: usize = RSA_ID_LEN;
+pub const NODE_ID_LENGTH: usize = ED25519_ID_LEN;
 pub const NODE_PUBKEY_LENGTH: usize = mlkem1024_x25519::PUBKEY_LEN;

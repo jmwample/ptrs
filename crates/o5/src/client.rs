@@ -5,7 +5,7 @@ use crate::{
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
     handshake::NtorV3PublicKey,
-    proto::{MaybeTimeout, O5Stream, IAT},
+    proto::{MaybeTimeout, O5Stream},
     sessions, Error, Result,
 };
 
@@ -26,7 +26,6 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
-    pub iat_mode: IAT,
     pub station_pubkey: [u8; PUBLIC_KEY_LEN],
     pub station_id: [u8; NODE_ID_LENGTH],
     pub statefile_path: Option<String>,
@@ -36,7 +35,6 @@ pub struct ClientBuilder {
 impl Default for ClientBuilder {
     fn default() -> Self {
         Self {
-            iat_mode: IAT::Off,
             station_pubkey: [0u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: None,
@@ -49,7 +47,6 @@ impl ClientBuilder {
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
         Ok(Self {
-            iat_mode: IAT::Off,
             station_pubkey: [0_u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: Some(location.into()),
@@ -60,7 +57,6 @@ impl ClientBuilder {
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         Ok(Self {
-            iat_mode: IAT::Off,
             station_pubkey: [0_u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: None,
@@ -83,11 +79,6 @@ impl ClientBuilder {
         self
     }
 
-    pub fn with_iat_mode(&mut self, iat: IAT) -> &mut Self {
-        self.iat_mode = iat;
-        self
-    }
-
     pub fn with_handshake_timeout(&mut self, d: Duration) -> &mut Self {
         self.handshake_timeout = MaybeTimeout::Length(d);
         self
@@ -105,7 +96,6 @@ impl ClientBuilder {
 
     pub fn build(&self) -> Client {
         Client {
-            iat_mode: self.iat_mode,
             station_pubkey: NtorV3PublicKey::new(self.station_pubkey, self.station_id)
                 .expect("failed to build client - bad options."),
             handshake_timeout: self.handshake_timeout.duration(),
@@ -127,7 +117,6 @@ impl fmt::Display for ClientBuilder {
 
 /// Client implementing the obfs4 protocol.
 pub struct Client {
-    iat_mode: IAT,
     station_pubkey: NtorV3PublicKey,
     handshake_timeout: Option<tokio::time::Duration>,
 }
@@ -142,7 +131,7 @@ impl Client {
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
-        let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
+        let session = sessions::new_client_session(self.station_pubkey);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
@@ -161,7 +150,7 @@ impl Client {
     {
         let stream = stream_fut.await.map_err(|e| Error::Other(Box::new(e)))?;
 
-        let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
+        let session = sessions::new_client_session(self.station_pubkey);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 

@@ -5,13 +5,12 @@ use crate::{
     },
     constants::*,
     handshake::{Authcode, CHSMaterials, NtorV3PublicKey, AUTHCODE_LENGTH},
-    Error, Result,
+    Result,
 };
 
 use bytes::BufMut;
 use hmac::Mac;
 use ptrs::trace;
-use rand::Rng;
 use tor_cell::relaycell::extend::NtorV3Extension;
 
 // -----------------------------[ Server ]-----------------------------
@@ -19,7 +18,7 @@ use tor_cell::relaycell::extend::NtorV3Extension;
 pub struct ServerHandshakeMessage {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
-    session_pubkey: NtorV3PublicKey,
+    _session_pubkey: NtorV3PublicKey,
     epoch_hour: String,
     aux_data: Vec<NtorV3Extension>,
 }
@@ -54,9 +53,10 @@ impl ServerHandshakeMessage {
 
     pub fn marshall(&mut self, buf: &mut impl BufMut, mut h: HmacSha256) -> Result<()> {
         trace!("serializing server handshake");
+        todo!("marshall server hello");
 
         h.reset();
-        h.update(self.session_pubkey.as_bytes().as_ref());
+        h.update(self.session_pubkey.pk.as_bytes().as_ref());
         let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
 
         // The server handshake is Y | AUTH | P_S | M_S | MAC(Y | AUTH | P_S | M_S | E) where:
@@ -73,7 +73,7 @@ impl ServerHandshakeMessage {
 
         // Write Y, AUTH, P_S, M_S.
         let mut params = vec![];
-        params.extend_from_slice(self.repres.as_bytes());
+        params.extend_from_slice(self.session_pubkey.as_bytes());
         params.extend_from_slice(&self.server_auth);
         params.extend_from_slice(pad);
         params.extend_from_slice(mark);

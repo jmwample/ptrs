@@ -23,15 +23,26 @@ use tokio::time::Instant;
 // ================================================================ //
 
 pub(crate) struct ServerSession<S: ServerSessionState> {
-    // fixed by server
+    // -------- fixed by server --------
     pub(crate) biased: bool,
 
     // pub(crate) server: &'a Server,
 
-    // generated per session
+    // -------- generated per session --------
+    /// Session Identifier
+    ///
+    /// Generated randomly to begin with then deterministically derived from the
+    /// shared secret once session is established such that the client and server
+    /// session_id values match.
     pub(crate) session_id: SessionID,
+    /// Packet (padding) length seed
+    ///
+    /// Used when selecting lengths to add onto packets to obscure client data length.
     pub(crate) len_seed: drbg::Seed,
-    pub(crate) iat_seed: drbg::Seed,
+    /// Inter-packet timing seed
+    ///
+    /// Used when generating delays between packets.
+    pub(crate) ipt_seed: drbg::Seed,
 
     pub(crate) _state: S,
 }
@@ -78,7 +89,7 @@ impl<S: ServerSessionState> ServerSession<S> {
             // generated per session
             session_id: self.session_id,
             len_seed: self.len_seed,
-            iat_seed: self.iat_seed,
+            ipt_seed: self.ipt_seed,
 
             _state,
         }
@@ -93,7 +104,7 @@ impl<S: ServerSessionState> ServerSession<S> {
             // generated per session
             session_id: self.session_id,
             len_seed: self.len_seed,
-            iat_seed: self.iat_seed,
+            ipt_seed: self.ipt_seed,
 
             _state: f,
         }

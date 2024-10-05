@@ -268,14 +268,15 @@ mod test {
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
     use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
     use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
+    use crate::constants::NODE_ID_LENGTH;
     use crate::Server;
 
     use super::*;
+    use hex::FromHex;
     use hex_literal::hex;
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
-    use tor_llcrypto::pk::rsa::RsaIdentity;
 
     #[test]
     fn test_ntor3_roundtrip() {
@@ -375,8 +376,12 @@ mod test {
 
     #[test]
     fn test_ntor3_testvec() {
+        let mut rng = rand::thread_rng();
         let b = hex!("4051daa5921cfa2a1c27b08451324919538e79e788a81b38cbed097a5dff454a");
-        let id = hex!("9fad2af287ef942632833d21f946c6260c33fae6");
+        let id = <[u8; NODE_ID_LENGTH]>::from_hex(
+            "aaaaaaaaaaaaaaaaaaaaaaaa9fad2af287ef942632833d21f946c6260c33fae6",
+        )
+        .unwrap();
         let x = hex!("b825a3719147bcbe5fb1d0b0fcb9c09e51948048e2e3283d2ab7b45b5ef38b49");
         let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
         let b: StaticSecret = b.into();
@@ -412,6 +417,7 @@ mod test {
         let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
 
         let (server_handshake, mut server_keygen) = server::server_handshake_ntor_v3_no_keygen(
+            &mut rng,
             &mut rep,
             &y,
             &client_handshake,

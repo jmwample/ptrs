@@ -17,7 +17,6 @@ use base64::{
 use kem::Encapsulate;
 use subtle::{Choice, ConstantTimeEq};
 use tor_bytes::{Readable, SecretBuf};
-use tor_llcrypto::pk::rsa::RsaIdentity;
 use tor_llcrypto::{d::Shake256Reader, pk::ed25519::Ed25519Identity};
 
 use rand::{CryptoRng, RngCore};
@@ -29,7 +28,7 @@ use rand::{CryptoRng, RngCore};
 #[derive(Clone, Debug, PartialEq)]
 pub struct NtorV3PublicKey {
     /// The relay's identity.
-    pub(crate) id: RsaIdentity,
+    pub(crate) id: Ed25519Identity,
     /// The relay's onion key.
     pub(crate) pk: PublicKey,
 }
@@ -99,7 +98,7 @@ pub struct NtorV3SecretKey {
 impl NtorV3SecretKey {
     /// Construct a new NtorV3SecretKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(sk: StaticSecret, id: RsaIdentity) -> Self {
+    pub(crate) fn new(sk: StaticSecret, id: Ed25519Identity) -> Self {
         Self {
             pk: NtorV3PublicKey {
                 id,
@@ -123,7 +122,7 @@ impl NtorV3SecretKey {
 
     /// Generate a key using the given `rng`, suitable for testing.
     pub(crate) fn random_from_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        let mut id = [0_u8; 20];
+        let mut id = [0_u8; NODE_ID_LENGTH];
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
         let sk = StaticSecret::random_from_rng(rng);

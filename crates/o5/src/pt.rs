@@ -1,9 +1,4 @@
-use crate::{
-    constants::*,
-    handshake::NtorV3PublicKey,
-    proto::{O5Stream, IAT},
-    Error, TRANSPORT_NAME,
-};
+use crate::{constants::*, handshake::NtorV3PublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
 use ptrs::{args::Args, FutureResult as F};
 
 use std::{
@@ -72,14 +67,12 @@ where
 
         let state = Self::parse_state(None::<&str>, opts)?;
         self.identity_keys = state.private_key;
-        self.iat_mode(state.iat_mode);
         // self.drbg = state.drbg_seed; // TODO apply seed from args to server
 
         trace!(
-            "node_pubkey: {}, node_id: {}, iat: {}",
+            "node_pubkey: {}, node_id: {}",
             hex::encode(self.identity_keys.pk.pk.as_bytes()),
             hex::encode(self.identity_keys.pk.id.as_bytes()),
-            self.iat_mode,
         );
         Ok(self)
     }
@@ -156,20 +149,12 @@ where
             }
         };
 
-        // IAT config is common across the two bridge line formats.
-        let iat_strs = opts
-            .retrieve(IAT_ARG)
-            .ok_or(format!("missing argument '{IAT_ARG}'"))?;
-        let iat_mode = IAT::from_str(&iat_strs)?;
-
-        self.with_node_pubkey(server_materials.pk)
-            .with_node_id(server_materials.id)
-            .with_iat_mode(iat_mode);
+        self.with_node_pubkey(server_materials.pk.to_bytes())
+            .with_node_id(server_materials.id.into());
         trace!(
-            "node_pubkey: {}, node_id: {}, iat: {}",
+            "node_pubkey: {}, node_id: {}",
             hex::encode(self.station_pubkey),
             hex::encode(self.station_id),
-            iat_mode
         );
 
         Ok(self)
