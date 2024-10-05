@@ -421,7 +421,7 @@ mod test {
             &mut rep,
             &y,
             &client_handshake,
-            &[relay_private],
+            &relay_private,
             &verification,
         )
         .unwrap();

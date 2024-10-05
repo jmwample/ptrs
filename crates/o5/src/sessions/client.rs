@@ -6,7 +6,7 @@ use crate::{
     constants::*,
     framing,
     handshake::{CHSMaterials, NtorV3Client, NtorV3KeyGen, NtorV3PublicKey},
-    proto::{O4Stream, O5Stream},
+    proto::{O5Stream, ObfuscatedStream},
     sessions::{Established, Fault, Initialized, Session},
     Error, Result,
 };
@@ -112,13 +112,25 @@ pub fn new_client_session(station_pubkey: NtorV3PublicKey) -> ClientSession<Init
 
 impl ClientSession<Initialized> {
     /// Perform a Handshake over the provided stream.
-    /// ```
     ///
-    /// ```
+    /// Completes the client handshake including sending the initial hello message
+    /// and processing the response (or lack thereof). On success this returns:
+    ///     1) The remaining bytes included in the server response not part of the
+    /// handshake packet.
+    /// TODO: should 1 &2 be combined?
+    ///     2) Any sever extensions sent as part of the handshake response
+    ///     3) An NtorV3-Like key generator used to bootstrap the codec that will
+    /// be used to obfuscate the stream data.
     ///
-    /// TODO: make sure failure modes align with golang obfs4
-    /// - FIN/RST based on buffered data.
-    /// - etc.
+    /// Errors can be cause by:
+    /// - failing to connect to remote host (timeout)
+    /// - failing to write the handshake
+    /// - timeout / cancel while waiting for response
+    /// - failing to read response
+    /// - crypto error in response
+    /// - response fails server auth check
+    ///
+    /// TODO: make sure failure modes are understood (FIN/RST w/ and w/out buffered data, etc.)
     pub async fn handshake<T>(self, mut stream: T, deadline: Option<Instant>) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
@@ -172,7 +184,7 @@ impl ClientSession<Initialized> {
         info!("{} handshake complete", session_state.session_id());
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Client(session_state));
+        let o4 = ObfuscatedStream::new(stream, codec, Session::Client(session_state));
 
         Ok(O5Stream::from_o4(o4))
     }

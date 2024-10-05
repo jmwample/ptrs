@@ -48,7 +48,7 @@ impl<'a> HandshakeMaterials {
 }
 
 impl ServerHandshake for Server {
-    type KeyType = NtorV3SecretKey;
+    type HandshakeParams = SHSMaterials;
     type KeyGen = NtorV3KeyGenerator;
     type ClientAuxData = [NtorV3Extension];
     type ServerAuxData = Vec<NtorV3Extension>;
@@ -56,7 +56,7 @@ impl ServerHandshake for Server {
     fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
         reply_fn: &mut REPLY,
-        key: &[Self::KeyType],
+        _materials: &Self::HandshakeParams, // TODO: do we need materials during server handshake?
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)> {
         let mut bytes_reply_fn = |bytes: &[u8]| -> Option<Vec<u8>> {
@@ -72,7 +72,7 @@ impl ServerHandshake for Server {
             &mut rng,
             &mut bytes_reply_fn,
             msg.as_ref(),
-            key,
+            &self.identity_keys,
             NTOR3_CIRC_VERIFICATION,
         )?;
         Ok((NtorV3KeyGenerator::new::<ServerRole>(reader), res))
@@ -93,7 +93,7 @@ pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
     rng: &mut R,
     reply_fn: &mut REPLY,
     message: &[u8],
-    keys: &[NtorV3SecretKey],
+    keys: &NtorV3SecretKey,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     let secret_key_y = NtorV3SecretKey::random_from_rng(rng);
@@ -106,7 +106,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
     reply_fn: &mut REPLY,
     secret_key_y: &NtorV3SecretKey,
     message: &[u8],
-    keys: &[NtorV3SecretKey],
+    keys: &NtorV3SecretKey,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     // Decode the message.
@@ -127,9 +127,8 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
     r.should_be_exhausted()?;
 
     // See if we recognize the provided (id,requested_pk) pair.
-    let keypair = ct_lookup(keys, |key| key.matches(id, requested_pk.pk));
-    let keypair = match keypair {
-        Some(k) => k,
+    let keypair = match keys.matches(id, requested_pk.pk).into() {
+        Some(k) => keys,
         None => return Err(RelayHandshakeError::MissingKey),
     };
 

@@ -144,7 +144,7 @@ where
         }
     }
 
-    /*// TODO Apply pad_burst logic and IAT policy to packet assembly (probably as part of AsyncRead / AsyncWrite impl)
+    /*// TODO Apply pad_burst logic and Inter-packet timing policy to packet assembly (probably as part of AsyncRead / AsyncWrite impl)
     /// Attempts to pad a burst of data so that the last packet is of the length
     /// `to_pad_to`. This can involve creating multiple packets, making this
     /// slightly complex.

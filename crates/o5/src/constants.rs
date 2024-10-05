@@ -68,7 +68,7 @@ pub const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 #[cfg(not(test))]
 pub const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub const MAX_IAT_DELAY: usize = 100;
+pub const MAX_IPT_DELAY: usize = 100;
 pub const MAX_CLOSE_DELAY: usize = 60;
 pub const MAX_CLOSE_DELAY_BYTES: usize = MAX_HANDSHAKE_LENGTH;
 

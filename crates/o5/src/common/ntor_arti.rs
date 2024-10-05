@@ -118,10 +118,12 @@ where
 }
 
 /// A ServerHandshake is used to handle a client onionskin and generate a
-/// server onionskin.
+/// server onionskin. It is assumed that the (long term identity) keys are stored
+/// as part of the object implementing this trait.
 pub(crate) trait ServerHandshake {
-    /// The type for the onion key.  This is a private key type.
-    type KeyType;
+    /// Custom parameters used per handshake rather than long lived config stored
+    /// in the object implementing this trait.
+    type HandshakeParams;
     /// The returned key generator type.
     type KeyGen;
     /// Type of extra data sent from client (without forward secrecy).
@@ -141,7 +143,7 @@ pub(crate) trait ServerHandshake {
     fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
         reply_fn: &mut REPLY,
-        key: &[Self::KeyType],
+        materials: &Self::HandshakeParams,
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)>;
 }

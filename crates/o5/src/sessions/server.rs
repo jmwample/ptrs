@@ -1,12 +1,14 @@
 use crate::{
     common::{
         discard, drbg,
-        ntor_arti::{RelayHandshakeError, ServerHandshake, SessionID, SessionIdentifier},
+        ntor_arti::{
+            AuxDataReply, RelayHandshakeError, ServerHandshake, SessionID, SessionIdentifier,
+        },
     },
     constants::*,
     framing,
     handshake::{NtorV3KeyGen, SHSMaterials},
-    proto::{O4Stream, O5Stream},
+    proto::{O5Stream, ObfuscatedStream},
     server::Server,
     sessions::{Established, Fault, Initialized, Session},
     Error, Result,
@@ -113,10 +115,11 @@ impl<S: ServerSessionState> ServerSession<S> {
 
 impl ServerSession<Initialized> {
     /// Attempt to complete the handshake with a new client connection.
-    pub async fn handshake<T>(
+    pub async fn handshake<REPLY: AuxDataReply<Server>, T>(
         self,
         server: &Server,
         mut stream: T,
+        extensions_handler: &mut REPLY,
         deadline: Option<Instant>,
     ) -> Result<O5Stream<T>>
     where
@@ -129,7 +132,8 @@ impl ServerSession<Initialized> {
 
         // default deadline
         let d_def = Instant::now() + SERVER_HANDSHAKE_TIMEOUT;
-        let handshake_fut = server.complete_handshake(&mut stream, materials, deadline);
+        let handshake_fut =
+            server.complete_handshake(&mut stream, extensions_handler, materials, deadline);
 
         let mut keygen =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
@@ -161,7 +165,7 @@ impl ServerSession<Initialized> {
         let session_state: ServerSession<Established> = session.transition(Established {});
 
         codec.handshake_complete();
-        let o4 = O4Stream::new(stream, codec, Session::Server(session_state));
+        let o4 = ObfuscatedStream::new(stream, codec, Session::Server(session_state));
 
         Ok(O5Stream::from_o4(o4))
     }
@@ -171,9 +175,10 @@ impl Server {
     /// Complete the handshake with the client. This function assumes that the
     /// client has already sent a message and that we do not know yet if the
     /// message is valid.
-    async fn complete_handshake<T>(
+    async fn complete_handshake<REPLY: AuxDataReply<Self>, T>(
         &self,
         mut stream: T,
+        reply_fn: &mut REPLY,
         materials: SHSMaterials,
         deadline: Option<Instant>,
     ) -> Result<impl NtorV3KeyGen<ID = SessionID>>
@@ -192,7 +197,7 @@ impl Server {
             }
             trace!("{} successful read {n}B", session_id);
 
-            match self.server(&mut |_: &()| Some(()), &[materials.clone()], &buf[..n]) {
+            match self.server(reply_fn, &[materials.clone()], &buf[..n]) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
                     info!("{} handshake complete", session_id);
