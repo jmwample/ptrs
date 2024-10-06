@@ -1,16 +1,10 @@
-use crate::{
-    constants::*,
-    handshake::O5NtorPublicKey,
-    proto::{O5Stream, IAT},
-    Error, OBFS4_NAME,
-};
+use crate::{constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
 use ptrs::{args::Args, FutureResult as F};
 
 use std::{
     marker::PhantomData,
     net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
-    str::FromStr,
     time::Duration,
 };
 
@@ -28,7 +22,7 @@ pub struct Transport<T> {
     _p: PhantomData<T>,
 }
 impl<T> Transport<T> {
-    pub const NAME: &'static str = OBFS4_NAME;
+    pub const NAME: &'static str = TRANSPORT_NAME;
 }
 
 impl<T> ptrs::PluggableTransport<T> for Transport<T>
@@ -39,7 +33,7 @@ where
     type ServerBuilder = crate::ServerBuilder<T>;
 
     fn name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     fn client_builder() -> <Self as ptrs::PluggableTransport<T>>::ClientBuilder {
@@ -64,7 +58,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     fn options(&mut self, opts: &Args) -> Result<&mut Self, Self::Error> {
@@ -72,14 +66,12 @@ where
 
         let state = Self::parse_state(None::<&str>, opts)?;
         self.identity_keys = state.private_key;
-        self.iat_mode(state.iat_mode);
         // self.drbg = state.drbg_seed; // TODO apply seed from args to server
 
         trace!(
-            "node_pubkey: {}, node_id: {}, iat: {}",
+            "node_pubkey: {}, node_id: {}",
             hex::encode(self.identity_keys.pk.pk.as_bytes()),
             hex::encode(self.identity_keys.pk.id.as_bytes()),
-            self.iat_mode,
         );
         Ok(self)
     }
@@ -114,7 +106,7 @@ where
     type Transport = Transport<T>;
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 
     /// Builds a new PtCommonParameters.
@@ -136,10 +128,7 @@ where
                     return Err(format!("missing argument '{NODE_ID_ARG}'").into());
                 }
                 trace!("cert string: {}", &cert_strs);
-                let ntor_pk = O5NtorPublicKey::from_str(&cert_strs)?;
-                let pk: [u8; NODE_PUBKEY_LENGTH] = *ntor_pk.pk.as_bytes();
-                let id: [u8; NODE_ID_LENGTH] = ntor_pk.id.as_bytes().try_into().unwrap();
-                (pk, id)
+                IdentityPublicKey::from_str(&cert_strs)?
             }
             None => {
                 // The "old" style (version <= 0.0.2) bridge lines use separate Node ID
@@ -154,27 +143,17 @@ where
                     .retrieve(PUBLIC_KEY_ARG)
                     .ok_or(format!("missing argument '{PUBLIC_KEY_ARG}'"))?;
 
-                let pk = <[u8; 32]>::from_hex(public_key_strs)
-                    .map_err(|e| format!("malformed public key: {e}"))?;
-                // O5NtorPublicKey::new(pk, node_id)
-                (pk, id)
+                IdentityPublicKey::from_str(&public_key_strs)
+                    .map_err(|e| format!("malformed public key: {e}"))?
             }
         };
 
-        // IAT config is common across the two bridge line formats.
-        let iat_strs = opts
-            .retrieve(IAT_ARG)
-            .ok_or(format!("missing argument '{IAT_ARG}'"))?;
-        let iat_mode = IAT::from_str(&iat_strs)?;
-
-        self.with_node_pubkey(server_materials.0)
-            .with_node_id(server_materials.1)
-            .with_iat_mode(iat_mode);
+        self.with_node_pubkey(server_materials.pk.to_bytes())
+            .with_node_id(server_materials.id.into());
         trace!(
-            "node_pubkey: {}, node_id: {}, iat: {}",
+            "node_pubkey: {}, node_id: {}",
             hex::encode(self.station_pubkey),
             hex::encode(self.station_id),
-            iat_mode
         );
 
         Ok(self)
@@ -226,7 +205,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 }
 
@@ -244,7 +223,7 @@ where
     }
 
     fn method_name() -> String {
-        OBFS4_NAME.into()
+        TRANSPORT_NAME.into()
     }
 }
 

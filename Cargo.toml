@@ -3,7 +3,7 @@
 
 members = [
     "crates/lyrebird",
-    # "crates/o5",
+    "crates/o5",
     "crates/o7",
     "crates/obfs4",
     "crates/ptrs",

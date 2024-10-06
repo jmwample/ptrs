@@ -53,7 +53,7 @@ pub(super) fn client_handshake_obfs4(
     client_handshake_obfs4_no_keygen(my_sk, materials.clone())
 }
 
-/// Helper: client handshake _without_ generating  new keys.
+/// Helper: client handshake _without_ generating new keys.
 pub(crate) fn client_handshake_obfs4_no_keygen(
     ephem: EphemeralSecret,
     materials: HandshakeMaterials,

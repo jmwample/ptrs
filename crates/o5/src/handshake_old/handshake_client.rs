@@ -84,7 +84,7 @@ pub(super) fn client_handshake_o5(
 //     verification: &[u8],
 //     my_sk: curve25519::StaticSecret,
 // ) -> EncodeResult<(NtorV3HandshakeState, Vec<u8>)> {
-pub(super) fn client_handshake_o5_no_keygen(
+pub(crate) fn client_handshake_o5_no_keygen(
     my_sk: curve25519::StaticSecret,
     materials: HandshakeMaterials,
 ) -> Result<(O5NtorHandshakeState, Vec<u8>)> {
@@ -238,7 +238,8 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn client_handshake2_no_auth_check_obfs4<T>(
+// TODO: THIS IS STILL OBFS4
+pub(crate) fn client_handshake2_no_auth_check_o5<T>(
     msg: T,
     state: &O5NtorHandshakeState,
 ) -> Result<(O5NtorKeyGenerator, Authcode)>
