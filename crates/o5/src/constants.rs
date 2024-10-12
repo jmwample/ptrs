@@ -1,14 +1,17 @@
 #![allow(unused)]
 
-use tor_llcrypto::pk::rsa::RSA_ID_LEN;
+use tor_llcrypto::pk::ed25519::ED25519_ID_LEN;
 
+pub use crate::common::ntor_arti::SESSION_ID_LEN;
 use crate::{
-    common::{curve25519::REPRESENTATIVE_LENGTH, drbg},
+    common::{drbg, mlkem1024_x25519, x25519_elligator2::REPRESENTATIVE_LENGTH},
     framing,
     handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;
+
+pub const PUBLIC_KEY_LEN: usize = mlkem1024_x25519::PUBKEY_LEN;
 
 //=========================[Framing/Msgs]=====================================//
 
@@ -51,7 +54,6 @@ pub const NODE_ID_ARG: &str = "node-id";
 pub const PUBLIC_KEY_ARG: &str = "public-key";
 pub const PRIVATE_KEY_ARG: &str = "private-key";
 pub const SEED_ARG: &str = "drbg-seed";
-pub const IAT_ARG: &str = "iat-mode";
 pub const CERT_ARG: &str = "cert";
 
 pub const BIAS_CMD_ARG: &str = "obfs4-distBias";
@@ -66,14 +68,12 @@ pub const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 #[cfg(not(test))]
 pub const SERVER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub const MAX_IAT_DELAY: usize = 100;
+pub const MAX_IPT_DELAY: usize = 100;
 pub const MAX_CLOSE_DELAY: usize = 60;
 pub const MAX_CLOSE_DELAY_BYTES: usize = MAX_HANDSHAKE_LENGTH;
 
 pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
 pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::MESSAGE_OVERHEAD;
 
-pub const SESSION_ID_LEN: usize = 8;
-
-pub const NODE_ID_LENGTH: usize = RSA_ID_LEN;
-pub const NODE_PUBKEY_LENGTH: usize = 32;
+pub const NODE_ID_LENGTH: usize = ED25519_ID_LEN;
+pub const NODE_PUBKEY_LENGTH: usize = mlkem1024_x25519::PUBKEY_LEN;

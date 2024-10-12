@@ -6,7 +6,7 @@ use crate::{
     constants::*,
     framing,
     sessions::Session,
-    Error, Result,
+    Result,
 };
 
 use bytes::{Buf, BytesMut};
@@ -27,44 +27,12 @@ use std::{
 
 use super::framing::{FrameError, Messages};
 
-#[allow(dead_code, unused)]
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub enum IAT {
-    #[default]
-    Off,
-    Enabled,
-    Paranoid,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) enum MaybeTimeout {
     Default_,
     Fixed(Instant),
     Length(Duration),
     Unset,
-}
-
-impl std::str::FromStr for IAT {
-    type Err = Error;
-    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
-        match s {
-            "0" => Ok(IAT::Off),
-            "1" => Ok(IAT::Enabled),
-            "2" => Ok(IAT::Paranoid),
-            _ => Err(format!("invalid iat-mode '{s}'").into()),
-        }
-    }
-}
-
-impl std::fmt::Display for IAT {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IAT::Off => write!(f, "0")?,
-            IAT::Enabled => write!(f, "1")?,
-            IAT::Paranoid => write!(f, "2")?,
-        }
-        Ok(())
-    }
 }
 
 impl MaybeTimeout {
@@ -85,29 +53,35 @@ impl MaybeTimeout {
 }
 
 #[pin_project]
+/// AsyncReadable and AsyncWritable Obfuscated stream
+///
+/// Writing in plaintext gets turned into obfuscated bytes and reading obfuscated
+/// ciphertext results in decrypted planitext.
+///
+/// TODO: this needs significantly more documentation
 pub struct O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
     // s: Arc<Mutex<O4Stream<'a, T>>>,
     #[pin]
-    s: O4Stream<T>,
+    s: ObfuscatedStream<T>,
 }
 
 impl<T> O5Stream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    pub(crate) fn from_o4(o4: O4Stream<T>) -> Self {
+    pub(crate) fn from_o4(os: ObfuscatedStream<T>) -> Self {
         O5Stream {
             // s: Arc::new(Mutex::new(o4)),
-            s: o4,
+            s: os,
         }
     }
 }
 
 #[pin_project]
-pub(crate) struct O4Stream<T>
+pub(crate) struct ObfuscatedStream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -115,12 +89,12 @@ where
     pub stream: Framed<T, framing::O5Codec>,
 
     pub length_dist: probdist::WeightedDist,
-    pub iat_dist: probdist::WeightedDist,
+    pub ipt_dist: probdist::WeightedDist,
 
     pub session: Session,
 }
 
-impl<T> O4Stream<T>
+impl<T> ObfuscatedStream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -129,7 +103,7 @@ where
         inner: T,
         codec: framing::O5Codec,
         session: Session,
-    ) -> O4Stream<T> {
+    ) -> Self {
         let stream = Framed::new(inner, codec);
         let len_seed = session.len_seed();
 
@@ -137,7 +111,7 @@ where
         hasher.update(len_seed.as_bytes());
         // the result of a sha256 haash is 32 bytes (256 bits) so we will
         // always have enough for a seed here.
-        let iat_seed = drbg::Seed::try_from(&hasher.finalize()[..SEED_LENGTH]).unwrap();
+        let ipt_seed = drbg::Seed::try_from(&hasher.finalize()[..SEED_LENGTH]).unwrap();
 
         let length_dist = WeightedDist::new(
             len_seed,
@@ -145,8 +119,8 @@ where
             framing::MAX_SEGMENT_LENGTH as i32,
             session.biased(),
         );
-        let iat_dist = WeightedDist::new(
-            iat_seed,
+        let ipt_dist = WeightedDist::new(
+            ipt_seed,
             0,
             framing::MAX_SEGMENT_LENGTH as i32,
             session.biased(),
@@ -156,7 +130,7 @@ where
             stream,
             session,
             length_dist,
-            iat_dist,
+            ipt_dist,
         }
     }
 
@@ -170,7 +144,7 @@ where
         }
     }
 
-    /*// TODO Apply pad_burst logic and IAT policy to packet assembly (probably as part of AsyncRead / AsyncWrite impl)
+    /*// TODO Apply pad_burst logic and Inter-packet timing policy to packet assembly (probably as part of AsyncRead / AsyncWrite impl)
     /// Attempts to pad a burst of data so that the last packet is of the length
     /// `to_pad_to`. This can involve creating multiple packets, making this
     /// slightly complex.
@@ -213,7 +187,7 @@ where
     } */
 }
 
-impl<T> AsyncWrite for O4Stream<T>
+impl<T> AsyncWrite for ObfuscatedStream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -284,7 +258,7 @@ where
     }
 }
 
-impl<T> AsyncRead for O4Stream<T>
+impl<T> AsyncRead for ObfuscatedStream<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {

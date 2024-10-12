@@ -131,7 +131,8 @@ async fn transfer_10k_x3() -> Result<()> {
 
     let (c, mut s) = tokio::io::duplex(1024 * 1000);
 
-    let o4_server = Server::getrandom();
+    let mut rng = rand::thread_rng();
+    let o4_server = Server::new_from_random(&mut rng);
     let client_config = o4_server.client_params();
 
     tokio::spawn(async move {

@@ -10,34 +10,77 @@
 //!
 //! Currently, this module implements only the "ntor" handshake used
 //! for circuits on today's Tor.
-use std::borrow::Borrow;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use crate::Result;
+use crate::{
+    common::{colorize, mlkem1024_x25519},
+    Error, Result,
+};
 //use zeroize::Zeroizing;
 use tor_bytes::SecretBuf;
 
+pub const SESSION_ID_LEN: usize = 8;
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
+pub struct SessionID([u8; SESSION_ID_LEN]);
+
+impl core::fmt::Display for SessionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]", colorize(hex::encode(&self.0)))
+    }
+}
+
+impl core::fmt::Debug for SessionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl From<[u8; SESSION_ID_LEN]> for SessionID {
+    fn from(value: [u8; SESSION_ID_LEN]) -> Self {
+        SessionID(value)
+    }
+}
+
+impl TryFrom<&[u8]> for SessionID {
+    type Error = Error;
+    fn try_from(buf: &[u8]) -> Result<Self> {
+        if buf.len() < SESSION_ID_LEN {
+            return Err(
+                IoError::new(IoErrorKind::InvalidInput, "too few bytes for session id").into(),
+            );
+        }
+        let v: [u8; SESSION_ID_LEN] = core::array::from_fn(|i| buf[i]);
+        Ok(SessionID(v))
+    }
+}
+
+pub trait ClientHandshakeMaterials {
+    /// The type for the onion key.
+    type IdentityKeyType;
+    /// Type of extra data sent from client (without forward secrecy).
+    type ClientAuxData: ?Sized;
+
+    fn node_pubkey(&self) -> &Self::IdentityKeyType;
+    fn aux_data(&self) -> Option<&Self::ClientAuxData>;
+}
+
 /// A ClientHandshake is used to generate a client onionskin and
 /// handle a relay onionskin.
-pub(crate) trait ClientHandshake {
-    /// The type for the onion key.
-    type KeyType;
+pub trait ClientHandshake {
+    type HandshakeMaterials: ClientHandshakeMaterials;
     /// The type for the state that the client holds while waiting for a reply.
     type StateType;
     /// A type that is returned and used to generate session keys.x
     type KeyGen;
-    /// Type of extra data sent from client (without forward secrecy).
-    type ClientAuxData: ?Sized;
     /// Type of extra data returned by server (without forward secrecy).
     type ServerAuxData;
+
     /// Generate a new client onionskin for a relay with a given onion key,
     /// including `client_aux_data` to be sent without forward secrecy.
     ///
     /// On success, return a state object that will be used to
     /// complete the handshake, along with the message to send.
-    fn client1<M: Borrow<Self::ClientAuxData>>(
-        key: &Self::KeyType,
-        client_aux_data: &M,
-    ) -> Result<(Self::StateType, Vec<u8>)>;
+    fn client1(materials: Self::HandshakeMaterials) -> Result<(Self::StateType, Vec<u8>)>;
     /// Handle an onionskin from a relay, and produce aux data returned
     /// from the server, and a key generator.
     ///
@@ -75,10 +118,12 @@ where
 }
 
 /// A ServerHandshake is used to handle a client onionskin and generate a
-/// server onionskin.
+/// server onionskin. It is assumed that the (long term identity) keys are stored
+/// as part of the object implementing this trait.
 pub(crate) trait ServerHandshake {
-    /// The type for the onion key.  This is a private key type.
-    type KeyType;
+    /// Custom parameters used per handshake rather than long lived config stored
+    /// in the object implementing this trait.
+    type HandshakeParams;
     /// The returned key generator type.
     type KeyGen;
     /// Type of extra data sent from client (without forward secrecy).
@@ -98,7 +143,7 @@ pub(crate) trait ServerHandshake {
     fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
         reply_fn: &mut REPLY,
-        key: &[Self::KeyType],
+        materials: &Self::HandshakeParams,
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)>;
 }
@@ -113,6 +158,11 @@ pub(crate) trait ServerHandshake {
 pub trait KeyGenerator {
     /// Consume the key
     fn expand(self, keylen: usize) -> Result<SecretBuf>;
+}
+
+pub trait SessionIdentifier {
+    type ID: core::fmt::Display + core::fmt::Debug + PartialEq;
+    fn session_id(&mut self) -> Self::ID;
 }
 
 /// Generates keys based on SHAKE-256.
@@ -137,7 +187,7 @@ impl KeyGenerator for ShakeKeyGenerator {
 }
 
 /// An error produced by a Relay's attempt to handle a client's onion handshake.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum RelayHandshakeError {
     /// Occurs when a check did not fail, but requires updated input from the
     /// calling context. For example, a handshake that requires more bytes to
@@ -148,6 +198,10 @@ pub enum RelayHandshakeError {
     /// An error in parsing  a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
+
+    /// Error happened during cryptographic handshake
+    #[error("")]
+    CryptoError(mlkem1024_x25519::EncodeError),
 
     /// The client asked for a key we didn't have.
     #[error("Client asked for a key or ID that we don't have")]

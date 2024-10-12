@@ -1,11 +1,11 @@
 #![allow(unused)]
 
 use crate::{
-    common::{colorize, HmacSha256},
+    common::{colorize, mlkem1024_x25519, HmacSha256},
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    handshake::O5NtorPublicKey,
-    proto::{MaybeTimeout, O5Stream, IAT},
+    handshake::IdentityPublicKey,
+    proto::{MaybeTimeout, O5Stream},
     sessions, Error, Result,
 };
 
@@ -26,8 +26,7 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
-    pub iat_mode: IAT,
-    pub station_pubkey: [u8; KEY_LENGTH],
+    pub station_pubkey: [u8; PUBLIC_KEY_LEN],
     pub station_id: [u8; NODE_ID_LENGTH],
     pub statefile_path: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
@@ -36,8 +35,7 @@ pub struct ClientBuilder {
 impl Default for ClientBuilder {
     fn default() -> Self {
         Self {
-            iat_mode: IAT::Off,
-            station_pubkey: [0u8; KEY_LENGTH],
+            station_pubkey: [0u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
@@ -49,8 +47,7 @@ impl ClientBuilder {
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
         Ok(Self {
-            iat_mode: IAT::Off,
-            station_pubkey: [0_u8; KEY_LENGTH],
+            station_pubkey: [0_u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
@@ -60,15 +57,14 @@ impl ClientBuilder {
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         Ok(Self {
-            iat_mode: IAT::Off,
-            station_pubkey: [0_u8; KEY_LENGTH],
+            station_pubkey: [0_u8; PUBLIC_KEY_LEN],
             station_id: [0_u8; NODE_ID_LENGTH],
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
 
-    pub fn with_node_pubkey(&mut self, pubkey: [u8; KEY_LENGTH]) -> &mut Self {
+    pub fn with_node_pubkey(&mut self, pubkey: [u8; PUBLIC_KEY_LEN]) -> &mut Self {
         self.station_pubkey = pubkey;
         self
     }
@@ -80,11 +76,6 @@ impl ClientBuilder {
 
     pub fn with_node_id(&mut self, id: [u8; NODE_ID_LENGTH]) -> &mut Self {
         self.station_id = id;
-        self
-    }
-
-    pub fn with_iat_mode(&mut self, iat: IAT) -> &mut Self {
-        self.iat_mode = iat;
         self
     }
 
@@ -105,11 +96,8 @@ impl ClientBuilder {
 
     pub fn build(&self) -> Client {
         Client {
-            iat_mode: self.iat_mode,
-            station_pubkey: O5NtorPublicKey {
-                id: self.station_id.into(),
-                pk: self.station_pubkey.into(),
-            },
+            station_pubkey: IdentityPublicKey::new(self.station_pubkey, self.station_id)
+                .expect("failed to build client - bad options."),
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }
@@ -129,8 +117,7 @@ impl fmt::Display for ClientBuilder {
 
 /// Client implementing the obfs4 protocol.
 pub struct Client {
-    iat_mode: IAT,
-    station_pubkey: O5NtorPublicKey,
+    station_pubkey: IdentityPublicKey,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 
@@ -144,7 +131,7 @@ impl Client {
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
-        let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
+        let session = sessions::new_client_session(self.station_pubkey);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
@@ -163,7 +150,7 @@ impl Client {
     {
         let stream = stream_fut.await.map_err(|e| Error::Other(Box::new(e)))?;
 
-        let session = sessions::new_client_session(self.station_pubkey, self.iat_mode);
+        let session = sessions::new_client_session(self.station_pubkey);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 

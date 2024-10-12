@@ -1,6 +1,7 @@
 use crate::framing::FrameError;
 
 use std::array::TryFromSliceError;
+use std::num::NonZeroUsize;
 use std::string::FromUtf8Error;
 use std::{fmt::Display, str::FromStr};
 
@@ -32,6 +33,16 @@ pub enum Error {
     BadCircHandshakeAuth,
     InvalidKDFOutputLength,
 
+    /// An error that occurred in the tor_bytes crate while decoding an
+    /// object.
+    // #[error("Unable to parse {object}")]
+    BytesError {
+        /// What we were trying to parse.
+        object: &'static str,
+        /// The error that occurred while parsing it.
+        // #[source]
+        err: tor_bytes::Error,
+    },
     // TODO: do we need to keep this?
     CellDecodeErr {
         /// What we were trying to parse.
@@ -63,6 +74,7 @@ impl Display for Error {
             Error::InvalidKDFOutputLength => {
                 write!(f, "Tried to extract too many bytes from a KDF")
             }
+            Error::BytesError { object, err } => write!(f, "Unable to parse {object}: {err}"),
             Error::CellDecodeErr { object, err } => {
                 write!(f, "Unable to decode cell {object}: {err}")
             }
@@ -182,6 +194,24 @@ impl From<tor_cell::Error> for Error {
             object: "",
             err: value,
         }
+    }
+}
+
+impl Error {
+    /// Create an error for a tor_bytes error that occurred while encoding
+    /// something of type `object`.
+    pub(crate) fn from_bytes_enc(err: tor_bytes::EncodeError, _object: &'static str) -> Error {
+        Error::EncodeError(Box::new(err))
+    }
+
+    /// Create an error for a tor_bytes error that occurred while parsing
+    /// something of type `object`.
+    pub(crate) fn from_bytes_err(err: tor_bytes::Error, object: &'static str) -> Error {
+        Error::BytesError { err, object }
+    }
+
+    pub(crate) fn incomplete_error(_deficit: NonZeroUsize) -> tor_bytes::Error {
+        tor_bytes::Error::Truncated
     }
 }
 

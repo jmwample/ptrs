@@ -7,7 +7,7 @@ use crate::{
 use bytes::{Buf, BufMut, BytesMut};
 use crypto_secretbox::{
     aead::{generic_array::GenericArray, Aead, KeyInit},
-    XSalsa20Poly1305,
+    XChaCha20Poly1305,
 };
 use ptrs::{debug, error, trace};
 use rand::prelude::*;
@@ -199,7 +199,7 @@ impl Decoder for EncryptingCodec {
 
         // Unseal the frame
         let key = GenericArray::from_slice(&self.decoder.key);
-        let cipher = XSalsa20Poly1305::new(key);
+        let cipher = XChaCha20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.decoder.next_nonce); // unique per message
 
         let res = cipher.decrypt(nonce, data.as_ref());
@@ -284,7 +284,7 @@ impl<T: Buf> Encoder<T> for EncryptingCodec {
 
         // Encrypt and MAC payload
         let key = GenericArray::from_slice(&self.encoder.key);
-        let cipher = XSalsa20Poly1305::new(key);
+        let cipher = XChaCha20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&nonce_bytes); // unique per message
 
         let ciphertext = cipher.encrypt(nonce, plaintext_frame.as_ref())?;
