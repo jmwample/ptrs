@@ -4,6 +4,8 @@
 /// steady state transfer.
 use crate::common::{drbg, mlkem1024_x25519};
 
+use tor_bytes::Readable;
+
 mod client;
 pub(crate) use client::{new_client_session, ClientSession};
 
@@ -15,6 +17,14 @@ pub type SessionSecretKey = mlkem1024_x25519::StaticSecret;
 
 /// Public key type associated with SessionSecretKey.
 pub type SessionPublicKey = mlkem1024_x25519::PublicKey;
+
+
+impl Readable for SessionPublicKey {
+    fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
+        todo!("SessionPublicKey Reader needs implemented");
+    }
+}
+
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;

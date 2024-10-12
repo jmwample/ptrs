@@ -25,7 +25,9 @@ rand = { version="0.8.5", features=["getrandom"]}
 rand_core = "0.6.4"
 
 ## Crypto
-digest = { version = "0.10.7", features=["mac"]}
+digest = { version = "0.10.7", features=["mac", "core-api"]}
+typenum = "1.17.0"
+block-buffer = "0.10.4"
 siphasher = "1.0.0"
 sha2 = "0.10.8"
 hmac = { version="0.12.1", features=["reset"]}

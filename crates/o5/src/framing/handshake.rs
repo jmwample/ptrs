@@ -3,16 +3,19 @@ use crate::{
         utils::get_epoch_hour, // make_hs_pad},
         HmacSha256,
     },
-    // constants::*,
     handshake::{Authcode, CHSMaterials, AUTHCODE_LENGTH},
     sessions::SessionPublicKey,
     Result,
 };
 
 use bytes::BufMut;
-// use hmac::Mac;
+use block_buffer::Eager;
+use digest::{core_api::{BlockSizeUser, CoreProxy, UpdateCore, FixedOutputCore, BufferKindUser}, HashMarker};
+use hmac::{Hmac, Mac};
 use ptrs::trace;
+use typenum::{consts::U256, operator_aliases::Le, type_operators::IsLess, marker_traits::NonZero};
 use tor_cell::relaycell::extend::NtorV3Extension;
+use tor_llcrypto::d::Sha3_256;
 
 // -----------------------------[ Server ]-----------------------------
 
@@ -122,9 +125,25 @@ impl<'a> ClientHandshakeMessage<'a> {
         self.epoch_hour.clone()
     }
 
-    pub fn marshall(&mut self, _buf: &mut impl BufMut, mut _h: HmacSha256) -> Result<()> {
+    pub fn marshall(
+        &mut self,
+        buf: &mut impl BufMut,
+        key: &[u8],
+    ) -> Result<()> {
         trace!("serializing client handshake");
 
+        let h = Hmac::<Sha3_256>::new_from_slice(key).unwrap();
+
+        self.marshall_inner(buf, h)
+    }
+
+    pub fn marshall_inner<D>(&mut self, _buf: &mut impl BufMut, _h: Hmac<D>) -> Result<()>
+    where
+        D: CoreProxy,
+        D::Core: HashMarker + UpdateCore + FixedOutputCore + BufferKindUser<BufferKind = Eager> + Default + Clone,
+        <D::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
+        Le<<D::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
+    {
         todo!("when this is causing panic re-visit");
         // NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
         //     .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;

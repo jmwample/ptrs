@@ -197,7 +197,7 @@ impl Server {
             }
             trace!("{} successful read {n}B", session_id);
 
-            match self.server(reply_fn, &[materials.clone()], &buf[..n]) {
+            match self.server(reply_fn, &materials, &buf[..n]) {
                 Ok((keygen, response)) => {
                     stream.write_all(&response).await?;
                     info!("{} handshake complete", session_id);

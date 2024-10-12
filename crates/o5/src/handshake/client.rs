@@ -12,7 +12,7 @@ use crate::{
 };
 
 use bytes::BytesMut;
-use hmac::{Hmac, Mac};
+use hmac::Hmac;
 use keys::NtorV3KeyGenerator;
 // use cipher::KeyIvInit;
 use rand::{CryptoRng, Rng, RngCore};
@@ -26,7 +26,6 @@ use tor_llcrypto::{
 };
 use zeroize::Zeroizing;
 
-//------------------------------[obfs4]-----------------------------------------//
 
 /// Client state for the o5 (ntor v3) handshake.
 ///
@@ -62,9 +61,7 @@ impl HandshakeState {
     }
 }
 
-//-----------------------------[ntorv3]----------------------------------------//
-
-/// materials required to initiate a handshake from the client role.
+/// Materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct HandshakeMaterials {
     pub(crate) node_pubkey: IdentityPublicKey,
@@ -196,10 +193,9 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen(
     // --------
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-    let mut key = materials.node_pubkey.pk.as_bytes().to_vec();
-    key.append(&mut materials.node_pubkey.id.as_bytes().to_vec());
-    let h = Hmac::<Sha3_256>::new_from_slice(&key[..]).unwrap();
-    client_msg.marshall(&mut buf, h);
+    let mut hmac_key = materials.node_pubkey.pk.as_bytes().to_vec();
+    hmac_key.append(&mut materials.node_pubkey.id.as_bytes().to_vec());
+    client_msg.marshall(&mut buf, &hmac_key[..]);
     let message = buf.to_vec();
 
     let state = HandshakeState {

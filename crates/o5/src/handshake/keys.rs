@@ -82,7 +82,7 @@ impl std::string::ToString for IdentityPublicKey {
 }
 
 impl Readable for IdentityPublicKey {
-    fn take_from(b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
+    fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
         todo!("IdentityPublicKey Reader needs implemented");
     }
 }
