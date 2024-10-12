@@ -53,10 +53,10 @@ tokio-util = { version = "0.7.10", features = ["codec", "io"]}
 bytes = "1.5.0"
 
 ## ntor_arti
-tor-cell = "0.22.0"
-tor-llcrypto = "0.22.0"
-tor-error = "0.22.0"
-tor-bytes = "0.22.0"
+tor-cell = "0.23.0"
+tor-llcrypto = "0.23.0"
+tor-error = "0.23.0"
+tor-bytes = "0.23.0"
 cipher = "0.4.4"
 zeroize = "1.7.0"
 thiserror = "1.0.56"
