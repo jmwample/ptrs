@@ -20,21 +20,18 @@ pub(crate) struct HandshakeMaterials {
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
 
-impl<'a> HandshakeMaterials {
+impl HandshakeMaterials {
     pub fn get_hmac(&self) -> HmacSha256 {
         let mut key = self.identity_keys.pk.pk.as_bytes().to_vec();
         key.append(&mut self.identity_keys.pk.id.as_bytes().to_vec());
         HmacSha256::new_from_slice(&key[..]).unwrap()
     }
 
-    pub fn new<'b>(
-        identity_keys: &'b Obfs4NtorSecretKey,
+    pub fn new(
+        identity_keys: &Obfs4NtorSecretKey,
         session_id: String,
         len_seed: [u8; SEED_LENGTH],
-    ) -> Self
-    where
-        'b: 'a,
-    {
+    ) -> Self {
         HandshakeMaterials {
             identity_keys: identity_keys.clone(),
             session_id,
