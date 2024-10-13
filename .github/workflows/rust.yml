@@ -106,7 +106,7 @@ jobs:
     # deps and the stated MSRV. 1.70 should work for all
     - uses: dtolnay/rust-toolchain@1.77.0
     - run: cargo test --workspace --all-targets --all-features
-    # Also make sure the AVX2 build works
+    # Also make sure the build works
     - run: cargo build --target x86_64-unknown-linux-gnu
     # The PTRS crate has fewer dependencies and a lower msrv
     - uses: dtolnay/rust-toolchain@1.70
