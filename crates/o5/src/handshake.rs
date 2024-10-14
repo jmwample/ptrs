@@ -44,7 +44,7 @@ pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
 mod server;
 pub(crate) use server::HandshakeMaterials as SHSMaterials;
 
-use crate::common::mlkem1024_x25519;
+use crate::common::xwing;
 
 /// The verification string to be used for circuit extension.
 pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
@@ -196,7 +196,7 @@ fn h_verify(d: &[u8]) -> DigestVal {
 /// diffie-hellman as Bx or Xb), the relay's public key information,
 /// the client's public key (B), and the shared verification string.
 fn kdf_msgkdf(
-    xb: &mlkem1024_x25519::SharedSecret,
+    xb: &xwing::SharedSecret,
     relay_public: &IdentityPublicKey,
     client_public: &SessionPublicKey,
     verification: &[u8],
@@ -268,12 +268,13 @@ mod test {
     #![allow(clippy::useless_vec)]
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
-    use crate::common::mlkem1024_x25519::{PublicKey, StaticSecret};
     use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
+    use crate::common::xwing::{PublicKey, StaticSecret};
     use crate::constants::{NODE_ID_LENGTH, SEED_LENGTH};
     use crate::Server;
 
     use super::*;
+    use crate::test_utils::test_keys::KEYS;
     use crate::{handshake::IdentitySecretKey, sessions::SessionSecretKey};
 
     use hex::FromHex;
@@ -308,7 +309,7 @@ mod test {
             &mut rng,
             &mut rep,
             &c_handshake,
-            &[relay_private],
+            &relay_private,
             verification,
         )
         .unwrap();
@@ -389,25 +390,22 @@ mod test {
     #[test]
     fn test_ntor3_testvec() {
         let mut rng = rand::thread_rng();
-        let b = hex!("4051daa5921cfa2a1c27b08451324919538e79e788a81b38cbed097a5dff454a");
-        let id = <[u8; NODE_ID_LENGTH]>::from_hex(
-            "aaaaaaaaaaaaaaaaaaaaaaaa9fad2af287ef942632833d21f946c6260c33fae6",
-        )
-        .unwrap();
-        let x = hex!("b825a3719147bcbe5fb1d0b0fcb9c09e51948048e2e3283d2ab7b45b5ef38b49");
-        let y = hex!("4865a5b7689dafd978f529291c7171bc159be076b92186405d13220b80e2a053");
-        let b: StaticSecret = b.into();
-        let B: PublicKey = (&b).into();
-        let x: SessionSecretKey = x.into();
+        let b = hex::decode(KEYS[0].b).expect("failed to unhex b");
+        let id = <[u8; NODE_ID_LENGTH]>::from_hex(KEYS[0].id).unwrap();
+        let x = hex::decode(KEYS[0].x).expect("failed to unhex x");
+        let y = hex::decode(KEYS[0].y).expect("failed to unhex y");
+        let b = StaticSecret::try_from(&b[..]).expect("failed to parse b");
+        let B = PublicKey::from(&b);
+        let x = SessionSecretKey::try_from(&x[..]).expect("failed_to parse x");
         //let X = (&x).into();
-        let y: StaticSecret = y.into();
+        let y = StaticSecret::try_from(&y[..]).expect("failed to parse y");
 
         let client_message = hex!("68656c6c6f20776f726c64");
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
         let relay_private = IdentitySecretKey::new(b, id.into());
-        let relay_public = relay_private.pk; // { pk: B, id };
+        let relay_public = IdentityPublicKey::from(&relay_private); // { pk: B, id };
 
         let mut chs_materials = CHSMaterials::new(&relay_public, "".into());
         let (state, client_handshake) =
@@ -455,7 +453,7 @@ mod test {
     }
 
     #[test]
-    fn mlkem1024_x25519_3way_handshake_flow() {
+    fn xwing_3way_handshake_flow() {
         let mut rng = rand::thread_rng();
         // long-term server id and keys
         let server_id_keys = StaticSecret::random_from_rng(&mut rng);
@@ -465,17 +463,17 @@ mod test {
         // client open session, generating the associated ephemeral keys
         let client_session = StaticSecret::random_from_rng(&mut rng);
 
-        // client sends mlkem1024_x25519 session pubkey(s)
+        // client sends xwing session pubkey(s)
         let _cpk = PublicKey::from(&client_session);
 
-        // server computes mlkem1024_x25519 combined shared secret
+        // server computes xwing combined shared secret
         let _server_session = StaticSecret::random_from_rng(&mut rng);
         // let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
 
         // server sends mlkemx25519 session pubkey(s)
         let _spk = PublicKey::from(&client_session);
 
-        // // client computes mlkem1024_x25519 combined shared secret
+        // // client computes xwing combined shared secret
         // let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
 
         // assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);

@@ -1,10 +1,14 @@
-use crate::{constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
+use crate::{
+    common::xwing, constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error,
+    TRANSPORT_NAME,
+};
 use ptrs::{args::Args, FutureResult as F};
 
 use std::{
     marker::PhantomData,
     net::{SocketAddrV4, SocketAddrV6},
     pin::Pin,
+    str::FromStr,
     time::Duration,
 };
 
@@ -148,13 +152,8 @@ where
             }
         };
 
-        self.with_node_pubkey(server_materials.pk.to_bytes())
-            .with_node_id(server_materials.id.into());
-        trace!(
-            "node_pubkey: {}, node_id: {}",
-            hex::encode(self.station_pubkey),
-            hex::encode(self.station_id),
-        );
+        self.with_node(server_materials);
+        trace!("node details: {:?}", &self.node_details,);
 
         Ok(self)
     }

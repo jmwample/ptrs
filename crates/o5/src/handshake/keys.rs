@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
     common::{
-        // kdf::{Kdf, Ntor1Kdf},
-        mlkem1024_x25519::{self, Ciphertext, PublicKey, SharedSecret, StaticSecret},
         ntor_arti::{KeyGenerator, SessionID, SessionIdentifier},
+        // kdf::{Kdf, Ntor1Kdf},
+        xwing::{self, Ciphertext, PublicKey, SharedSecret, StaticSecret},
     },
     constants::*,
     framing::{O5Codec, KEY_MATERIAL_LENGTH},
@@ -40,14 +40,11 @@ impl From<&IdentitySecretKey> for IdentityPublicKey {
 }
 
 impl IdentityPublicKey {
-    const CERT_LENGTH: usize = mlkem1024_x25519::PUBKEY_LEN;
+    const CERT_LENGTH: usize = xwing::PUBKEY_LEN;
     const CERT_SUFFIX: &'static str = "==";
     /// Construct a new IdentityPublicKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(
-        pk: [u8; mlkem1024_x25519::PUBKEY_LEN],
-        id: [u8; NODE_ID_LENGTH],
-    ) -> Result<Self> {
+    pub(crate) fn new(pk: [u8; xwing::PUBKEY_LEN], id: [u8; NODE_ID_LENGTH]) -> Result<Self> {
         Ok(Self {
             pk: pk.try_into()?,
             id: id.into(),
@@ -110,7 +107,7 @@ impl IdentitySecretKey {
 
     pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let buf = bytes.as_ref();
-        if buf.len() < mlkem1024_x25519::PRIVKEY_LEN + NODE_ID_LENGTH {
+        if buf.len() < xwing::PRIVKEY_LEN + NODE_ID_LENGTH {
             return Err(Error::new("bad station identity cert provided"));
         }
 
@@ -156,6 +153,18 @@ impl TryFrom<&[u8]> for IdentitySecretKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
         Self::try_from_bytes(value)
+    }
+}
+
+impl Into<xwing::PublicKey> for &IdentityPublicKey {
+    fn into(self) -> xwing::PublicKey {
+        self.pk.clone()
+    }
+}
+
+impl Into<xwing::PublicKey> for &IdentitySecretKey {
+    fn into(self) -> xwing::PublicKey {
+        self.pk.pk.clone()
     }
 }
 
