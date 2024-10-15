@@ -1,7 +1,9 @@
 use crate::{
     common::{
         ct,
-        ntor_arti::{ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials},
+        ntor_arti::{
+            ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials, KeyGenerator,
+        },
         xwing::SharedSecret,
     },
     constants::*,
@@ -21,7 +23,7 @@ use tor_bytes::{EncodeResult, Reader, SecretBuf, Writer};
 use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
 use tor_llcrypto::{
-    d::{Sha3_256, Shake256},
+    d::{Sha3_256, Shake256, Shake256Reader},
     pk::ed25519::Ed25519Identity,
 };
 use zeroize::Zeroizing;
@@ -38,7 +40,7 @@ pub(crate) struct HandshakeState {
     my_sk: SessionSecretKey,
 
     /// handshake materials
-    materials: HandshakeMaterials,
+    pub(crate) materials: HandshakeMaterials,
 
     /// the computed hour at which the initial portion of the handshake was sent.
     epoch_hr: String,
@@ -103,22 +105,23 @@ pub(crate) struct NtorV3Client;
 
 /// State resulting from successful client handshake.
 pub struct HsComplete {
-    keygen: NtorV3KeyGenerator,
+    xof_reader: NtorV3XofReader,
     extensions: Vec<NtorV3Extension>,
-    remainder: (),
+    remainder: BytesMut,
 }
+
 impl ClientHandshakeComplete for HsComplete {
     type KeyGen = NtorV3KeyGenerator;
     type ServerAuxData = Vec<NtorV3Extension>;
-    type Remainder = ();
-    fn keygen(&self) -> &Self::KeyGen {
-        &self.keygen
+    type Remainder = BytesMut;
+    fn keygen(&self) -> Self::KeyGen {
+        NtorV3KeyGenerator::new::<ClientRole>(self.xof_reader.clone())
     }
     fn extensions(&self) -> &Self::ServerAuxData {
         &self.extensions
     }
-    fn remainder(&self) -> &Self::Remainder {
-        &self.remainder
+    fn remainder(&self) -> Self::Remainder {
+        self.remainder.clone()
     }
 }
 
@@ -145,19 +148,18 @@ impl ClientHandshake for NtorV3Client {
     ///
     /// The state object must match the one that was used to make the
     /// client onionskin that the server is replying to.
-    fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<Self::HsOutput> {
-        let (message, xofreader) =
+    fn client2<T: AsRef<[u8]>>(state: &mut Self::StateType, msg: T) -> Result<Self::HsOutput> {
+        let (message, xof_reader) =
             client_handshake_ntor_v3_part2(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
         let extensions = NtorV3Extension::decode(&message).map_err(|err| Error::CellDecodeErr {
             object: "ntor v3 extensions",
             err,
         })?;
-        let keygen = NtorV3KeyGenerator::new::<ClientRole>(xofreader);
 
         Ok(HsComplete {
+            xof_reader,
             extensions,
-            keygen,
-            remainder: (),
+            remainder: BytesMut::new(), // TODO: ACTUALLY FILL THIS WITH REMAINDER BYTES
         })
     }
 }

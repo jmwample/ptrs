@@ -85,16 +85,16 @@ pub trait ClientHandshake {
     ///
     /// The state object must match the one that was used to make the
     /// client onionskin that the server is replying to.
-    fn client2<T: AsRef<[u8]>>(state: Self::StateType, msg: T) -> Result<(Self::HsOutput)>;
+    fn client2<T: AsRef<[u8]>>(state: &mut Self::StateType, msg: T) -> Result<(Self::HsOutput)>;
 }
 
 pub trait ClientHandshakeComplete {
     type KeyGen;
     type ServerAuxData;
     type Remainder;
-    fn keygen(&self) -> &Self::KeyGen;
+    fn keygen(&self) -> Self::KeyGen;
     fn extensions(&self) -> &Self::ServerAuxData;
-    fn remainder(&self) -> &Self::Remainder;
+    fn remainder(&self) -> Self::Remainder;
 }
 
 /// Trait for an object that handles incoming auxiliary data and

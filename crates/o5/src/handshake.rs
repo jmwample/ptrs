@@ -5,6 +5,7 @@
 //! encrypt data (without forward secrecy) after it sends the first
 //! message.
 
+use crate::common::ntor_arti::ClientHandshakeComplete;
 use crate::sessions::SessionPublicKey;
 
 use cipher::{KeyIvInit as _, StreamCipher as _};
@@ -16,7 +17,7 @@ use zeroize::Zeroizing;
 
 mod keys;
 use keys::NtorV3XofReader;
-pub(crate) use keys::{Authcode, AUTHCODE_LENGTH};
+pub(crate) use keys::{Authcode, NtorV3KeyGenerator, AUTHCODE_LENGTH};
 pub use keys::{IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
 
 /// Super trait to be used where we require a distinction between client and server roles.
@@ -39,7 +40,9 @@ impl Role for ServerRole {
 }
 
 mod client;
-pub(crate) use client::{HandshakeMaterials as CHSMaterials, NtorV3Client};
+pub(crate) use client::{
+    HandshakeMaterials as CHSMaterials, HsComplete as ClientHsComplete, NtorV3Client,
+};
 
 mod server;
 pub(crate) use server::HandshakeMaterials as SHSMaterials;
@@ -268,7 +271,9 @@ mod test {
     #![allow(clippy::useless_vec)]
     #![allow(clippy::needless_pass_by_value)]
     //! <!-- @@ end test lint list maintained by maint/add_warning @@ -->
-    use crate::common::ntor_arti::{ClientHandshake, KeyGenerator, ServerHandshake};
+    use crate::common::ntor_arti::{
+        ClientHandshake, ClientHandshakeComplete, KeyGenerator, ServerHandshake,
+    };
     use crate::common::xwing::{PublicKey, StaticSecret};
     use crate::constants::{NODE_ID_LENGTH, SEED_LENGTH};
     use crate::Server;
@@ -332,7 +337,7 @@ mod test {
         let relay_private = IdentitySecretKey::random_from_rng(&mut testing_rng());
 
         let materials = CHSMaterials::new(&relay_private.pk, "fake_session_id-1".into());
-        let (c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
+        let (mut c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
@@ -345,8 +350,10 @@ mod test {
             .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
 
-        let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
+        let hs_complete = NtorV3Client::client2(&mut c_state, s_handshake).unwrap();
 
+        let extensions = hs_complete.extensions();
+        let mut keygen = hs_complete.keygen();
         assert!(extensions.is_empty());
         let c_keys = keygen.expand(1000).unwrap();
         let s_keys = s_keygen.expand(100).unwrap();
@@ -363,7 +370,7 @@ mod test {
         let materials = CHSMaterials::new(&relay_private.pk, "client_session_1".into())
             .with_aux_data([NtorV3Extension::RequestCongestionControl]);
 
-        let (c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
+        let (mut c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
 
         let mut rep = |msg: &[NtorV3Extension]| -> Option<Vec<NtorV3Extension>> {
             assert_eq!(msg, client_exts);
@@ -379,9 +386,11 @@ mod test {
             .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
 
-        let (extensions, keygen) = NtorV3Client::client2(c_state, s_handshake).unwrap();
+        let hs_complete = NtorV3Client::client2(&mut c_state, s_handshake).unwrap();
 
-        assert_eq!(extensions, reply_exts);
+        let extensions = hs_complete.extensions();
+        let mut keygen = hs_complete.keygen();
+        assert_eq!(extensions, &reply_exts);
         let c_keys = keygen.expand(1000).unwrap();
         let s_keys = s_keygen.expand(100).unwrap();
         assert_eq!(s_keys[..], c_keys[..100]);

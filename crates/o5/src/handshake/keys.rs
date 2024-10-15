@@ -171,6 +171,7 @@ impl Into<xwing::PublicKey> for &IdentitySecretKey {
 pub trait NtorV3KeyGen: KeyGenerator + SessionIdentifier + Into<O5Codec> {}
 
 /// Opaque wrapper type for NtorV3's hash reader.
+#[derive(Clone)]
 pub(crate) struct NtorV3XofReader(Shake256Reader);
 
 impl NtorV3XofReader {
@@ -249,9 +250,9 @@ impl KeyGenerator for NtorV3XofReader {
     }
 }
 
-impl From<NtorV3KeyGenerator> for O5Codec {
-    fn from(keygen: NtorV3KeyGenerator) -> Self {
-        keygen.codec
+impl<K: NtorV3KeyGen> From<K> for O5Codec {
+    fn from(value: K) -> Self {
+        value.into()
     }
 }
 
