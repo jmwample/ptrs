@@ -116,20 +116,39 @@ impl From<&StaticSecret> for PublicKey {
     }
 }
 
-impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
+impl TryFrom<&[u8]> for StaticSecret {
     type Error = Error;
-    fn try_from(value: [u8; PUBKEY_LEN]) -> Result<Self> {
+    fn try_from(value: &[u8]) -> Result<Self> {
+        StaticSecret::try_from_bytes(value)
+    }
+}
+
+impl TryFrom<&[u8]> for PublicKey {
+    type Error = Error;
+    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
+        if value.len() < PUBKEY_LEN {
+            return Err(Error::Crypto("bad publickey".into()));
+        }
         let mut x25519 = [0u8; X25519_PUBKEY_LEN];
         x25519.copy_from_slice(&value[..X25519_PUBKEY_LEN]);
 
         let mlkem = EncapsulationKey::try_from_bytes(&value[X25519_PUBKEY_LEN..])
             .map_err(|e| Error::EncodeError(e.into()))?;
 
+        let mut pub_key = [0u8; PUBKEY_LEN];
+        pub_key.copy_from_slice(&value[..PUBKEY_LEN]);
         Ok(Self {
             x25519: x25519.into(),
             mlkem,
-            pub_key: value,
+            pub_key,
         })
+    }
+}
+
+impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
+    type Error = Error;
+    fn try_from(value: [u8; PUBKEY_LEN]) -> Result<Self> {
+        Self::try_from(&value[..])
     }
 }
 
