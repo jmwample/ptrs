@@ -205,7 +205,7 @@ impl KeyGenerator for NtorV3KeyGenerator {
 impl NtorV3KeyGen for NtorV3KeyGenerator {}
 
 impl NtorV3KeyGenerator {
-    pub(crate) fn new<R: Role>(mut reader: NtorV3XofReader) -> Self {
+    pub fn new<R: Role>(mut reader: NtorV3XofReader) -> Self {
         // let okm = Self::kdf(&seed[..], KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN)
         //     .expect("bug: failed to derive key material from seed");
 

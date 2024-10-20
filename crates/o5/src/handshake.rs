@@ -21,18 +21,18 @@ pub(crate) use keys::{Authcode, NtorV3KeyGenerator, AUTHCODE_LENGTH};
 pub use keys::{IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
 
 /// Super trait to be used where we require a distinction between client and server roles.
-trait Role {
+pub trait Role {
     fn is_client() -> bool;
 }
 
-struct ClientRole {}
+pub struct ClientRole {}
 impl Role for ClientRole {
     fn is_client() -> bool {
         true
     }
 }
 
-struct ServerRole {}
+pub struct ServerRole {}
 impl Role for ServerRole {
     fn is_client() -> bool {
         false

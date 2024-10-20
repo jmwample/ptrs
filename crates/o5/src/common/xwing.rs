@@ -40,7 +40,7 @@ struct HybridKey {
 }
 
 #[derive(Clone, PartialEq)]
-pub(crate) struct PublicKey {
+pub struct PublicKey {
     x25519: x25519_dalek::PublicKey,
     mlkem: EncapsulationKey<ml_kem::MlKem1024>,
     pub_key: [u8; PUBKEY_LEN],
