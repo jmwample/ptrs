@@ -187,7 +187,7 @@ impl digest::XofReader for NtorV3XofReader {
 }
 
 /// A key generator returned from an ntor v3 handshake.
-pub(crate) struct NtorV3KeyGenerator {
+pub struct NtorV3KeyGenerator {
     /// The underlying `digest::XofReader`.
     reader: NtorV3XofReader,
     session_id: SessionID,
