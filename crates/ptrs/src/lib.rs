@@ -133,7 +133,6 @@ where
     /// this server based on the configuration of the server when this method
     /// is called.
     fn get_client_params(&self) -> String;
-
 }
 
 /// Server Transport builder interface

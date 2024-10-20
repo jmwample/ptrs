@@ -31,7 +31,7 @@ pub(crate) struct HandshakeMaterials {
 
 impl<'a> HandshakeMaterials {
     pub fn get_hmac<'b>(&self, identity_keys: &'b IdentitySecretKey) -> Hmac<Sha256> {
-        let mut key = identity_keys.pk.pk.as_bytes().to_vec();
+        let mut key = identity_keys.pk.ek.as_bytes().to_vec();
         key.append(&mut identity_keys.pk.id.as_bytes().to_vec());
         Hmac::<Sha256>::new_from_slice(&key[..]).unwrap()
     }
@@ -96,8 +96,8 @@ pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
     keys: &IdentitySecretKey,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
-    let secret_key_y = SessionSecretKey::random_from_rng(rng);
-    server_handshake_ntor_v3_no_keygen(rng, reply_fn, &secret_key_y, message, keys, verification)
+    let (dk_session, _ek_session) = xwing::generate_key_pair(rng);
+    server_handshake_ntor_v3_no_keygen(rng, reply_fn, &dk_session, message, keys, verification)
 }
 
 /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.

@@ -449,9 +449,7 @@ where
     let client_options = builder.get_client_params();
     let server = builder.build();
 
-    info!(
-        "({obfs4_name}) client params: \"{}\"", client_options
-    );
+    info!("({obfs4_name}) client params: \"{}\"", client_options);
 
     let listener = tokio::net::TcpListener::bind(listen_addrs).await?;
     listeners.push(server_listen_loop::<TcpStream, _, _>(

@@ -1,22 +1,9 @@
-//! Combined Kyber (ML-KEM) 1024 and X25519 Hybrid Public Key Encryption (HPKE) scheme.
+//! X-Wing Hybrid Public Key Encapsulation
 //!
-//! > For the client's share, the key_exchange value contains the
-//! > concatenation of the client's X25519 ephemeral share (32 bytes) and
-//! > the client's Kyber768Draft00 public key (1184 bytes).  The resulting
-//! > key_exchange value is 1216 bytes in length.
-//! >
-//! > For the server's share, the key_exchange value contains the
-//! > concatenation of the server's X25519 ephemeral share (32 bytes) and
-//! > the Kyber768Draft00 ciphertext (1088 bytes) returned from
-//! > encapsulation for the client's public key.  The resulting
-//! > key_exchange value is 1120 bytes in length.
-//! >
-//! > The shared secret is calculated as the concatenation of the X25519
-//! > shared secret (32 bytes) and the Kyber768Draft00 shared secret (32
-//! > bytes).  The resulting shared secret value is 64 bytes in length.
+//! todo!
 
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{DecapsulationKey, EncapsulationKey, Encode, OKemCore};
+use kemeleon::{Encode, OKemCore};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 use subtle::ConstantTimeEq;
@@ -31,99 +18,115 @@ pub(crate) const MLKEM1024_PUBKEY_LEN: usize = 1530;
 pub(crate) const PUBKEY_LEN: usize = MLKEM1024_PUBKEY_LEN + X25519_PUBKEY_LEN;
 pub(crate) const PRIVKEY_LEN: usize = 1;
 
-pub struct StaticSecret(HybridKey);
+pub struct DecapsulationKey {
+    decap: x_wing::DecapsulationKey,
+    kemeleon_byte: u8,
+    elligator2_byte: u8,
+    pub_key: EncapsulationKey,
 
-struct HybridKey {
-    x25519: x25519_dalek::StaticSecret,
-    mlkem: DecapsulationKey<ml_kem::MlKem1024>,
-    pub_key: PublicKey,
+    /// Keeping this around because we have extra randomness bytes that we need
+    /// to keep track of for both elligator2 and kemeleon. -_-
+    byteformat: [u8; PRIVKEY_LEN + PUBKEY_LEN],
 }
 
 #[derive(Clone, PartialEq)]
-pub struct PublicKey {
-    x25519: x25519_dalek::PublicKey,
-    mlkem: EncapsulationKey<ml_kem::MlKem1024>,
-    pub_key: [u8; PUBKEY_LEN],
+pub struct EncapsulationKey {
+    encap: x_wing::EncapsulationKey,
+    /// public key encoded as bytes using obfuscating encodings.
+    pub_key_obfs: [u8; PUBKEY_LEN],
 }
 
-impl StaticSecret {
-    pub fn random_from_rng<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        Self(HybridKey::new(rng))
-    }
+/// Generate a X-Wing key pair using the provided rng.
+pub fn generate_key_pair(rng: &mut impl CryptoRngCore) -> (DecapsulationKey, EncapsulationKey) {
+    let (dk, ek) = x_wing::generate_key_pair(rng);
+    (dk, ek)
+}
 
+pub struct Ciphertext(x_wing::Ciphertext);
+
+impl kem::Decapsulate<Ciphertext, SharedSecret> for DecapsulationKey {
+    type Error = Error;
+    fn decapsulate(
+        &self,
+        encapsulated_key: &Ciphertext,
+    ) -> std::result::Result<SharedSecret, Self::Error> {
+        // self.decap.decapsulate(encapsulated_key).into()
+        todo!("out for lunch")
+    }
+}
+
+impl kem::Encapsulate<Ciphertext, SharedSecret> for EncapsulationKey {
+    type Error = Error;
+    fn encapsulate(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> std::result::Result<(Ciphertext, SharedSecret), Self::Error> {
+        todo!("out of order")
+    }
+}
+
+impl DecapsulationKey {
     // TODO: THIS NEEDS TESTED
     pub fn try_from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let buf = bytes.as_ref();
+        if buf.len() < 32 {
+            return Err(Error::Crypto("malformed DecapsulationKey provided".into()));
+        }
 
-        let sk: [u8; X25519_PRIVKEY_LEN] = core::array::from_fn(|i| buf[i]);
-        let x25519 = x25519_dalek::StaticSecret::from(sk);
+        let mut b = [0u8; 32];
+        b.copy_from_slice(&buf[..32]);
+        let privkey = x_wing::DecapsulationKey::from(b);
 
-        let mlkem = DecapsulationKey::from_fips_bytes(&buf[X25519_PRIVKEY_LEN..])
-            .map_err(|e| Error::EncodeError(e.into()))?;
+        todo!("not implemented: back in an hour");
+        // let sk: [u8; X25519_PRIVKEY_LEN] = core::array::from_fn(|i| buf[i]);
+        // let x25519 = x25519_dalek::StaticSecret::from(sk);
 
-        let pubkey_buf: [u8; PUBKEY_LEN] = core::array::from_fn(|i| buf[PRIVKEY_LEN + i]);
-        let pub_key = PublicKey::try_from(pubkey_buf)?;
+        // let mlkem = DecapsulationKey::from_fips_bytes(&buf[X25519_PRIVKEY_LEN..])
+        //     .map_err(|e| Error::EncodeError(e.into()))?;
 
-        Ok(Self(HybridKey {
-            pub_key,
-            mlkem,
-            x25519,
-        }))
+        // let pubkey_buf: [u8; PUBKEY_LEN] = core::array::from_fn(|i| buf[PRIVKEY_LEN + i]);
+        // let pub_key = EncapsulationKey::try_from(pubkey_buf)?;
+
+        // Ok(Self{
+        //     decap,
+        //     kemeleon_byte,
+        //     elligator2_byte,
+        //     pub_key,
+        //     byteformat,
+        // })
     }
 
     pub fn as_bytes(&self) -> [u8; PRIVKEY_LEN + PUBKEY_LEN] {
-        let mut out = [0u8; PRIVKEY_LEN + PUBKEY_LEN];
-        out[..X25519_PRIVKEY_LEN].copy_from_slice(&self.0.x25519.to_bytes()[..]);
-        out[X25519_PRIVKEY_LEN..PRIVKEY_LEN].copy_from_slice(&self.0.mlkem.to_fips_bytes()[..]);
-        out[PRIVKEY_LEN..PRIVKEY_LEN + PUBKEY_LEN].copy_from_slice(&self.0.pub_key.as_bytes());
-        out
-    }
-
-    pub fn with_pub<'a>(&'a self, pubkey: &'a PublicKey) -> KeyMix<'a> {
-        self.0.with_pub(pubkey)
-    }
-
-    /// Hybrid Public Key Encryption (HPKE) handshake for ML-KEM1024 + X25519
-    ///
-    /// This is a custom interface for now as there isn't an example interface that I am aware of.
-    /// (Read - this will likely change in the future)
-    pub fn hpke<R: RngCore + CryptoRng>(
-        &self,
-        rng: &mut R,
-        pubkey: &PublicKey,
-    ) -> Result<(Ciphertext, SharedSecret)> {
-        self.with_pub(&pubkey)
-            .encapsulate(rng)
-            .map_err(|e| Error::Crypto(e.to_string()))
+        self.byteformat.clone()
     }
 }
 
-impl core::fmt::Debug for PublicKey {
+impl core::fmt::Debug for EncapsulationKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", hex::encode(self.as_bytes()))
     }
 }
 
-impl PublicKey {
+impl EncapsulationKey {
     pub fn as_bytes(&self) -> &[u8] {
-        &self.pub_key
+        &self.pub_key_obfs
     }
 }
 
-impl From<&StaticSecret> for PublicKey {
-    fn from(value: &StaticSecret) -> Self {
-        value.0.public_key().clone()
+impl From<&DecapsulationKey> for EncapsulationKey {
+    fn from(value: &DecapsulationKey) -> Self {
+        value.pub_key.clone()
     }
 }
 
-impl TryFrom<&[u8]> for StaticSecret {
+impl TryFrom<&[u8]> for DecapsulationKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self> {
-        StaticSecret::try_from_bytes(value)
+        DecapsulationKey::try_from_bytes(value)
     }
 }
 
-impl TryFrom<&[u8]> for PublicKey {
+impl TryFrom<&[u8]> for EncapsulationKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
         if value.len() < PUBKEY_LEN {
@@ -132,20 +135,19 @@ impl TryFrom<&[u8]> for PublicKey {
         let mut x25519 = [0u8; X25519_PUBKEY_LEN];
         x25519.copy_from_slice(&value[..X25519_PUBKEY_LEN]);
 
-        let mlkem = EncapsulationKey::try_from_bytes(&value[X25519_PUBKEY_LEN..])
+        let mlkem = kemeleon::EncapsulationKey::try_from_bytes(&value[X25519_PUBKEY_LEN..])
             .map_err(|e| Error::EncodeError(e.into()))?;
 
         let mut pub_key = [0u8; PUBKEY_LEN];
         pub_key.copy_from_slice(&value[..PUBKEY_LEN]);
         Ok(Self {
-            x25519: x25519.into(),
-            mlkem,
-            pub_key,
+            encap,
+            pub_key_obfs,
         })
     }
 }
 
-impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
+impl TryFrom<[u8; PUBKEY_LEN]> for EncapsulationKey {
     type Error = Error;
     fn try_from(value: [u8; PUBKEY_LEN]) -> Result<Self> {
         Self::try_from(&value[..])
@@ -153,7 +155,7 @@ impl TryFrom<[u8; PUBKEY_LEN]> for PublicKey {
 }
 
 pub struct SharedSecret {
-    x25519: x25519_dalek::SharedSecret,
+    shared_secret: x_wing::SharedSecret,
     x25519_raw: [u8; 32],
     mlkem: [u8; 32],
 }
@@ -170,12 +172,6 @@ impl SharedSecret {
     pub fn as_bytes(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.x25519_raw.as_ptr(), 64) }
     }
-
-    /// Ensure in constant-time that the x25519 portion of this shared secret did not result
-    /// from a key exchange with non-contributory behaviour.
-    pub fn was_contributory(&self) -> bool {
-        self.x25519.was_contributory()
-    }
 }
 
 impl core::fmt::Debug for SharedSecret {
@@ -189,96 +185,6 @@ impl core::fmt::Debug for SharedSecret {
     }
 }
 
-impl HybridKey {
-    fn new<R: CryptoRng + RngCore>(rng: &mut R) -> Self {
-        let (dk, ek) = kemeleon::MlKem1024::generate(rng);
-        let x25519 = x25519_dalek::StaticSecret::random_from_rng(rng);
-        let x25519_pub = x25519_dalek::PublicKey::from(&x25519);
-        let mut pub_key = [0u8; PUBKEY_LEN];
-        pub_key[..X25519_PUBKEY_LEN].copy_from_slice(x25519_pub.as_bytes());
-        pub_key[X25519_PUBKEY_LEN..].copy_from_slice(&ek.as_bytes());
-
-        Self {
-            pub_key: PublicKey {
-                x25519: x25519_dalek::PublicKey::from(&x25519),
-                mlkem: ek,
-                pub_key,
-            },
-            mlkem: dk,
-            x25519,
-        }
-    }
-
-    fn public_key(&self) -> &PublicKey {
-        &self.pub_key
-    }
-
-    fn with_pub<'a>(&'a self, pubkey: &'a PublicKey) -> KeyMix<'a> {
-        KeyMix {
-            local_private: self,
-            remote_public: pubkey,
-        }
-    }
-}
-
-pub struct KeyMix<'a> {
-    local_private: &'a HybridKey,
-    remote_public: &'a PublicKey,
-}
-
-impl Encapsulate<Ciphertext, SharedSecret> for KeyMix<'_> {
-    type Error = EncodeError;
-
-    // Diffie Helman  / Encapsulate
-    fn encapsulate(
-        &self,
-        rng: &mut impl CryptoRngCore,
-    ) -> std::result::Result<(Ciphertext, SharedSecret), Self::Error> {
-        let (ciphertext, local_ss_mlkem) = self.remote_public.mlkem.encapsulate(rng).unwrap();
-        let local_ss_x25519 = self
-            .local_private
-            .x25519
-            .diffie_hellman(&self.remote_public.x25519);
-        let ss = SharedSecret {
-            x25519_raw: (&local_ss_x25519).to_bytes(),
-            mlkem: local_ss_mlkem.into(),
-            x25519: local_ss_x25519,
-        };
-        let mut ct = x25519_dalek::PublicKey::from(&self.local_private.x25519)
-            .as_bytes()
-            .to_vec();
-        ct.append(&mut ciphertext.as_bytes().to_vec());
-        Ok((ct, ss))
-    }
-}
-
-pub type Ciphertext = Vec<u8>;
-
-impl Decapsulate<Ciphertext, SharedSecret> for HybridKey {
-    type Error = EncodeError;
-
-    // Required method
-    fn decapsulate(
-        &self,
-        encapsulated_key: &Ciphertext,
-    ) -> std::result::Result<SharedSecret, Self::Error> {
-        let arr = kemeleon::Ciphertext::try_from(&encapsulated_key[32..])?;
-        let local_ss_mlkem = self.mlkem.decapsulate(&arr)?;
-
-        let mut remote_public = [0u8; 32];
-        remote_public[..32].copy_from_slice(&encapsulated_key[..32]);
-        let local_ss_x25519 = self
-            .x25519
-            .diffie_hellman(&x25519_dalek::PublicKey::from(remote_public));
-
-        Ok(SharedSecret {
-            x25519_raw: (&local_ss_x25519).to_bytes(),
-            mlkem: local_ss_mlkem.into(),
-            x25519: local_ss_x25519,
-        })
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -287,18 +193,23 @@ mod test {
     #[test]
     fn example_lib_usage() {
         let rng = &mut rand::thread_rng();
-        let alice_priv_key = HybridKey::new(rng);
-        let alice_pub = alice_priv_key.public_key();
+        let (dk_alice, ek_alice) = generate_key_pair(rng);
 
-        let bob_priv_key = HybridKey::new(rng);
-        let (ct, bob_ss) = bob_priv_key.with_pub(alice_pub).encapsulate(rng).unwrap();
+        let (dk_bob, ek_bob) = generate_key_pair(rng);
+        let (ct, bob_ss) = ek_alice
+            .encapsulate(rng)
+            .expect("failed to encapsulate a secret");
 
-        let alice_ss = alice_priv_key.decapsulate(&ct).unwrap();
+        let alice_ss = dk_alice.decapsulate(&ct).unwrap();
         assert_eq!(alice_ss, bob_ss);
     }
 
     #[test]
-    fn it_works() {
+    /// Make sure that serializing and then deserializing each type of object works as expected.
+    fn ser_de() {}
+
+    #[test]
+    fn proof_of_concept() {
         let mut rng = rand::thread_rng();
 
         // --- Generate Keypair (Alice) ---

@@ -4,7 +4,7 @@ use crate::{
         ntor_arti::{
             ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials, KeyGenerator,
         },
-        xwing::SharedSecret,
+        xwing::{DecapsulationKey, SharedSecret},
     },
     constants::*,
     framing::handshake::ClientHandshakeMessage,
@@ -53,8 +53,8 @@ pub(crate) struct HandshakeState {
 }
 
 impl HandshakeState {
-    fn node_pubkey(&self) -> &xwing::PublicKey {
-        &self.materials.node_pubkey.pk
+    fn node_pubkey(&self) -> &xwing::EncapsulationKey {
+        &self.materials.node_pubkey.ek
     }
 
     fn node_id(&self) -> Ed25519Identity {
@@ -174,8 +174,8 @@ pub(crate) fn client_handshake_ntor_v3<R: RngCore + CryptoRng>(
     materials: HandshakeMaterials,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let my_sk = SessionSecretKey::random_from_rng(rng);
-    client_handshake_ntor_v3_no_keygen(my_sk, materials, verification)
+    let (dk_session, _ek_session) = xwing::generate_key_pair(rng);
+    client_handshake_ntor_v3_no_keygen(dk_session, materials, verification)
 }
 
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH

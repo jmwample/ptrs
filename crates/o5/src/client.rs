@@ -64,7 +64,7 @@ impl ClientBuilder {
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: [u8; PUBLIC_KEY_LEN]) -> Result<&mut Self> {
-        self.node_details.pk = xwing::PublicKey::try_from(&pubkey[..])?;
+        self.node_details.ek = xwing::EncapsulationKey::try_from(&pubkey[..])?;
         Ok(self)
     }
 

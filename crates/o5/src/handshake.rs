@@ -212,7 +212,7 @@ fn kdf_msgkdf(
     msg_kdf.write(&xb.as_bytes())?;
     msg_kdf.write(&relay_public.id)?;
     msg_kdf.write(&client_public.as_bytes())?;
-    msg_kdf.write(&relay_public.pk.as_bytes())?;
+    msg_kdf.write(&relay_public.ek.as_bytes())?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
     let mut r = msg_kdf.take().finalize_xof();
@@ -226,7 +226,7 @@ fn kdf_msgkdf(
         mac.write(&T_MSGMAC)?;
         mac.write(&Encap(&mac_key[..]))?;
         mac.write(&relay_public.id)?;
-        mac.write(&relay_public.pk.as_bytes())?;
+        mac.write(&relay_public.ek.as_bytes())?;
         mac.write(&client_public.as_bytes())?;
     }
 
@@ -274,7 +274,7 @@ mod test {
     use crate::common::ntor_arti::{
         ClientHandshake, ClientHandshakeComplete, KeyGenerator, ServerHandshake,
     };
-    use crate::common::xwing::{PublicKey, StaticSecret};
+    use crate::common::xwing::{DecapsulationKey, EncapsulationKey};
     use crate::constants::{NODE_ID_LENGTH, SEED_LENGTH};
     use crate::Server;
 
@@ -403,11 +403,11 @@ mod test {
         let id = <[u8; NODE_ID_LENGTH]>::from_hex(KEYS[0].id).unwrap();
         let x = hex::decode(KEYS[0].x).expect("failed to unhex x");
         let y = hex::decode(KEYS[0].y).expect("failed to unhex y");
-        let b = StaticSecret::try_from(&b[..]).expect("failed to parse b");
-        let B = PublicKey::from(&b);
+        let b = DecapsulationKey::try_from(&b[..]).expect("failed to parse b");
+        let B = EncapsulationKey::from(&b);
         let x = SessionSecretKey::try_from(&x[..]).expect("failed_to parse x");
         //let X = (&x).into();
-        let y = StaticSecret::try_from(&y[..]).expect("failed to parse y");
+        let y = DecapsulationKey::try_from(&y[..]).expect("failed to parse y");
 
         let client_message = hex!("68656c6c6f20776f726c64");
         let verification = hex!("78797a7a79");
@@ -465,22 +465,19 @@ mod test {
     fn xwing_3way_handshake_flow() {
         let mut rng = rand::thread_rng();
         // long-term server id and keys
-        let server_id_keys = StaticSecret::random_from_rng(&mut rng);
-        let _server_id_pub = PublicKey::from(&server_id_keys);
+        let (dk_si, ek_si) = xwing::generate_key_pair(&mut rng);
         // let server_id = ID::new();
 
         // client open session, generating the associated ephemeral keys
-        let client_session = StaticSecret::random_from_rng(&mut rng);
-
-        // client sends xwing session pubkey(s)
-        let _cpk = PublicKey::from(&client_session);
+        // and sends xwing session pubkey using an obfuscated encoding
+        // along with an obfuscated ciphertext containing an initial shared secret
+        let (dk_cs, ek_cs) = xwing::generate_key_pair(&mut rng);
 
         // server computes xwing combined shared secret
-        let _server_session = StaticSecret::random_from_rng(&mut rng);
+        let (dk_ss, ek_ss) = xwing::generate_key_pair(&mut rng);
         // let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
 
         // server sends mlkemx25519 session pubkey(s)
-        let _spk = PublicKey::from(&client_session);
 
         // // client computes xwing combined shared secret
         // let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);

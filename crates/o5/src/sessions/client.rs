@@ -275,7 +275,7 @@ impl<S: ClientSessionState> std::fmt::Debug for ClientSession<S> {
             f,
             "[ id:{}, ident_pk:{}, epoch_hr:{} ]",
             hex::encode(self.node_pubkey.id.as_bytes()),
-            hex::encode(self.node_pubkey.pk.as_bytes()),
+            hex::encode(self.node_pubkey.ek.as_bytes()),
             self.epoch_hour,
         )
     }

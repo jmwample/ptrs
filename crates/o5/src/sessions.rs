@@ -13,10 +13,10 @@ mod server;
 pub(crate) use server::ServerSession;
 
 /// Ephermeral single use session secret key type
-pub type SessionSecretKey = xwing::StaticSecret;
+pub type SessionSecretKey = xwing::DecapsulationKey;
 
 /// Public key type associated with SessionSecretKey.
-pub type SessionPublicKey = xwing::PublicKey;
+pub type SessionPublicKey = xwing::EncapsulationKey;
 
 impl Readable for SessionPublicKey {
     fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {

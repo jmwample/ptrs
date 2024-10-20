@@ -108,7 +108,10 @@ pub struct ClientHandshakeMessage<'a> {
 }
 
 impl<'a> ClientHandshakeMessage<'a> {
-    pub(crate) fn new(client_session_pubkey: SessionPublicKey, hs_materials: &'a CHSMaterials) -> Self {
+    pub(crate) fn new(
+        client_session_pubkey: SessionPublicKey,
+        hs_materials: &'a CHSMaterials,
+    ) -> Self {
         Self {
             hs_materials,
             client_session_pubkey,

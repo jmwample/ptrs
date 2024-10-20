@@ -3,7 +3,7 @@ use crate::{
     common::{
         ntor_arti::{KeyGenerator, SessionID, SessionIdentifier},
         // kdf::{Kdf, Ntor1Kdf},
-        xwing::{self, Ciphertext, PublicKey, SharedSecret, StaticSecret},
+        xwing::{self, Ciphertext, DecapsulationKey, EncapsulationKey, SharedSecret},
     },
     constants::*,
     framing::{O5Codec, KEY_MATERIAL_LENGTH},
@@ -30,7 +30,7 @@ pub struct IdentityPublicKey {
     /// The relay's identity.
     pub(crate) id: Ed25519Identity,
     /// The relay's onion key.
-    pub(crate) pk: PublicKey,
+    pub(crate) ek: EncapsulationKey,
 }
 
 impl From<&IdentitySecretKey> for IdentityPublicKey {
@@ -44,9 +44,9 @@ impl IdentityPublicKey {
     const CERT_SUFFIX: &'static str = "==";
     /// Construct a new IdentityPublicKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(pk: [u8; xwing::PUBKEY_LEN], id: [u8; NODE_ID_LENGTH]) -> Result<Self> {
+    pub(crate) fn new(ek_bytes: [u8; xwing::PUBKEY_LEN], id: [u8; NODE_ID_LENGTH]) -> Result<Self> {
         Ok(Self {
-            pk: pk.try_into()?,
+            ek: ek_bytes.try_into()?,
             id: id.into(),
         })
     }
@@ -64,8 +64,8 @@ impl std::str::FromStr for IdentityPublicKey {
             return Err(format!("cert length {} is invalid", decoded.len()).into());
         }
         let id: [u8; NODE_ID_LENGTH] = decoded[..NODE_ID_LENGTH].try_into()?;
-        let pk: [u8; NODE_PUBKEY_LENGTH] = decoded[NODE_ID_LENGTH..].try_into()?;
-        IdentityPublicKey::new(pk, id)
+        let ek: [u8; NODE_PUBKEY_LENGTH] = decoded[NODE_ID_LENGTH..].try_into()?;
+        IdentityPublicKey::new(ek, id)
     }
 }
 
@@ -73,7 +73,7 @@ impl std::str::FromStr for IdentityPublicKey {
 impl std::string::ToString for IdentityPublicKey {
     fn to_string(&self) -> String {
         let mut s = Vec::from(self.id.as_bytes());
-        s.extend(self.pk.as_bytes());
+        s.extend(self.ek.as_bytes());
         STANDARD_NO_PAD.encode(s)
     }
 }
@@ -89,17 +89,17 @@ pub struct IdentitySecretKey {
     /// The relay's public key information
     pub(crate) pk: IdentityPublicKey,
     /// The secret onion key.
-    pub(super) sk: StaticSecret,
+    pub(super) sk: DecapsulationKey,
 }
 
 impl IdentitySecretKey {
     /// Construct a new IdentitySecretKey from its components.
     #[allow(unused)]
-    pub(crate) fn new(sk: StaticSecret, id: Ed25519Identity) -> Self {
+    pub(crate) fn new(sk: DecapsulationKey, id: Ed25519Identity) -> Self {
         Self {
             pk: IdentityPublicKey {
                 id,
-                pk: PublicKey::from(&sk),
+                ek: EncapsulationKey::from(&sk),
             },
             sk,
         }
@@ -113,7 +113,7 @@ impl IdentitySecretKey {
 
         let mut id = [0u8; NODE_ID_LENGTH];
         id.copy_from_slice(&buf[..NODE_ID_LENGTH]);
-        let sk = StaticSecret::try_from_bytes(&buf[NODE_ID_LENGTH..])?;
+        let sk = DecapsulationKey::try_from_bytes(&buf[NODE_ID_LENGTH..])?;
         Ok(Self::new(sk, id.into()))
     }
 
@@ -122,30 +122,16 @@ impl IdentitySecretKey {
         let mut id = [0_u8; NODE_ID_LENGTH];
         // Random bytes will work for testing, but aren't necessarily actually a valid id.
         rng.fill_bytes(&mut id);
-        let sk = StaticSecret::random_from_rng(rng);
-        Self::new(sk, id.into())
+        // let sk = DecapsulationKey::random_from_rng(rng);
+        let (dk, ek) = xwing::generate_key_pair(rng);
+        Self::new(dk, id.into())
     }
 
     /// Checks whether `id` and `pk` match this secret key.
     ///
     /// Used to perform a constant-time secret key lookup.
-    pub(crate) fn matches(&self, id: Ed25519Identity, pk: PublicKey) -> Choice {
-        id.as_bytes().ct_eq(self.pk.id.as_bytes()) & pk.as_bytes().ct_eq(self.pk.pk.as_bytes())
-    }
-
-    /// Hybrid Public Key Encryption (HPKE) handshake for ML-KEM1024 + X25519
-    ///
-    /// This is a custom interface for now as there isn't an example interface that I am aware of.
-    /// (Read - this will likely change in the future)
-    pub fn hpke<R: RngCore + CryptoRng>(
-        &self,
-        rng: &mut R,
-        pubkey: &IdentityPublicKey,
-    ) -> Result<(Ciphertext, SharedSecret)> {
-        self.sk
-            .with_pub(&pubkey.pk)
-            .encapsulate(rng)
-            .map_err(|e| Error::Crypto(e.to_string()))
+    pub(crate) fn matches(&self, id: Ed25519Identity, ek: EncapsulationKey) -> Choice {
+        id.as_bytes().ct_eq(self.pk.id.as_bytes()) & ek.as_bytes().ct_eq(self.pk.ek.as_bytes())
     }
 }
 
@@ -156,15 +142,15 @@ impl TryFrom<&[u8]> for IdentitySecretKey {
     }
 }
 
-impl Into<xwing::PublicKey> for &IdentityPublicKey {
-    fn into(self) -> xwing::PublicKey {
-        self.pk.clone()
+impl Into<xwing::EncapsulationKey> for &IdentityPublicKey {
+    fn into(self) -> xwing::EncapsulationKey {
+        self.ek.clone()
     }
 }
 
-impl Into<xwing::PublicKey> for &IdentitySecretKey {
-    fn into(self) -> xwing::PublicKey {
-        self.pk.pk.clone()
+impl Into<xwing::EncapsulationKey> for &IdentitySecretKey {
+    fn into(self) -> xwing::EncapsulationKey {
+        self.pk.ek.clone()
     }
 }
 

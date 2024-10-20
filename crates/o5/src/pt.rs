@@ -74,7 +74,7 @@ where
 
         trace!(
             "node_pubkey: {}, node_id: {}",
-            hex::encode(self.identity_keys.pk.pk.as_bytes()),
+            hex::encode(self.identity_keys.pk.ek.as_bytes()),
             hex::encode(self.identity_keys.pk.id.as_bytes()),
         );
         Ok(self)
