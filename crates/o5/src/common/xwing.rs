@@ -3,10 +3,14 @@
 //! todo!
 
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{Encode, OKemCore};
+use kemeleon::{
+    Encode, EncodingSize, KemeleonByteArraySize, KemeleonEncodingSize, OKemCore, Transcode,
+};
+use ml_kem::{EncodedSizeUser, MlKem768, MlKem768Params};
 use rand::{CryptoRng, RngCore};
 use rand_core::CryptoRngCore;
 use subtle::ConstantTimeEq;
+use typenum::Unsigned;
 
 use crate::{Error, Result};
 
@@ -14,15 +18,17 @@ pub(crate) use kemeleon::EncodeError;
 
 pub(crate) const X25519_PUBKEY_LEN: usize = 32;
 pub(crate) const X25519_PRIVKEY_LEN: usize = 32;
-pub(crate) const MLKEM1024_PUBKEY_LEN: usize = 1530;
-pub(crate) const PUBKEY_LEN: usize = MLKEM1024_PUBKEY_LEN + X25519_PUBKEY_LEN;
-pub(crate) const PRIVKEY_LEN: usize = 1;
+pub(crate) const PUBKEY_LEN: usize =
+    <MlKem768 as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE + X25519_PUBKEY_LEN;
+pub(crate) const PRIVKEY_LEN: usize = x_wing::DECAPSULATION_KEY_SIZE;
+pub(crate) const CANONICAL_PUBKEY_LEN: usize = x_wing::ENCAPSULATION_KEY_SIZE;
+pub(crate) const CANONICAL_PRIVKEY_LEN: usize = x_wing::DECAPSULATION_KEY_SIZE;
 
 pub struct DecapsulationKey {
-    decap: x_wing::DecapsulationKey,
+    dk: x_wing::DecapsulationKey,
     kemeleon_byte: u8,
     elligator2_byte: u8,
-    pub_key: EncapsulationKey,
+    ek: EncapsulationKey,
 
     /// Keeping this around because we have extra randomness bytes that we need
     /// to keep track of for both elligator2 and kemeleon. -_-
@@ -31,7 +37,7 @@ pub struct DecapsulationKey {
 
 #[derive(Clone, PartialEq)]
 pub struct EncapsulationKey {
-    encap: x_wing::EncapsulationKey,
+    ek: x_wing::EncapsulationKey,
     /// public key encoded as bytes using obfuscating encodings.
     pub_key_obfs: [u8; PUBKEY_LEN],
 }
@@ -39,7 +45,19 @@ pub struct EncapsulationKey {
 /// Generate a X-Wing key pair using the provided rng.
 pub fn generate_key_pair(rng: &mut impl CryptoRngCore) -> (DecapsulationKey, EncapsulationKey) {
     let (dk, ek) = x_wing::generate_key_pair(rng);
-    (dk, ek)
+    let extra = rng.next_u32().to_be_bytes();
+    let encap = EncapsulationKey {
+        ek,
+        pub_key_obfs: [0u8; PUBKEY_LEN],
+    };
+    let decap = DecapsulationKey {
+        dk,
+        kemeleon_byte: extra[0],
+        elligator2_byte: extra[1],
+        ek: encap.clone(),
+        byteformat: [0u8; PUBKEY_LEN + PRIVKEY_LEN],
+    };
+    (decap, encap)
 }
 
 pub struct Ciphertext(x_wing::Ciphertext);
@@ -96,8 +114,34 @@ impl DecapsulationKey {
         // })
     }
 
-    pub fn as_bytes(&self) -> [u8; PRIVKEY_LEN + PUBKEY_LEN] {
-        self.byteformat.clone()
+    /// Return byte representation in xwing standard format.
+    pub fn to_bytes_canonical(&self) -> &[u8; x_wing::DECAPSULATION_KEY_SIZE] {
+        self.dk.as_bytes()
+    }
+
+    /// Return byte representation in obfuscated encoded format.
+    pub fn as_bytes(&self) -> &[u8; PRIVKEY_LEN + PUBKEY_LEN] {
+        &self.byteformat
+    }
+}
+
+impl EncapsulationKey {
+    /// Return byte representation in xwing standard format.
+    pub fn to_bytes_canonical(&self) -> [u8; x_wing::ENCAPSULATION_KEY_SIZE] {
+        self.ek.as_bytes()
+    }
+
+    /// Return byte representation in obfuscated encoded format.
+    pub fn as_bytes(&self) -> &[u8; PUBKEY_LEN] {
+        &self.pub_key_obfs
+    }
+
+    /// Return byte representation in obfuscated encoded format.
+    pub fn from_canonical(bytes: &[u8; x_wing::ENCAPSULATION_KEY_SIZE]) -> Self {
+        Self {
+            ek: x_wing::EncapsulationKey::from(bytes),
+            pub_key_obfs: [0u8; PUBKEY_LEN],
+        }
     }
 }
 
@@ -107,15 +151,9 @@ impl core::fmt::Debug for EncapsulationKey {
     }
 }
 
-impl EncapsulationKey {
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.pub_key_obfs
-    }
-}
-
 impl From<&DecapsulationKey> for EncapsulationKey {
     fn from(value: &DecapsulationKey) -> Self {
-        value.pub_key.clone()
+        value.ek.clone()
     }
 }
 
@@ -132,17 +170,20 @@ impl TryFrom<&[u8]> for EncapsulationKey {
         if value.len() < PUBKEY_LEN {
             return Err(Error::Crypto("bad publickey".into()));
         }
-        let mut x25519 = [0u8; X25519_PUBKEY_LEN];
-        x25519.copy_from_slice(&value[..X25519_PUBKEY_LEN]);
 
-        let mlkem = kemeleon::EncapsulationKey::try_from_bytes(&value[X25519_PUBKEY_LEN..])
-            .map_err(|e| Error::EncodeError(e.into()))?;
+        let mlkem =
+            kemeleon::EncapsulationKey::<MlKem768>::try_from_bytes(&value[X25519_PUBKEY_LEN..])
+                .map_err(|e| Error::EncodeError(e.into()))?;
 
-        let mut pub_key = [0u8; PUBKEY_LEN];
-        pub_key.copy_from_slice(&value[..PUBKEY_LEN]);
+        let mut pub_key = [0u8; x_wing::ENCAPSULATION_KEY_SIZE];
+        pub_key[..X25519_PUBKEY_LEN].copy_from_slice(&value[..X25519_PUBKEY_LEN]);
+        pub_key[X25519_PUBKEY_LEN..].copy_from_slice(&mlkem.as_fips().as_bytes()[..]);
+
+        let ek = x_wing::EncapsulationKey::from(&pub_key);
+
         Ok(Self {
-            encap,
-            pub_key_obfs,
+            ek,
+            pub_key_obfs: [0u8; PUBKEY_LEN], // TODO
         })
     }
 }
@@ -206,7 +247,21 @@ mod test {
 
     #[test]
     /// Make sure that serializing and then deserializing each type of object works as expected.
-    fn ser_de() {}
+    fn ser_de() {
+        let (dk, ek) = generate_key_pair(&mut rand::thread_rng());
+        let dk_bytes = dk.to_bytes_canonical();
+        let ek_bytes = ek.to_bytes_canonical();
+
+        let ek_encoded = ek.as_bytes();
+
+        // ---
+
+        let ek_r1 = EncapsulationKey::from_canonical(&ek_bytes);
+        let ek_r2 = EncapsulationKey::try_from(&ek_encoded[..]).expect("");
+
+        assert_eq!(ek_r1, ek);
+        assert_eq!(ek_r2, ek);
+    }
 
     #[test]
     fn proof_of_concept() {
