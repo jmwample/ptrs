@@ -4,7 +4,7 @@ use crate::{
         ntor_arti::{
             ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials, KeyGenerator,
         },
-        xwing::{DecapsulationKey, SharedSecret}, HmacSha256,
+        xwing, HmacSha256,
     },
     constants::*,
     framing::handshake::ClientHandshakeMessage,
@@ -49,11 +49,8 @@ pub(crate) struct HandshakeState {
     /// the computed hour at which the initial portion of the handshake was sent.
     epoch_hr: String,
 
-    /// The shared secret generated as Bx or Xb.
-    shared_secret: SharedSecret, // Bx
-
-    /// The MAC of our original encrypted message.
-    msg_mac: MessageMac, // msg_mac
+    /// The shared secret generated as F2(node_id, encapsulation_key)
+    ephemeral_secret: SessionSharedSecret,
 }
 
 impl HandshakeState {
@@ -72,7 +69,7 @@ pub(crate) struct HandshakeMaterials {
     pub(crate) node_pubkey: IdentityPublicKey,
     pub(crate) pad_len: usize,
     pub(crate) session_id: String,
-    aux_data: Vec<NtorV3Extension>,
+    pub(crate) aux_data: Vec<NtorV3Extension>,
 }
 
 impl HandshakeMaterials {
@@ -85,7 +82,7 @@ impl HandshakeMaterials {
         }
     }
 
-    pub fn with_aux_data(mut self, data: impl AsRef<[NtorV3Extension]>) -> Self {
+    pub fn with_early_data(mut self, data: impl AsRef<[NtorV3Extension]>) -> Self {
         self.aux_data = data.as_ref().to_vec();
         self
     }
@@ -154,7 +151,7 @@ impl ClientHandshake for NtorV3Client {
     /// client onionskin that the server is replying to.
     fn client2<T: AsRef<[u8]>>(state: &mut Self::StateType, msg: T) -> Result<Self::HsOutput> {
         let (message, xof_reader) =
-            client_handshake_ntor_v3_part2(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
+            client_handshake_ntor_v3_part2::<xwing::OKem>(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
         let extensions = NtorV3Extension::decode(&message).map_err(|err| Error::CellDecodeErr {
             object: "ntor v3 extensions",
             err,
@@ -179,99 +176,41 @@ pub(crate) fn client_handshake_ntor_v3(
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)> {
     let (dk_session, _ek_session) = xwing::generate_key_pair(rng);
-    client_handshake_ntor_v3_no_keygen(rng, dk_session, materials, verification)
+    client_handshake_ntor_v3_no_keygen::<xwing::OKem>(rng, dk_session, materials, verification)
 }
 
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH
 /// key: instead take that key an arguments `my_sk`.
 ///
 /// (DK, EK , EK1) <-- OKEM.KGen()
-pub(crate) fn client_handshake_ntor_v3_no_keygen<K, D, R>(
+pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
     rng: &mut impl CryptoRngCore,
-    my_sk: K::EncapsulationKey,
+    my_sk: K::DecapsulationKey,
     materials: HandshakeMaterials,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState, Vec<u8>)>
 where
     K: OKemCore,
-    D: Digest,
-    R: RngCore,
+    K: OKemCore<DecapsulationKey = xwing::DecapsulationKey>,
 {
+    let node_pubkey = materials.node_pubkey;
     let my_public = SessionPublicKey::from(&my_sk);
-    let client_msg = ClientHandshakeMessage::new(my_public.clone(), &materials);
-
-    // -------------------------------- [ ST-PQ-OBFS ] -------------------------------- //
-    // Security Theoretic, Post-Quantum safe, Obfuscated Key exchange
-
-    let node_encap_key = materials.node_pubkey();
-    let (ciphertext, shared_secret_1) = node_encap_key.encapsulate(rng)?;
-
-    let (enc_key, mut mac) = kdf_msgkdf(&bx, node_pubkey, &my_public, verification)?;
+    let mut client_msg = ClientHandshakeMessage::new(my_public.clone(), &materials);
 
 
-    // ES = F2(NodeID, Shared_secret_1)
-    let f2 = Hmac::<Sha3_256>::new_from_slice(shared_secret_1.as_bytes())
-            .expect("HMAC can take key of any size");
-    f2.update(&shared_secret_1[..]);
-    let ephemeral_secret = f2.finalize().into_bytes();
-
-    // Encrypt the message (Extensions etc.)
-    //
-    // note that these do not benefit from forward secrecy, i.e. if the servers long term
-    // identity secret key is leaked this text can be decrypted. Once we receive the 
-    // server response w/ secrets based on ephemeral (session) secrets any further data has
-    // forward secrecy.
-    //
-    // // encrypted_msg = ENC(ephemeral_secret, client_msg)
-    let encrypted_msg = encrypt(&ephemeral_secret, client_msg);
-    // // msg_mac = MAC_msgmac(MAC_K1, ID | B | X | encrypted_msg)
-    let msg_mac: DigestVal = {
-        mac.write(&encrypted_msg)?;
-        mac.take().finalize().into()
-    };
-
-
-    // Mc = F1(ES, ek_ephemeral_obfuscated | ciphertext_1_obfuscated | ":mc")
-    let f1 = Hmac::<Sha3_256>::new_from_slice(ephemeral_secret)
-            .expect("HMAC can take key of any size");
-    f1.update(my_public.as_bytes());
-    f1.update(ciphertext_1.as_bytes());
-    f1.update(b":m_c");
-    let mark = f1.finalize().into_bytes();
-
-    // msg_mac = F1(ES,ek_ephemeral_obfuscated | ciphertext_1_obfuscated | padding | Mc | ":mac_c" )
-    f1.reset();
-    f1.update(my_public.as_bytes());
-    f1.update(ciphertext_1.as_bytes());
-    f1.update(encrypted_msg.as_bytes());
-    f1.update(padding);
-    f1.update(b":mac_c");
-
-    // Message = ES,ek_ephemeral_obfuscated | ciphertext_1_obfuscated | padding | Mc | MACc
-    let mut message = Vec::new();
-    message.write(&node_pubkey.id)?;
-    message.write(&node_pubkey.pk.as_bytes())?;
-    message.write(&my_public.as_bytes())?;
-    message.write(&encrypted_msg)?;
-    message.write(&msg_mac)?;
-
-    // ----------------------------- [ Serialize Packet ] ----------------------------- //
+    // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 
     let mut buf = BytesMut::with_capacity(MAX_HANDSHAKE_LENGTH);
-    let mut hmac_key = materials.node_pubkey.pk.as_bytes().to_vec();
-    hmac_key.append(&mut materials.node_pubkey.id.as_bytes().to_vec());
-    client_msg.marshall(&mut buf, &hmac_key[..]);
-    let message = buf.to_vec();
+    let ephemeral_secret = client_msg.marshall(rng, &mut buf)?;
 
     let state = HandshakeState {
         materials,
         my_sk,
-        shared_secret: bx,
-        msg_mac,
+        ephemeral_secret,
         epoch_hr: client_msg.get_epoch_hr(),
     };
 
-    Ok((state, message))
+    Ok((state, buf.to_vec()))
 }
 
 /// Finalize the handshake on the client side.
@@ -287,7 +226,8 @@ pub(crate) fn client_handshake_ntor_v3_part2<K>(
     verification: &[u8],
 ) -> Result<(Vec<u8>, NtorV3XofReader)>
 where
-    K: Decapsulate + OKemCore,
+    K: OKemCore,
+    K: OKemCore<DecapsulationKey = xwing::DecapsulationKey>,
 {
     todo!("client handshake part 2");
 

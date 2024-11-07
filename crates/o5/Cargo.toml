@@ -30,6 +30,7 @@ typenum = "1.17.0"
 block-buffer = "0.10.4"
 siphasher = "1.0.0"
 sha2 = "0.10.8"
+sha3 = "0.10.8"
 hmac = { version="0.12.1", features=["reset"]}
 hkdf = "0.12.3"
 crypto_secretbox = { version="0.1.1", features=["chacha20"]}

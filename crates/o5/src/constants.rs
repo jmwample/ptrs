@@ -19,8 +19,8 @@ pub const PUBLIC_KEY_LEN: usize = xwing::PUBKEY_LEN;
 pub const MAX_HANDSHAKE_LENGTH: usize = 8192;
 
 pub const SHA256_SIZE: usize = 32;
-pub const MARK_LENGTH: usize = SHA256_SIZE / 2;
-pub const MAC_LENGTH: usize = SHA256_SIZE / 2;
+pub const MARK_LENGTH: usize = SHA256_SIZE;
+pub const MAC_LENGTH: usize = SHA256_SIZE;
 
 /// Minimum padding allowed in a client handshake message
 pub const CLIENT_MIN_PAD_LENGTH: usize =
@@ -48,7 +48,13 @@ pub const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
 //===============================[Proto]======================================//
 
-pub const TRANSPORT_NAME: &str = "obfs4";
+pub const TRANSPORT_NAME: &str = "o5";
+
+pub const MARK_ARG: &str = ":05-mc";
+pub const CLIENT_MAC_ARG: &str = ":05-mac_c";
+pub const SERVER_MAC_ARG: &str = ":o5-mac_s";
+pub const SERVER_AUTH_ARG: &str = ":o5-sever_mac";
+pub const KEY_EXTRACT_ARG: &str = ":o5-key_extract";
 
 pub const NODE_ID_ARG: &str = "node-id";
 pub const PUBLIC_KEY_ARG: &str = "public-key";
@@ -56,7 +62,7 @@ pub const PRIVATE_KEY_ARG: &str = "private-key";
 pub const SEED_ARG: &str = "drbg-seed";
 pub const CERT_ARG: &str = "cert";
 
-pub const BIAS_CMD_ARG: &str = "obfs4-distBias";
+pub const BIAS_CMD_ARG: &str = "o5-distBias";
 
 pub const REPLAY_TTL: Duration = Duration::from_secs(60);
 #[cfg(test)]

@@ -1,24 +1,32 @@
 use crate::{
     common::{
-        utils::get_epoch_hour, // make_hs_pad},
+        utils::{get_epoch_hour, make_hs_pad},
         HmacSha256,
     },
-    handshake::{Authcode, CHSMaterials, AUTHCODE_LENGTH},
+    constants::*,
+    handshake::{Authcode, CHSMaterials, SessionSharedSecret, AUTHCODE_LENGTH, encrypt, decrypt},
     sessions::SessionPublicKey,
-    Result,
+    Result, Error,
 };
 
 use block_buffer::Eager;
-use bytes::BufMut;
+use bytes::{BufMut, BytesMut};
 use digest::{
     core_api::{BlockSizeUser, BufferKindUser, CoreProxy, FixedOutputCore, UpdateCore},
     HashMarker,
 };
 use hmac::{Hmac, Mac};
+use kem::{Encapsulate, Decapsulate};
 use ptrs::trace;
+use rand::Rng;
+use rand_core::CryptoRngCore;
+use sha3::Sha3_256;
 use tor_cell::relaycell::extend::NtorV3Extension;
-use tor_llcrypto::d::Sha3_256;
-use typenum::{consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess};
+use typenum::{
+    consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess,
+};
+
+use core::borrow::Borrow;
 
 // -----------------------------[ Server ]-----------------------------
 
@@ -131,15 +139,24 @@ impl<'a> ClientHandshakeMessage<'a> {
         self.epoch_hour.clone()
     }
 
-    pub fn marshall(&mut self, buf: &mut impl BufMut, key: &[u8]) -> Result<()> {
+    /// The client handshake is constructed as:
+    ///    ES = F2(NodeID, shared_secret_1)
+    ///    MSG = Enc_chacha20poly1305(ES, [extensions])
+    ///    Mc = F1(ES, EKco | CTco | ":mc")
+    ///    MACc = F1(ES, EKco | CTco | MSG | P_C | Mc | E | ":mac_c" )
+    ///    OUT = EKco | CTco | MSG | P_C | Mc | MACc
+    ///
+    /// where
+    ///    EKco is the client's ephemeral encapsulation key encoded in obfuscated form
+    ///    CTco is  client_ciphertext_obfuscated
+    ///    E is the string representation of the number of hours since the UNIX epoch.
+    ///    P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
+    pub fn marshall(&mut self, rng: &mut impl CryptoRngCore, buf: &mut impl BufMut) -> Result<SessionSharedSecret> {
         trace!("serializing client handshake");
-
-        let h = Hmac::<Sha3_256>::new_from_slice(key).unwrap();
-
-        self.marshall_inner(buf, h)
+        self.marshall_inner::<Sha3_256>(rng, buf)
     }
 
-    pub fn marshall_inner<D>(&mut self, _buf: &mut impl BufMut, _h: Hmac<D>) -> Result<()>
+    fn marshall_inner<D>(&mut self, rng: &mut impl CryptoRngCore, buf: &mut impl BufMut) -> Result<SessionSharedSecret>
     where
         D: CoreProxy,
         D::Core: HashMarker
@@ -151,41 +168,73 @@ impl<'a> ClientHandshakeMessage<'a> {
         <D::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
         Le<<D::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
     {
-        todo!("when this is causing panic re-visit");
-        // NtorV3Extension::write_many_onto(client_aux_data.borrow(), &mut message)
-        //     .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
+        // serialize our extensions into a message
+        let mut message = BytesMut::new();
+        NtorV3Extension::write_many_onto(self.hs_materials.aux_data.borrow(), &mut message)
+            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
 
-        // h.reset(); // disambiguate reset() implementations Mac v digest
-        // h.update(self.repres.as_bytes().as_ref());
-        // let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
+        // -------------------------------- [ ST-PQ-OBFS ] -------------------------------- //
+        // Security Theoretic, Post-Quantum safe, Obfuscated Key exchange
 
-        // // The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
-        // //  * X is the client's ephemeral Curve25519 public key representative.
-        // //  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
-        // //  * M_C is HMAC-SHA256-128(serverIdentity | NodeID, X)
-        // //  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, X .... E)
-        // //  * E is the string representation of the number of hours since the UNIX
-        // //    epoch.
+        let node_encap_key = self.hs_materials.node_pubkey.ek;
+        let node_id = self.hs_materials.node_pubkey.id;
+        let (ciphertext, shared_secret) = node_encap_key.encapsulate(rng)?;
 
-        // // Generate the padding
-        // let pad = make_hs_pad(self.pad_len)?;
+        // compute our ephemeral secret
+        let h = Hmac::<D>::new_from_slice(node_id.as_bytes())
+            .expect("keying hmac should never fail");
+        h.update(shared_secret.as_bytes());
+        let ephemeral_secret = h.finalize().into_bytes();
 
-        // // Write X, P_C, M_C
-        // let mut params = vec![];
-        // params.extend_from_slice(self.repres.as_bytes());
-        // params.extend_from_slice(&pad);
-        // params.extend_from_slice(mark);
-        // buf.put(params.as_slice());
+        // set up our hash fn
+        let f1_es =
+            Hmac::<D>::new_from_slice(&ephemeral_secret).expect("keying hmac should never fail");
 
-        // // Calculate and write MAC
-        // h.update(&params);
-        // self.epoch_hour = format!("{}", get_epoch_hour());
-        // h.update(self.epoch_hour.as_bytes());
-        // let mac = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
-        // buf.put(mac);
+        // compute the Mark
+        let mut params = vec![];
+        f1_es.update(&self.client_session_pubkey.encoded());
+        f1_es.update(ciphertext.encoded());
+        f1_es.update(MARK_ARG.as_bytes());
+        let mark = f1_es.finalize_reset().into_bytes();
 
-        // trace!("mark: {}, mac: {}", hex::encode(mark), hex::encode(mac));
+        // Encrypt the message (Extensions etc.)
+        //
+        // note that these do not benefit from forward secrecy, i.e. if the servers long term
+        // identity secret key is leaked this text can be decrypted. Once we receive the
+        // server response w/ secrets based on ephemeral (session) secrets any further data has
+        // forward secrecy.
+        let encrypted_msg = encrypt(&ephemeral_secret, &message);
 
-        // Ok(())
+        // Generate the padding
+        let pad_len = rng.gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH); // TODO - recalculate these
+        let pad = make_hs_pad(pad_len)?;
+
+        // Write EKco, CTco, MSG, P_C, M_C
+        let mut params = vec![];
+        params.extend_from_slice(&self.client_session_pubkey.encoded());
+        params.extend_from_slice(&ciphertext.encoded());
+        params.extend_from_slice(&message);
+        params.extend_from_slice(&pad);
+        params.extend_from_slice(&mark);
+        buf.put(params.as_slice());
+
+        // Calculate and write MAC
+        f1_es.update(&params);
+        self.epoch_hour = format!("{}", get_epoch_hour());
+        f1_es.update(self.epoch_hour.as_bytes());
+        f1_es.update(CLIENT_MAC_ARG.as_bytes());
+        let mac = f1_es.finalize_reset().into_bytes();
+        buf.put(&mac[..]);
+
+        trace!("{} - mark: {}, mac: {}", self.hs_materials.session_id(), hex::encode(mark), hex::encode(mac));
+
+        Ok(ephemeral_secret)
     }
 }
+
+// The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
+//  * X is the client's ephemeral Curve25519 public key representative.
+//  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
+//  * M_C is HMAC-SHA256-128(serverIdentity | NodeID, X)
+//  * MAC is HMAC-SHA256-128(serverIdentity | NodeID, X .... E)
+//  * E is the string representation of the number of hours since the UNIX epoch.

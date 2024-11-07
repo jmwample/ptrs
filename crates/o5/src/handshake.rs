@@ -67,10 +67,11 @@ pub const ID_LEN: usize = 32;
 type DigestVal = [u8; DIGEST_LEN];
 /// The output of the MAC.
 type MessageMac = [u8; MAC_LEN];
-/// A key for symmetric encryption or decryption.
-type EncKey = Zeroizing<[u8; ENC_KEY_LEN]>;
 /// A key for message authentication codes.
 type MacKey = [u8; MAC_KEY_LEN];
+
+/// A key for symmetric encryption or decryption.
+pub(crate) type SessionSharedSecret = Zeroizing<[u8; ENC_KEY_LEN]>;
 
 /// An encapsulated value for passing as input to a MAC, digest, or
 /// KDF algorithm.
@@ -155,7 +156,7 @@ fn hash(t: &Encap<'_>, data: &[u8]) -> DigestVal {
 ///
 /// (This isn't safe to do more than once with the same key, but we never
 /// do that in this protocol.)
-fn encrypt(key: &EncKey, m: &[u8]) -> Vec<u8> {
+pub(crate) fn encrypt(key: &SessionSharedSecret, m: &[u8]) -> Vec<u8> {
     let mut d = m.to_vec();
     let zero_iv = Default::default();
     let k: &[u8; 32] = key;
@@ -164,7 +165,7 @@ fn encrypt(key: &EncKey, m: &[u8]) -> Vec<u8> {
     d
 }
 /// Perform a symmetric decryption operation and return the encrypted data.
-fn decrypt(key: &EncKey, m: &[u8]) -> Vec<u8> {
+pub(crate) fn decrypt(key: &SessionSharedSecret, m: &[u8]) -> Vec<u8> {
     encrypt(key, m)
 }
 
@@ -203,7 +204,7 @@ fn kdf_msgkdf(
     relay_public: &IdentityPublicKey,
     client_public: &SessionPublicKey,
     verification: &[u8],
-) -> EncodeResult<(EncKey, DigestWriter<Sha3_256>)> {
+) -> EncodeResult<(SessionSharedSecret, DigestWriter<Sha3_256>)> {
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
     // phase1_keys = KDF_msgkdf(secret_input_phase1)
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
