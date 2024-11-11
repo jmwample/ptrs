@@ -59,7 +59,7 @@ tor-error = "0.24.0"
 tor-bytes = "0.24.0"
 cipher = "0.4.4"
 zeroize = "1.7.0"
-thiserror = "1.0.56"
+thiserror = "2.0.3"
 
 ## transitive dependencies that break things when versions are too low
 ## i.e. any lower than the exact versions here.
