@@ -2,7 +2,7 @@ use crate::{constants::*, Result};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand_core::RngCore;
+use rand_core::{CryptoRngCore, RngCore};
 use subtle::ConstantTimeEq;
 
 use ptrs::trace;
@@ -15,13 +15,15 @@ pub fn get_epoch_hour() -> u64 {
         / 3600
 }
 
-pub fn make_hs_pad(pad_len: usize) -> Result<Vec<u8>> {
+pub fn make_pad(rng: &mut impl CryptoRngCore, pad_len: usize) -> Vec<u8>{
     trace!("[make_hs_pad] generating {pad_len}B");
     let mut pad = vec![u8::default(); pad_len];
-    rand::thread_rng()
-        .try_fill_bytes(&mut pad)
-        .expect("rng failure");
-    Ok(pad)
+    rng.fill_bytes(&mut pad);
+    pad
+}
+
+pub fn make_hs_pad(pad_len: usize) -> Vec<u8> {
+    make_pad(&mut rand::thread_rng(), pad_len)
 }
 
 pub fn find_mac_mark(

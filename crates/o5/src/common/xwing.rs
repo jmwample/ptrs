@@ -2,6 +2,7 @@
 //!
 //! todo!
 
+use bytes::BufMut;
 use kem::{Decapsulate, Encapsulate};
 use kemeleon::{
     Encode, EncodingSize, KemeleonByteArraySize, KemeleonEncodingSize, OKemCore, Transcode,
@@ -16,8 +17,13 @@ use crate::{Error, Result};
 
 pub(crate) use kemeleon::EncodeError;
 
+pub struct OKem {
+}
+
 pub(crate) const X25519_PUBKEY_LEN: usize = 32;
 pub(crate) const X25519_PRIVKEY_LEN: usize = 32;
+pub(crate) const CIPHERTEXT_LEN: usize =
+    <MlKem768 as KemeleonByteArraySize>::ENCODED_CT_SIZE::USIZE + X25519_PUBKEY_LEN;
 pub(crate) const PUBKEY_LEN: usize =
     <MlKem768 as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE + X25519_PUBKEY_LEN;
 pub(crate) const PRIVKEY_LEN: usize = x_wing::DECAPSULATION_KEY_SIZE;
@@ -61,6 +67,27 @@ pub fn generate_key_pair(rng: &mut impl CryptoRngCore) -> (DecapsulationKey, Enc
 }
 
 pub struct Ciphertext(x_wing::Ciphertext);
+
+impl Ciphertext {
+    pub fn encode() -> [u8; CIPHERTEXT_LEN] {
+        todo!("closed for cleaning");
+    }
+
+    /// Return byte representation in obfuscated encoded format.
+    pub fn as_bytes(&self) -> &[u8; CIPHERTEXT_LEN] {
+        todo!("hibernating");
+    }
+
+    /// Return byte representation in xwing standard format.
+    pub fn to_bytes_canonical(&self) -> [u8; x_wing::CIPHERTEXT_SIZE] {
+        self.0.as_bytes()
+    }
+
+    /// Return byte representation in obfuscated encoded format.
+    pub fn from_canonical(bytes: &[u8; x_wing::CIPHERTEXT_SIZE]) -> Self {
+        Self(x_wing::Ciphertext::from(bytes))
+    }
+}
 
 impl kem::Decapsulate<Ciphertext, SharedSecret> for DecapsulationKey {
     type Error = Error;
@@ -126,14 +153,19 @@ impl DecapsulationKey {
 }
 
 impl EncapsulationKey {
-    /// Return byte representation in xwing standard format.
-    pub fn to_bytes_canonical(&self) -> [u8; x_wing::ENCAPSULATION_KEY_SIZE] {
-        self.ek.as_bytes()
+    /// Return byte representation in obfuscated encoded format.
+    pub fn encode(&self) -> [u8; PUBKEY_LEN] {
+        self.pub_key_obfs.clone()
     }
 
     /// Return byte representation in obfuscated encoded format.
     pub fn as_bytes(&self) -> &[u8; PUBKEY_LEN] {
         &self.pub_key_obfs
+    }
+
+    /// Return byte representation in xwing standard format.
+    pub fn to_bytes_canonical(&self) -> [u8; x_wing::ENCAPSULATION_KEY_SIZE] {
+        self.ek.as_bytes()
     }
 
     /// Return byte representation in obfuscated encoded format.

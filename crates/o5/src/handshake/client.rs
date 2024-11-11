@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::{
     common::{
         ct,
@@ -36,12 +38,12 @@ use zeroize::Zeroizing;
 ///
 /// The client needs to hold this state between when it sends its part
 /// of the handshake and when it receives the relay's reply.
-pub(crate) struct HandshakeState {
+pub(crate) struct HandshakeState<K: OKemCore> {
     /// The temporary curve25519 secret (x) that we've generated for
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: SessionSecretKey,
+    my_sk: K::DecapsulationKey,
 
     /// handshake materials
     pub(crate) materials: HandshakeMaterials,
@@ -50,10 +52,10 @@ pub(crate) struct HandshakeState {
     epoch_hr: String,
 
     /// The shared secret generated as F2(node_id, encapsulation_key)
-    ephemeral_secret: SessionSharedSecret,
+    ephemeral_secret: K::SharedKey,
 }
 
-impl HandshakeState {
+impl<K: OKemCore> HandshakeState<K> {
     fn node_pubkey(&self) -> &xwing::EncapsulationKey {
         &self.materials.node_pubkey.ek
     }
@@ -102,7 +104,9 @@ impl ClientHandshakeMaterials for HandshakeMaterials {
 }
 
 /// Client side of the ntor v3 handshake.
-pub(crate) struct NtorV3Client;
+pub(crate) struct NtorV3Client<K: OKemCore> {
+    _okem: PhantomData<K>,
+}
 
 /// State resulting from successful client handshake.
 pub struct HsComplete {
@@ -126,8 +130,8 @@ impl ClientHandshakeComplete for HsComplete {
     }
 }
 
-impl ClientHandshake for NtorV3Client {
-    type StateType = HandshakeState;
+impl<K: OKemCore> ClientHandshake for NtorV3Client<K> {
+    type StateType = HandshakeState<K>;
     type HandshakeMaterials = HandshakeMaterials;
     type HsOutput = HsComplete;
 
@@ -140,7 +144,7 @@ impl ClientHandshake for NtorV3Client {
         let mut rng = rand::thread_rng();
 
         Ok(
-            client_handshake_ntor_v3(&mut rng, hs_materials, NTOR3_CIRC_VERIFICATION)
+            client_handshake_ntor_v3::<K>(&mut rng, hs_materials, NTOR3_CIRC_VERIFICATION)
                 .map_err(into_internal!("Can't encode ntor3 client handshake."))?,
         )
     }
@@ -151,7 +155,7 @@ impl ClientHandshake for NtorV3Client {
     /// client onionskin that the server is replying to.
     fn client2<T: AsRef<[u8]>>(state: &mut Self::StateType, msg: T) -> Result<Self::HsOutput> {
         let (message, xof_reader) =
-            client_handshake_ntor_v3_part2::<xwing::OKem>(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
+            client_handshake_ntor_v3_part2::<K>(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
         let extensions = NtorV3Extension::decode(&message).map_err(|err| Error::CellDecodeErr {
             object: "ntor v3 extensions",
             err,
@@ -170,13 +174,16 @@ impl ClientHandshake for NtorV3Client {
 /// Given a secure `rng`, a relay's public key, a secret message to send,
 /// and a shared verification string, generate a new handshake state
 /// and a message to send to the relay.
-pub(crate) fn client_handshake_ntor_v3(
+pub(crate) fn client_handshake_ntor_v3<K>(
     rng: &mut impl CryptoRngCore,
     materials: HandshakeMaterials,
     verification: &[u8],
-) -> EncodeResult<(HandshakeState, Vec<u8>)> {
-    let (dk_session, _ek_session) = xwing::generate_key_pair(rng);
-    client_handshake_ntor_v3_no_keygen::<xwing::OKem>(rng, dk_session, materials, verification)
+) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
+where
+    K: OKemCore,
+{
+    let (session_dk, _) = K::generate(rng);
+    client_handshake_ntor_v3_no_keygen::<K>(rng, session_dk, materials, verification)
 }
 
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH
@@ -188,15 +195,12 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
     my_sk: K::DecapsulationKey,
     materials: HandshakeMaterials,
     verification: &[u8],
-) -> EncodeResult<(HandshakeState, Vec<u8>)>
+) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
 where
     K: OKemCore,
-    K: OKemCore<DecapsulationKey = xwing::DecapsulationKey>,
 {
     let node_pubkey = materials.node_pubkey;
-    let my_public = SessionPublicKey::from(&my_sk);
-    let mut client_msg = ClientHandshakeMessage::new(my_public.clone(), &materials);
-
+    let mut client_msg = ClientHandshakeMessage::new(K::EncapsulationKey::from(&my_sk), &materials);
 
     // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 
@@ -227,7 +231,6 @@ pub(crate) fn client_handshake_ntor_v3_part2<K>(
 ) -> Result<(Vec<u8>, NtorV3XofReader)>
 where
     K: OKemCore,
-    K: OKemCore<DecapsulationKey = xwing::DecapsulationKey>,
 {
     todo!("client handshake part 2");
 

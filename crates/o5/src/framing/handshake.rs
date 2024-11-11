@@ -1,12 +1,14 @@
 use crate::{
     common::{
-        utils::{get_epoch_hour, make_hs_pad},
+        utils::{get_epoch_hour, make_pad},
         HmacSha256,
     },
     constants::*,
-    handshake::{Authcode, CHSMaterials, SessionSharedSecret, AUTHCODE_LENGTH, encrypt, decrypt},
+    handshake::{
+        decrypt, encrypt, Authcode, CHSMaterials, SessionSharedSecret, AUTHCODE_LENGTH, ENC_KEY_LEN,
+    },
     sessions::SessionPublicKey,
-    Result, Error,
+    Error, Result,
 };
 
 use block_buffer::Eager;
@@ -16,15 +18,16 @@ use digest::{
     HashMarker,
 };
 use hmac::{Hmac, Mac};
-use kem::{Encapsulate, Decapsulate};
+use kem::{Decapsulate, Encapsulate};
+use kemeleon::OKemCore;
 use ptrs::trace;
 use rand::Rng;
 use rand_core::CryptoRngCore;
 use sha3::Sha3_256;
+use tor_bytes::{EncodeError, EncodeResult};
 use tor_cell::relaycell::extend::NtorV3Extension;
-use typenum::{
-    consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess,
-};
+use typenum::{consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess};
+use zeroize::{Zeroize, Zeroizing};
 
 use core::borrow::Borrow;
 
@@ -84,7 +87,7 @@ impl ServerHandshakeMessage {
         // //    epoch.
 
         // // Generate the padding
-        // let pad: &[u8] = &make_hs_pad(self.pad_len)?;
+        // let pad: &[u8] = &make_pad(rng, self.pad_len)?;
 
         // // Write Y, AUTH, P_S, M_S.
         // let mut params = vec![];
@@ -107,17 +110,21 @@ impl ServerHandshakeMessage {
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
-pub struct ClientHandshakeMessage<'a> {
+pub struct ClientHandshakeMessage<'a, K:OKemCore> {
     hs_materials: &'a CHSMaterials,
-    client_session_pubkey: SessionPublicKey,
+    client_session_pubkey: K::EncapsulationKey,
 
     // only used when parsing (i.e. on the server side)
     pub(crate) epoch_hour: String,
 }
 
-impl<'a> ClientHandshakeMessage<'a> {
+impl<'a, K> ClientHandshakeMessage<'a, K>
+where
+    K:OKemCore,
+    <K as OKemCore>::EncapsulationKey: Clone,
+{
     pub(crate) fn new(
-        client_session_pubkey: SessionPublicKey,
+        client_session_pubkey: K::EncapsulationKey,
         hs_materials: &'a CHSMaterials,
     ) -> Self {
         Self {
@@ -129,7 +136,7 @@ impl<'a> ClientHandshakeMessage<'a> {
         }
     }
 
-    pub fn get_public(&mut self) -> SessionPublicKey {
+    pub fn get_public(&mut self) -> K::EncapsulationKey {
         // trace!("repr: {}", hex::encode(self.client_session_pubkey.id);
         self.client_session_pubkey.clone()
     }
@@ -151,12 +158,20 @@ impl<'a> ClientHandshakeMessage<'a> {
     ///    CTco is  client_ciphertext_obfuscated
     ///    E is the string representation of the number of hours since the UNIX epoch.
     ///    P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
-    pub fn marshall(&mut self, rng: &mut impl CryptoRngCore, buf: &mut impl BufMut) -> Result<SessionSharedSecret> {
+    pub fn marshall(
+        &mut self,
+        rng: &mut impl CryptoRngCore,
+        buf: &mut impl BufMut,
+    ) -> EncodeResult<K::SharedKey> {
         trace!("serializing client handshake");
         self.marshall_inner::<Sha3_256>(rng, buf)
     }
 
-    fn marshall_inner<D>(&mut self, rng: &mut impl CryptoRngCore, buf: &mut impl BufMut) -> Result<SessionSharedSecret>
+    fn marshall_inner<D>(
+        &mut self,
+        rng: &mut impl CryptoRngCore,
+        buf: &mut impl BufMut,
+    ) -> EncodeResult<K::SharedKey>
     where
         D: CoreProxy,
         D::Core: HashMarker
@@ -170,30 +185,29 @@ impl<'a> ClientHandshakeMessage<'a> {
     {
         // serialize our extensions into a message
         let mut message = BytesMut::new();
-        NtorV3Extension::write_many_onto(self.hs_materials.aux_data.borrow(), &mut message)
-            .map_err(|e| Error::from_bytes_enc(e, "ntor3 handshake extensions"))?;
+        NtorV3Extension::write_many_onto(self.hs_materials.aux_data.borrow(), &mut message)?;
 
         // -------------------------------- [ ST-PQ-OBFS ] -------------------------------- //
         // Security Theoretic, Post-Quantum safe, Obfuscated Key exchange
 
-        let node_encap_key = self.hs_materials.node_pubkey.ek;
-        let node_id = self.hs_materials.node_pubkey.id;
-        let (ciphertext, shared_secret) = node_encap_key.encapsulate(rng)?;
+        let node_encap_key = &self.hs_materials.node_pubkey.ek;
+        let node_id = &self.hs_materials.node_pubkey.id;
+        let (ciphertext, shared_secret) = node_encap_key.encapsulate(rng).map_err(to_tor_err)?;
 
         // compute our ephemeral secret
-        let h = Hmac::<D>::new_from_slice(node_id.as_bytes())
-            .expect("keying hmac should never fail");
+        let mut h =
+            Hmac::<D>::new_from_slice(node_id.as_bytes()).expect("keying hmac should never fail");
         h.update(shared_secret.as_bytes());
-        let ephemeral_secret = h.finalize().into_bytes();
+        let mut ephemeral_secret = Zeroizing::new([0u8; ENC_KEY_LEN]);
+        ephemeral_secret.copy_from_slice(&h.finalize_reset().into_bytes()[..ENC_KEY_LEN]);
 
         // set up our hash fn
-        let f1_es =
-            Hmac::<D>::new_from_slice(&ephemeral_secret).expect("keying hmac should never fail");
+        let mut f1_es = Hmac::<D>::new_from_slice(ephemeral_secret.as_ref())
+            .expect("keying hmac should never fail");
 
         // compute the Mark
-        let mut params = vec![];
-        f1_es.update(&self.client_session_pubkey.encoded());
-        f1_es.update(ciphertext.encoded());
+        f1_es.update(self.client_session_pubkey.as_bytes());
+        f1_es.update(ciphertext.as_bytes());
         f1_es.update(MARK_ARG.as_bytes());
         let mark = f1_es.finalize_reset().into_bytes();
 
@@ -207,12 +221,12 @@ impl<'a> ClientHandshakeMessage<'a> {
 
         // Generate the padding
         let pad_len = rng.gen_range(CLIENT_MIN_PAD_LENGTH..CLIENT_MAX_PAD_LENGTH); // TODO - recalculate these
-        let pad = make_hs_pad(pad_len)?;
+        let pad = make_pad(rng, pad_len);
 
         // Write EKco, CTco, MSG, P_C, M_C
         let mut params = vec![];
-        params.extend_from_slice(&self.client_session_pubkey.encoded());
-        params.extend_from_slice(&ciphertext.encoded());
+        params.extend_from_slice(self.client_session_pubkey.as_bytes());
+        params.extend_from_slice(ciphertext.as_bytes());
         params.extend_from_slice(&message);
         params.extend_from_slice(&pad);
         params.extend_from_slice(&mark);
@@ -226,12 +240,24 @@ impl<'a> ClientHandshakeMessage<'a> {
         let mac = f1_es.finalize_reset().into_bytes();
         buf.put(&mac[..]);
 
-        trace!("{} - mark: {}, mac: {}", self.hs_materials.session_id(), hex::encode(mark), hex::encode(mac));
+        trace!(
+            "{} - mark: {}, mac: {}",
+            self.hs_materials.session_id,
+            hex::encode(mark),
+            hex::encode(mac)
+        );
 
         Ok(ephemeral_secret)
     }
 }
 
+
+fn to_tor_err(e: impl std::error::Error) -> EncodeError {
+    tor_bytes::EncodeError::from(tor_error::Bug::new(
+        tor_error::ErrorKind::Other,
+        format!("cryptographic encapsulation error: {e:?}"),
+    ))
+}
 // The client handshake is X | P_C | M_C | MAC(X | P_C | M_C | E) where:
 //  * X is the client's ephemeral Curve25519 public key representative.
 //  * P_C is [clientMinPadLength,clientMaxPadLength] bytes of random padding.
