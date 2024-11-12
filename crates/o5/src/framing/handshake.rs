@@ -19,7 +19,7 @@ use digest::{
 };
 use hmac::{Hmac, Mac};
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::OKemCore;
+use kemeleon::{OKemCore, Encode};
 use ptrs::trace;
 use rand::Rng;
 use rand_core::CryptoRngCore;
@@ -206,7 +206,7 @@ where
             .expect("keying hmac should never fail");
 
         // compute the Mark
-        f1_es.update(self.client_session_pubkey.as_bytes());
+        f1_es.update(&self.client_session_pubkey.as_bytes());
         f1_es.update(ciphertext.as_bytes());
         f1_es.update(MARK_ARG.as_bytes());
         let mark = f1_es.finalize_reset().into_bytes();
@@ -225,8 +225,8 @@ where
 
         // Write EKco, CTco, MSG, P_C, M_C
         let mut params = vec![];
-        params.extend_from_slice(self.client_session_pubkey.as_bytes());
-        params.extend_from_slice(ciphertext.as_bytes());
+        params.extend_from_slice(&self.client_session_pubkey.as_bytes());
+        params.extend_from_slice(&ciphertext.as_bytes());
         params.extend_from_slice(&message);
         params.extend_from_slice(&pad);
         params.extend_from_slice(&mark);

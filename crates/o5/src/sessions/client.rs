@@ -20,6 +20,7 @@ use crate::{
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
 use bytes::{BufMut, BytesMut};
+use kemeleon::OKemCore;
 use ptrs::{debug, info};
 use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -137,9 +138,10 @@ impl ClientSession<Initialized> {
     /// - response fails server auth check
     ///
     /// TODO: make sure failure modes are understood (FIN/RST w/ and w/out buffered data, etc.)
-    pub async fn handshake<T>(self, mut stream: T, deadline: Option<Instant>) -> Result<O5Stream<T>>
+    pub async fn handshake<T, K>(self, mut stream: T, deadline: Option<Instant>) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
+        K: OKemCore,
     {
         // set up for handshake
         let mut session = self.transition(ClientHandshaking {});
@@ -149,7 +151,7 @@ impl ClientSession<Initialized> {
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
         let handshake_fut =
-            Self::complete_handshake::<T, ClientHsComplete>(stream, materials, deadline);
+            Self::complete_handshake::<T, K, ClientHsComplete>(stream, materials, deadline);
         let (mut hs_complete, mut stream) =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -202,7 +204,7 @@ impl ClientSession<Initialized> {
         Ok(O5Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<T, O>(
+    async fn complete_handshake<T, K, O>(
         mut stream: T,
         materials: CHSMaterials,
         deadline: Option<Instant>,
@@ -212,9 +214,10 @@ impl ClientSession<Initialized> {
     )>
     where
         T: AsyncRead + AsyncWrite + Unpin,
+        K: OKemCore,
     {
         // let session_id = materials.session_id;
-        let (mut state, chs_message) = NtorV3Client::client1(materials)?;
+        let (mut state, chs_message) = NtorV3Client::<K>::client1(materials)?;
         // let mut file = tokio::fs::File::create("message.hex").await?;
         // file.write_all(&chs_message).await?;
         stream.write_all(&chs_message).await?;

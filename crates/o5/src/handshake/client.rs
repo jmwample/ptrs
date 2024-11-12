@@ -182,8 +182,8 @@ pub(crate) fn client_handshake_ntor_v3<K>(
 where
     K: OKemCore,
 {
-    let (session_dk, _) = K::generate(rng);
-    client_handshake_ntor_v3_no_keygen::<K>(rng, session_dk, materials, verification)
+    let keys = K::generate(rng);
+    client_handshake_ntor_v3_no_keygen::<K>(rng, keys, materials, verification)
 }
 
 /// As `client_handshake_ntor_v3`, but don't generate an ephemeral DH
@@ -192,7 +192,7 @@ where
 /// (DK, EK , EK1) <-- OKEM.KGen()
 pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
     rng: &mut impl CryptoRngCore,
-    my_sk: K::DecapsulationKey,
+    keys: (K::DecapsulationKey, K::EncapsulationKey),
     materials: HandshakeMaterials,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
@@ -200,7 +200,7 @@ where
     K: OKemCore,
 {
     let node_pubkey = materials.node_pubkey;
-    let mut client_msg = ClientHandshakeMessage::new(K::EncapsulationKey::from(&my_sk), &materials);
+    let mut client_msg = ClientHandshakeMessage::<K>::new(keys.1, &materials);
 
     // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 
@@ -209,7 +209,7 @@ where
 
     let state = HandshakeState {
         materials,
-        my_sk,
+        my_sk: keys.0,
         ephemeral_secret,
         epoch_hr: client_msg.get_epoch_hr(),
     };
@@ -224,14 +224,11 @@ where
 ///
 /// On success, return the server's reply to our original encrypted message,
 /// and an `XofReader` to use in generating circuit keys.
-pub(crate) fn client_handshake_ntor_v3_part2<K>(
-    state: &HandshakeState,
+pub(crate) fn client_handshake_ntor_v3_part2<K:OKemCore>(
+    state: &HandshakeState<K>,
     relay_handshake: &[u8],
     verification: &[u8],
-) -> Result<(Vec<u8>, NtorV3XofReader)>
-where
-    K: OKemCore,
-{
+) -> Result<(Vec<u8>, NtorV3XofReader)> {
     todo!("client handshake part 2");
 
     // let mut reader = Reader::from_slice(relay_handshake);
