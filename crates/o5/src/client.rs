@@ -11,6 +11,7 @@ use crate::{
 
 use bytes::{Buf, BufMut, BytesMut};
 use hmac::{Hmac, Mac};
+use kemeleon::OKemCore;
 use ptrs::{debug, info, trace, warn};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -130,26 +131,28 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T>>
+    pub async fn wrap<'a, T, K>(self, mut stream: T) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
+        K: OKemCore + Unpin,
     {
         let session = sessions::new_client_session(self.station_pubkey);
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake(stream, deadline).await
+        session.handshake::<T, K>(stream, deadline).await
     }
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn establish<'a, T, E>(
+    pub async fn establish<'a, T, E, K>(
         self,
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
     ) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,
+        K: OKemCore + Unpin,
     {
         let stream = stream_fut.await.map_err(|e| Error::Other(Box::new(e)))?;
 
@@ -157,7 +160,7 @@ impl Client {
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake(stream, deadline).await
+        session.handshake::<T, K>(stream, deadline).await
     }
 }
 

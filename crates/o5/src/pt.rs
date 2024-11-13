@@ -14,6 +14,7 @@ use std::{
 
 use hex::FromHex;
 use ptrs::trace;
+use kemeleon::MlKem768;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
@@ -196,11 +197,11 @@ where
     type Builder = crate::ClientBuilder;
 
     fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::establish(self, input))
+        Box::pin(crate::Client::establish::<InRW, InErr, MlKem768>(self, input))
     }
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::wrap(self, io))
+        Box::pin(crate::Client::wrap::<InRW, MlKem768>(self, io))
     }
 
     fn method_name() -> String {

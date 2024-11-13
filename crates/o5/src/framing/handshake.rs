@@ -110,22 +110,22 @@ impl ServerHandshakeMessage {
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
-pub struct ClientHandshakeMessage<'a, K:OKemCore> {
-    hs_materials: &'a CHSMaterials,
+pub struct ClientHandshakeMessage<K:OKemCore> {
+    hs_materials: CHSMaterials,
     client_session_pubkey: K::EncapsulationKey,
 
     // only used when parsing (i.e. on the server side)
     pub(crate) epoch_hour: String,
 }
 
-impl<'a, K> ClientHandshakeMessage<'a, K>
+impl<K> ClientHandshakeMessage<K>
 where
     K:OKemCore,
     <K as OKemCore>::EncapsulationKey: Clone,
 {
     pub(crate) fn new(
         client_session_pubkey: K::EncapsulationKey,
-        hs_materials: &'a CHSMaterials,
+        hs_materials: CHSMaterials,
     ) -> Self {
         Self {
             hs_materials,
@@ -162,7 +162,7 @@ where
         &mut self,
         rng: &mut impl CryptoRngCore,
         buf: &mut impl BufMut,
-    ) -> EncodeResult<K::SharedKey> {
+    ) -> EncodeResult<Zeroizing<[u8; ENC_KEY_LEN]>> {
         trace!("serializing client handshake");
         self.marshall_inner::<Sha3_256>(rng, buf)
     }
@@ -171,7 +171,7 @@ where
         &mut self,
         rng: &mut impl CryptoRngCore,
         buf: &mut impl BufMut,
-    ) -> EncodeResult<K::SharedKey>
+    ) -> EncodeResult<Zeroizing<[u8; ENC_KEY_LEN]>>
     where
         D: CoreProxy,
         D::Core: HashMarker
@@ -206,7 +206,7 @@ where
             .expect("keying hmac should never fail");
 
         // compute the Mark
-        f1_es.update(&self.client_session_pubkey.as_bytes());
+        f1_es.update(&self.client_session_pubkey.as_bytes()[..]);
         f1_es.update(ciphertext.as_bytes());
         f1_es.update(MARK_ARG.as_bytes());
         let mark = f1_es.finalize_reset().into_bytes();
@@ -225,8 +225,8 @@ where
 
         // Write EKco, CTco, MSG, P_C, M_C
         let mut params = vec![];
-        params.extend_from_slice(&self.client_session_pubkey.as_bytes());
-        params.extend_from_slice(&ciphertext.as_bytes());
+        params.extend_from_slice(&self.client_session_pubkey.as_bytes()[..]);
+        params.extend_from_slice(&ciphertext.as_bytes()[..]);
         params.extend_from_slice(&message);
         params.extend_from_slice(&pad);
         params.extend_from_slice(&mark);

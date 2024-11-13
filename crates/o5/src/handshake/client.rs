@@ -52,7 +52,7 @@ pub(crate) struct HandshakeState<K: OKemCore> {
     epoch_hr: String,
 
     /// The shared secret generated as F2(node_id, encapsulation_key)
-    ephemeral_secret: K::SharedKey,
+    ephemeral_secret: Zeroizing<[u8;ENC_KEY_LEN]>,
 }
 
 impl<K: OKemCore> HandshakeState<K> {
@@ -199,8 +199,7 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
 where
     K: OKemCore,
 {
-    let node_pubkey = materials.node_pubkey;
-    let mut client_msg = ClientHandshakeMessage::<K>::new(keys.1, &materials);
+    let mut client_msg = ClientHandshakeMessage::<K>::new(keys.1, materials.clone());
 
     // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 
