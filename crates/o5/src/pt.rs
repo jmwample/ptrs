@@ -197,11 +197,11 @@ where
     type Builder = crate::ClientBuilder;
 
     fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::establish::<InRW, InErr, MlKem768>(self, input))
+        Box::pin(Self::establish::<InRW, InErr>(self, input))
     }
 
     fn wrap(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Client::wrap::<InRW, MlKem768>(self, io))
+        Box::pin(Self::wrap::<InRW>(self, io))
     }
 
     fn method_name() -> String {
@@ -219,7 +219,7 @@ where
 
     /// Use something that can be accessed reference (Arc, Rc, etc.)
     fn reveal(self, io: InRW) -> Pin<F<Self::OutRW, Self::OutErr>> {
-        Box::pin(crate::Server::wrap(self, io))
+        Box::pin(Self::wrap(self, io))
     }
 
     fn method_name() -> String {

@@ -209,10 +209,6 @@ impl Error {
     pub(crate) fn from_bytes_err(err: tor_bytes::Error, object: &'static str) -> Error {
         Error::BytesError { err, object }
     }
-
-    pub(crate) fn incomplete_error(_deficit: NonZeroUsize) -> tor_bytes::Error {
-        tor_bytes::Error::Truncated
-    }
 }
 
 #[cfg(test)]

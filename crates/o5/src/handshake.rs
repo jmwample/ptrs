@@ -10,6 +10,7 @@ use crate::sessions::SessionPublicKey;
 
 use cipher::{KeyIvInit as _, StreamCipher as _};
 use digest::{Digest, ExtendableOutput, XofReader};
+use kemeleon::Encode;
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use tor_llcrypto::d::{Sha3_256, Shake256};
@@ -285,6 +286,7 @@ mod test {
 
     use hex::FromHex;
     use hex_literal::hex;
+    use kemeleon::MlKem768;
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
@@ -321,7 +323,7 @@ mod test {
         .unwrap();
 
         let (s_msg, mut c_keygen) =
-            client::client_handshake_ntor_v3_part2(&c_state, &s_handshake, verification).unwrap();
+            client::client_handshake_ntor_v3_part2::<MlKem768>(&c_state, &s_handshake, verification).unwrap();
 
         assert_eq!(rep.0[..], client_message[..]);
         assert_eq!(s_msg[..], relay_message[..]);
@@ -338,7 +340,7 @@ mod test {
         let relay_private = IdentitySecretKey::random_from_rng(&mut testing_rng());
 
         let materials = CHSMaterials::new(&relay_private.pk, "fake_session_id-1".into());
-        let (mut c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
+        let (mut c_state, c_handshake) = NtorV3Client::<MlKem768>::client1(materials).unwrap();
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
@@ -369,9 +371,9 @@ mod test {
         let client_exts = vec![NtorV3Extension::RequestCongestionControl];
         let reply_exts = vec![NtorV3Extension::AckCongestionControl { sendme_inc: 42 }];
         let materials = CHSMaterials::new(&relay_private.pk, "client_session_1".into())
-            .with_aux_data([NtorV3Extension::RequestCongestionControl]);
+            .with_early_data([NtorV3Extension::RequestCongestionControl]);
 
-        let (mut c_state, c_handshake) = NtorV3Client::client1(materials).unwrap();
+        let (mut c_state, c_handshake) = NtorV3Client::<MlKem768>::client1(materials).unwrap();
 
         let mut rep = |msg: &[NtorV3Extension]| -> Option<Vec<NtorV3Extension>> {
             assert_eq!(msg, client_exts);
@@ -404,11 +406,11 @@ mod test {
         let id = <[u8; NODE_ID_LENGTH]>::from_hex(KEYS[0].id).unwrap();
         let x = hex::decode(KEYS[0].x).expect("failed to unhex x");
         let y = hex::decode(KEYS[0].y).expect("failed to unhex y");
-        let b = DecapsulationKey::try_from(&b[..]).expect("failed to parse b");
-        let B = EncapsulationKey::from(&b);
+        let b = kemeleon::DecapsulationKey::try_from_bytes(&b[..]).expect("failed to parse b");
+        let B = kemeleon::EncapsulationKey::from(&b);
         let x = SessionSecretKey::try_from(&x[..]).expect("failed_to parse x");
-        //let X = (&x).into();
-        let y = DecapsulationKey::try_from(&y[..]).expect("failed to parse y");
+        let X = (&x).into();
+        let y = kemeleon::DecapsulationKey::try_from_bytes(&y[..]).expect("failed to parse y");
 
         let client_message = hex!("68656c6c6f20776f726c64");
         let verification = hex!("78797a7a79");
@@ -419,7 +421,7 @@ mod test {
 
         let mut chs_materials = CHSMaterials::new(&relay_public, "".into());
         let (state, client_handshake) =
-            client::client_handshake_ntor_v3_no_keygen(x, chs_materials, &verification).unwrap();
+            client::client_handshake_ntor_v3_no_keygen::<MlKem768>(&mut rng, (x, X), chs_materials, &verification).unwrap();
 
         assert_eq!(client_handshake[..], hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2f8307a2bc1870b00b828bb74dbb8fd88e632a6375ab3bcd1ae706aaa8b6cdd1d252fe9ae91264c91d4ecb8501f79d0387e34ad8ca0f7c995184f7d11d5da4f463bebd9151fd3b47c180abc9e044d53565f04d82bbb3bebed3d06cea65db8be9c72b68cd461942088502f67")[..]);
 
