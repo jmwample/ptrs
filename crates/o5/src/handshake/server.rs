@@ -5,13 +5,13 @@ use crate::{
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
     },
     handshake::*,
-    sessions::SessionSecretKey,
     Error, Server,
 };
 
 // use cipher::KeyIvInit;
 use digest::{Digest, ExtendableOutput, XofReader};
 use hmac::{Hmac, Mac};
+use kemeleon::OKemCore;
 use keys::NtorV3KeyGenerator;
 use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -30,12 +30,6 @@ pub(crate) struct HandshakeMaterials {
 }
 
 impl<'a> HandshakeMaterials {
-    pub fn get_hmac<'b>(&self, identity_keys: &'b IdentitySecretKey) -> Hmac<Sha256> {
-        let mut key = identity_keys.pk.ek.as_bytes().to_vec();
-        key.append(&mut identity_keys.pk.id.as_bytes().to_vec());
-        Hmac::<Sha256>::new_from_slice(&key[..]).unwrap()
-    }
-
     pub fn new<'b>(session_id: String, len_seed: [u8; SEED_LENGTH]) -> Self
     where
         'b: 'a,
@@ -89,24 +83,24 @@ impl ServerHandshake for Server {
 ///
 /// On success, return the server handshake message to send, and an XofReader
 /// to use in generating circuit keys.
-pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply>(
+pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply, K:OKemCore>(
     rng: &mut R,
     reply_fn: &mut REPLY,
     message: &[u8],
-    keys: &IdentitySecretKey,
+    keys: &IdentitySecretKey<K>,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
-    let (dk_session, _ek_session) = xwing::generate_key_pair(rng);
+    let (dk_session, _ek_session) = K::generate(rng);
     server_handshake_ntor_v3_no_keygen(rng, reply_fn, &dk_session, message, keys, verification)
 }
 
 /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.
-pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: MsgReply>(
+pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: MsgReply, K:OKemCore>(
     rng: &mut R,
     reply_fn: &mut REPLY,
-    secret_key_y: &SessionSecretKey,
+    secret_key_y: &EphemeralKey<K>,
     message: &[u8],
-    keys: &IdentitySecretKey,
+    keys: &IdentitySecretKey<K>,
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     todo!("server handshake");
@@ -114,7 +108,7 @@ pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: 
     // // Decode the message.
     // let mut r = Reader::from_slice(message);
     // let id: Ed25519Identity = r.extract()?;
-    // let requested_pk: IdentityPublicKey = r.extract()?;
+    // let requested_pk: IdentityPublicKey<K> = r.extract()?;
     // let client_pk: SessionPublicKey = r.extract()?;
     // let client_msg = if let Some(msg_len) = r.remaining().checked_sub(MAC_LEN) {
     //     r.take(msg_len)?

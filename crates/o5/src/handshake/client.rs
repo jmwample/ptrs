@@ -6,12 +6,10 @@ use crate::{
         ntor_arti::{
             ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials, KeyGenerator,
         },
-        xwing, HmacSha256,
     },
     constants::*,
     framing::handshake::ClientHandshakeMessage,
     handshake::*,
-    sessions::{SessionPublicKey, SessionSecretKey},
     Error, Result,
 };
 
@@ -43,10 +41,10 @@ pub(crate) struct HandshakeState<K: OKemCore> {
     /// this handshake.
     // We'd like to EphemeralSecret here, but we can't since we need
     // to use it twice.
-    my_sk: K::DecapsulationKey,
+    my_sk: EphemeralKey<K>,
 
     /// handshake materials
-    pub(crate) materials: HandshakeMaterials,
+    pub(crate) materials: HandshakeMaterials<K>,
 
     /// the computed hour at which the initial portion of the handshake was sent.
     epoch_hr: String,
@@ -56,7 +54,7 @@ pub(crate) struct HandshakeState<K: OKemCore> {
 }
 
 impl<K: OKemCore> HandshakeState<K> {
-    fn node_pubkey(&self) -> &xwing::EncapsulationKey {
+    fn node_pubkey(&self) -> &<K as OKemCore>::EncapsulationKey {
         &self.materials.node_pubkey.ek
     }
 
@@ -67,15 +65,23 @@ impl<K: OKemCore> HandshakeState<K> {
 
 /// Materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct HandshakeMaterials {
-    pub(crate) node_pubkey: IdentityPublicKey,
+pub(crate) struct HandshakeMaterials<K>
+where
+    K: OKemCore,
+    <K as OKemCore>::EncapsulationKey: Clone,
+{
+    pub(crate) node_pubkey: IdentityPublicKey<K>,
     pub(crate) pad_len: usize,
     pub(crate) session_id: String,
     pub(crate) aux_data: Vec<NtorV3Extension>,
 }
 
-impl HandshakeMaterials {
-    pub(crate) fn new(node_pubkey: &IdentityPublicKey, session_id: String) -> Self {
+impl<K> HandshakeMaterials<K>
+where
+    K: OKemCore,
+    <K as OKemCore>::EncapsulationKey: Clone,
+{
+    pub(crate) fn new(node_pubkey: &IdentityPublicKey<K>, session_id: String) -> Self {
         HandshakeMaterials {
             node_pubkey: node_pubkey.clone(),
             session_id,
@@ -90,8 +96,8 @@ impl HandshakeMaterials {
     }
 }
 
-impl ClientHandshakeMaterials for HandshakeMaterials {
-    type IdentityKeyType = IdentityPublicKey;
+impl<K:OKemCore> ClientHandshakeMaterials for HandshakeMaterials<K> {
+    type IdentityKeyType = IdentityPublicKey<K>;
     type ClientAuxData = Vec<NtorV3Extension>;
 
     fn node_pubkey(&self) -> &Self::IdentityKeyType {
@@ -132,7 +138,7 @@ impl ClientHandshakeComplete for HsComplete {
 
 impl<K: OKemCore> ClientHandshake for NtorV3Client<K> {
     type StateType = HandshakeState<K>;
-    type HandshakeMaterials = HandshakeMaterials;
+    type HandshakeMaterials = HandshakeMaterials<K>;
     type HsOutput = HsComplete;
 
     /// Generate a new client onionskin for a relay with a given onion key.
@@ -176,7 +182,7 @@ impl<K: OKemCore> ClientHandshake for NtorV3Client<K> {
 /// and a message to send to the relay.
 pub(crate) fn client_handshake_ntor_v3<K>(
     rng: &mut impl CryptoRngCore,
-    materials: HandshakeMaterials,
+    materials: HandshakeMaterials<K>,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
 where
@@ -193,11 +199,12 @@ where
 pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
     rng: &mut impl CryptoRngCore,
     keys: (K::DecapsulationKey, K::EncapsulationKey),
-    materials: HandshakeMaterials,
+    materials: HandshakeMaterials<K>,
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
 where
     K: OKemCore,
+    <K as OKemCore>::EncapsulationKey: Clone,
 {
     let mut client_msg = ClientHandshakeMessage::<K>::new(keys.1, materials.clone());
 
@@ -231,14 +238,14 @@ pub(crate) fn client_handshake_ntor_v3_part2<K:OKemCore>(
     todo!("client handshake part 2");
 
     // let mut reader = Reader::from_slice(relay_handshake);
-    // let y_pk: SessionPublicKey = reader
+    // let y_pk: EphemeralPub::<K> = reader
     //     .extract()
     //     .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     // let auth: DigestVal = reader
     //     .extract()
     //     .map_err(|e| Error::from_bytes_err(e, "v3 ntor handshake"))?;
     // let encrypted_msg = reader.into_rest();
-    // let my_public = SessionPublicKey::from(&state.my_sk);
+    // let my_public = EphemeralPub::<K>::from(&state.my_sk);
 
     // // TODO: Some of this code is duplicated from the server handshake code!  It
     // // would be better to factor it out.

@@ -5,9 +5,9 @@ use crate::{
     },
     constants::*,
     handshake::{
-        decrypt, encrypt, Authcode, CHSMaterials, SessionSharedSecret, AUTHCODE_LENGTH, ENC_KEY_LEN,
+        decrypt, encrypt, Authcode, CHSMaterials, EphemeralPub, SessionSharedSecret,
+        AUTHCODE_LENGTH, ENC_KEY_LEN,
     },
-    sessions::SessionPublicKey,
     Error, Result,
 };
 
@@ -19,7 +19,7 @@ use digest::{
 };
 use hmac::{Hmac, Mac};
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::{OKemCore, Encode};
+use kemeleon::{Encode, OKemCore};
 use ptrs::trace;
 use rand::Rng;
 use rand_core::CryptoRngCore;
@@ -33,16 +33,16 @@ use core::borrow::Borrow;
 
 // -----------------------------[ Server ]-----------------------------
 
-pub struct ServerHandshakeMessage {
+pub struct ServerHandshakeMessage<K:OKemCore> {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
-    session_pubkey: SessionPublicKey,
+    session_pubkey: EphemeralPub<K>,
     epoch_hour: String,
     aux_data: Vec<NtorV3Extension>,
 }
 
-impl ServerHandshakeMessage {
-    pub fn new(_client_pubkey: SessionPublicKey, _session_pubkey: SessionPublicKey) -> Self {
+impl<K:OKemCore> ServerHandshakeMessage<K> {
+    pub fn new(_client_pubkey: EphemeralPub<K>, _session_pubkey: EphemeralPub<K>) -> Self {
         todo!("SHS MSG - this should probably be built directly from the client HS MSG");
         // Self {
         //     server_auth: [0u8; AUTHCODE_LENGTH],
@@ -61,7 +61,7 @@ impl ServerHandshakeMessage {
         self
     }
 
-    pub fn server_pubkey(&mut self) -> SessionPublicKey {
+    pub fn server_pubkey(&mut self) -> EphemeralPub<K> {
         self.session_pubkey.clone()
     }
 
@@ -110,9 +110,9 @@ impl ServerHandshakeMessage {
 
 /// Preliminary message sent in an obfs4 handshake attempting to open a
 /// connection from a client to a potential server.
-pub struct ClientHandshakeMessage<K:OKemCore> {
-    hs_materials: CHSMaterials,
-    client_session_pubkey: K::EncapsulationKey,
+pub struct ClientHandshakeMessage<K: OKemCore> {
+    hs_materials: CHSMaterials<K>,
+    client_session_pubkey: EphemeralPub<K>,
 
     // only used when parsing (i.e. on the server side)
     pub(crate) epoch_hour: String,
@@ -120,12 +120,12 @@ pub struct ClientHandshakeMessage<K:OKemCore> {
 
 impl<K> ClientHandshakeMessage<K>
 where
-    K:OKemCore,
+    K: OKemCore,
     <K as OKemCore>::EncapsulationKey: Clone,
 {
     pub(crate) fn new(
-        client_session_pubkey: K::EncapsulationKey,
-        hs_materials: CHSMaterials,
+        client_session_pubkey: EphemeralPub<K>,
+        hs_materials: CHSMaterials<K>,
     ) -> Self {
         Self {
             hs_materials,
@@ -207,7 +207,7 @@ where
 
         // compute the Mark
         f1_es.update(&self.client_session_pubkey.as_bytes()[..]);
-        f1_es.update(ciphertext.as_bytes());
+        f1_es.update(&ciphertext.as_bytes()[..]);
         f1_es.update(MARK_ARG.as_bytes());
         let mark = f1_es.finalize_reset().into_bytes();
 
@@ -251,8 +251,7 @@ where
     }
 }
 
-
-fn to_tor_err(e: impl std::error::Error) -> EncodeError {
+fn to_tor_err(e: impl core::fmt::Debug) -> EncodeError {
     tor_bytes::EncodeError::from(tor_error::Bug::new(
         tor_error::ErrorKind::Other,
         format!("cryptographic encapsulation error: {e:?}"),

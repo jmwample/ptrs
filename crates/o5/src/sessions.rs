@@ -1,9 +1,10 @@
-//! obfs4 session details and construction
+//! obfs5 session details and construction
 //!
 /// Session state management as a way to organize session establishment and
 /// steady state transfer.
 use crate::common::{drbg, xwing};
 
+use kemeleon::OKemCore;
 use tor_bytes::Readable;
 
 mod client;
@@ -11,18 +12,6 @@ pub(crate) use client::{new_client_session, ClientSession};
 
 mod server;
 pub(crate) use server::ServerSession;
-
-/// Ephermeral single use session secret key type
-pub type SessionSecretKey = xwing::DecapsulationKey;
-
-/// Public key type associated with SessionSecretKey.
-pub type SessionPublicKey = xwing::EncapsulationKey;
-
-impl Readable for SessionPublicKey {
-    fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
-        todo!("SessionPublicKey Reader needs implemented");
-    }
-}
 
 /// Initial state for a Session, created with any params.
 pub(crate) struct Initialized;

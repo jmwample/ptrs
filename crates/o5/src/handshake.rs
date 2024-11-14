@@ -6,11 +6,10 @@
 //! message.
 
 use crate::common::ntor_arti::ClientHandshakeComplete;
-use crate::sessions::SessionPublicKey;
 
 use cipher::{KeyIvInit as _, StreamCipher as _};
 use digest::{Digest, ExtendableOutput, XofReader};
-use kemeleon::Encode;
+use kemeleon::{Encode, OKemCore};
 use tor_bytes::{EncodeResult, Writeable, Writer};
 use tor_llcrypto::cipher::aes::Aes256Ctr;
 use tor_llcrypto::d::{Sha3_256, Shake256};
@@ -19,7 +18,10 @@ use zeroize::Zeroizing;
 mod keys;
 use keys::NtorV3XofReader;
 pub(crate) use keys::{Authcode, NtorV3KeyGenerator, AUTHCODE_LENGTH};
-pub use keys::{IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
+pub use keys::{
+    EphemeralKey, EphemeralPub, IdentityKey, IdentityPub, IdentityPublicKey, IdentitySecretKey,
+    NtorV3KeyGen,
+};
 
 /// Super trait to be used where we require a distinction between client and server roles.
 pub trait Role {
@@ -200,10 +202,10 @@ fn h_verify(d: &[u8]) -> DigestVal {
 /// Takes as inputs `xb` (the shared secret derived from
 /// diffie-hellman as Bx or Xb), the relay's public key information,
 /// the client's public key (B), and the shared verification string.
-fn kdf_msgkdf(
-    xb: &xwing::SharedSecret,
-    relay_public: &IdentityPublicKey,
-    client_public: &SessionPublicKey,
+fn kdf_msgkdf<K: OKemCore>(
+    xb: &<K as OKemCore>::SharedKey,
+    relay_public: &IdentityPublicKey<K>,
+    client_public: &EphemeralPub<K>,
     verification: &[u8],
 ) -> EncodeResult<(SessionSharedSecret, DigestWriter<Sha3_256>)> {
     // secret_input_phase1 = Bx | ID | X | B | PROTOID | ENCAP(VER)
@@ -276,20 +278,22 @@ mod test {
     use crate::common::ntor_arti::{
         ClientHandshake, ClientHandshakeComplete, KeyGenerator, ServerHandshake,
     };
-    use crate::common::xwing::{DecapsulationKey, EncapsulationKey};
     use crate::constants::{NODE_ID_LENGTH, SEED_LENGTH};
     use crate::Server;
 
     use super::*;
     use crate::test_utils::test_keys::KEYS;
-    use crate::{handshake::IdentitySecretKey, sessions::SessionSecretKey};
+    use crate::{handshake::IdentitySecretKey};
 
     use hex::FromHex;
     use hex_literal::hex;
-    use kemeleon::MlKem768;
+    use kemeleon::{MlKem768, OKemCore};
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
+
+    type K = MlKem768;
+    type Decap<T> = <T as OKemCore>::DecapsulationKey;
 
     #[test]
     fn test_ntor3_roundtrip() {
@@ -322,8 +326,12 @@ mod test {
         )
         .unwrap();
 
-        let (s_msg, mut c_keygen) =
-            client::client_handshake_ntor_v3_part2::<MlKem768>(&c_state, &s_handshake, verification).unwrap();
+        let (s_msg, mut c_keygen) = client::client_handshake_ntor_v3_part2::<MlKem768>(
+            &c_state,
+            &s_handshake,
+            verification,
+        )
+        .unwrap();
 
         assert_eq!(rep.0[..], client_message[..]);
         assert_eq!(s_msg[..], relay_message[..]);
@@ -406,22 +414,27 @@ mod test {
         let id = <[u8; NODE_ID_LENGTH]>::from_hex(KEYS[0].id).unwrap();
         let x = hex::decode(KEYS[0].x).expect("failed to unhex x");
         let y = hex::decode(KEYS[0].y).expect("failed to unhex y");
-        let b = kemeleon::DecapsulationKey::try_from_bytes(&b[..]).expect("failed to parse b");
-        let B = kemeleon::EncapsulationKey::from(&b);
-        let x = SessionSecretKey::try_from(&x[..]).expect("failed_to parse x");
-        let X = (&x).into();
-        let y = kemeleon::DecapsulationKey::try_from_bytes(&y[..]).expect("failed to parse y");
+        let b = Decap::<K>::from_fips_bytes(&b[..]).expect("failed to parse b");
+        let B = b.encapsulation_key(); // K::EncapsulationKey::from(&b);
+        let x = EphemeralKey::<K>::from_fips_bytes(&x[..]).expect("failed_to parse x");
+        let X = x.encapsulation_key();
+        let y = Decap::<K>::from_fips_bytes(&y[..]).expect("failed to parse y");
 
         let client_message = hex!("68656c6c6f20776f726c64");
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_private = IdentitySecretKey::new(b, id.into());
-        let relay_public = IdentityPublicKey::from(&relay_private); // { pk: B, id };
+        let relay_private = IdentityKey::new(b, id.into());
+        let relay_public = IdentityPub::from(&relay_private); // { pk: B, id };
 
-        let mut chs_materials = CHSMaterials::new(&relay_public, "".into());
-        let (state, client_handshake) =
-            client::client_handshake_ntor_v3_no_keygen::<MlKem768>(&mut rng, (x, X), chs_materials, &verification).unwrap();
+        let mut chs_materials = CHSMaterials::new(&relay_public, "0000000000000000".into());
+        let (state, client_handshake) = client::client_handshake_ntor_v3_no_keygen::<K>(
+            &mut rng,
+            (x, X),
+            chs_materials,
+            &verification,
+        )
+        .unwrap();
 
         assert_eq!(client_handshake[..], hex!("9fad2af287ef942632833d21f946c6260c33fae6172b60006e86e4a6911753a2f8307a2bc1870b00b828bb74dbb8fd88e632a6375ab3bcd1ae706aaa8b6cdd1d252fe9ae91264c91d4ecb8501f79d0387e34ad8ca0f7c995184f7d11d5da4f463bebd9151fd3b47c180abc9e044d53565f04d82bbb3bebed3d06cea65db8be9c72b68cd461942088502f67")[..]);
 
@@ -468,16 +481,16 @@ mod test {
     fn xwing_3way_handshake_flow() {
         let mut rng = rand::thread_rng();
         // long-term server id and keys
-        let (dk_si, ek_si) = xwing::generate_key_pair(&mut rng);
+        let (dk_si, ek_si) = K::generate(&mut rng);
         // let server_id = ID::new();
 
         // client open session, generating the associated ephemeral keys
         // and sends xwing session pubkey using an obfuscated encoding
         // along with an obfuscated ciphertext containing an initial shared secret
-        let (dk_cs, ek_cs) = xwing::generate_key_pair(&mut rng);
+        let (dk_cs, ek_cs) = K::generate(&mut rng);
 
         // server computes xwing combined shared secret
-        let (dk_ss, ek_ss) = xwing::generate_key_pair(&mut rng);
+        let (dk_ss, ek_ss) = K::generate(&mut rng);
         // let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
 
         // server sends mlkemx25519 session pubkey(s)

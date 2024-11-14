@@ -88,7 +88,7 @@ impl Display for Error {
 unsafe impl Send for Error {}
 
 impl Error {
-    pub fn new<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> Self {
+    pub fn other<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> Self {
         Error::Other(e.into())
     }
 }
@@ -106,7 +106,7 @@ impl FromStr for Error {
     type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(Error::new(s))
+        Ok(Error::other(s))
     }
 }
 
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_display_other_error() {
-        let err = Error::new("some other error");
+        let err = Error::other("some other error");
         assert_eq!(format!("{}", err), "some other error");
     }
 

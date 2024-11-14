@@ -10,7 +10,7 @@ use crate::{
     },
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
-    handshake::{IdentityPublicKey, IdentitySecretKey},
+    handshake::{IdentityPub, IdentityKey},
     proto::{MaybeTimeout, O5Stream},
     sessions::Session,
     Error, Result,
@@ -36,7 +36,7 @@ const STATE_FILENAME: &str = "obfs4_state.json";
 
 pub struct ServerBuilder<T> {
     pub statefile_path: Option<String>,
-    pub(crate) identity_keys: IdentitySecretKey,
+    pub(crate) identity_keys: IdentityKey,
     pub(crate) handshake_timeout: MaybeTimeout,
     // pub(crate) drbg: Drbg, // TODO: build in DRBG
     _stream_type: PhantomData<T>,
@@ -44,7 +44,7 @@ pub struct ServerBuilder<T> {
 
 impl<T> Default for ServerBuilder<T> {
     fn default() -> Self {
-        let identity_keys = IdentitySecretKey::random_from_rng(&mut rand::thread_rng());
+        let identity_keys = IdentityKey::random_from_rng(&mut rand::thread_rng());
         Self {
             statefile_path: None,
             identity_keys,
@@ -58,7 +58,7 @@ impl<T> ServerBuilder<T> {
     /// 64 byte combined representation of an x25519 public key, private key
     /// combination.
     pub fn node_keys(&mut self, keys: impl AsRef<[u8]>) -> Result<&Self> {
-        let sk = IdentitySecretKey::try_from(keys.as_ref())?;
+        let sk = IdentityKey::try_from(keys.as_ref())?;
         self.identity_keys = sk;
         Ok(self)
     }
@@ -180,7 +180,7 @@ impl JsonServerState {
 }
 
 pub(crate) struct RequiredServerState {
-    pub(crate) private_key: IdentitySecretKey,
+    pub(crate) private_key: IdentityKey,
     pub(crate) drbg_seed: drbg::Drbg,
 }
 
@@ -202,7 +202,7 @@ impl TryFrom<&Args> for RequiredServerState {
             .ok_or("missing argument {NODE_ID_ARG}")?;
         let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(node_id_str)?;
 
-        let private_key = IdentitySecretKey::try_from_bytes(sk)?;
+        let private_key = IdentityKey::try_from_bytes(sk)?;
 
         Ok(RequiredServerState {
             private_key,
@@ -217,7 +217,7 @@ pub struct Server(Arc<ServerInner>);
 pub struct ServerInner {
     pub(crate) handshake_timeout: Option<tokio::time::Duration>,
     pub(crate) biased: bool,
-    pub(crate) identity_keys: IdentitySecretKey,
+    pub(crate) identity_keys: IdentityKey,
 
     pub(crate) replay_filter: ReplayFilter,
     // pub(crate) metrics: Metrics,
@@ -231,11 +231,11 @@ impl Deref for Server {
 }
 
 impl Server {
-    pub fn new(identity: IdentitySecretKey) -> Self {
+    pub fn new(identity: IdentityKey) -> Self {
         Self::new_from_key(identity)
     }
 
-    pub(crate) fn new_from_key(identity_keys: IdentitySecretKey) -> Self {
+    pub(crate) fn new_from_key(identity_keys: IdentityKey) -> Self {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
@@ -251,9 +251,9 @@ impl Server {
 
         // Generated identity secret key does not need to be elligator2 representable
         // so we can use the regular dalek_x25519 key generation.
-        let identity_keys = IdentitySecretKey::random_from_rng(rng);
+        let identity_keys = IdentityKey::random_from_rng(rng);
 
-        let pk = IdentityPublicKey::from(&identity_keys);
+        let pk = IdentityPub::from(&identity_keys);
 
         Self::new_from_key(identity_keys)
     }

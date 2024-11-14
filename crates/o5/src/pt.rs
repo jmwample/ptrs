@@ -14,7 +14,7 @@ use std::{
 
 use hex::FromHex;
 use ptrs::trace;
-use kemeleon::MlKem768;
+use kemeleon::{Encode, MlKem768};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,

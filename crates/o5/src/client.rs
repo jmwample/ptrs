@@ -1,17 +1,17 @@
 #![allow(unused)]
 
 use crate::{
-    common::{colorize, xwing, HmacSha256},
+    common::colorize,
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    handshake::IdentityPublicKey,
+    handshake::IdentityPub,
     proto::{MaybeTimeout, O5Stream},
     sessions, Error, Result,
 };
 
 use bytes::{Buf, BufMut, BytesMut};
 use hmac::{Hmac, Mac};
-use kemeleon::{MlKem768, OKemCore};
+use kemeleon::{MlKem768, OKemCore, Encode};
 use ptrs::{debug, info, trace, warn};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -27,7 +27,7 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
-    pub node_details: IdentityPublicKey,
+    pub node_details: IdentityPub,
     pub statefile_path: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -35,7 +35,7 @@ pub struct ClientBuilder {
 impl Default for ClientBuilder {
     fn default() -> Self {
         Self {
-            node_details: IdentityPublicKey::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])
+            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])
                 .expect("default identitykey is broken - shouldn't be used anyways"),
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
@@ -48,7 +48,7 @@ impl ClientBuilder {
     pub fn from_statefile(location: &str) -> Result<Self> {
         todo!("this is not implemented");
         Ok(Self {
-            node_details: IdentityPublicKey::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
+            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
             statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -58,18 +58,18 @@ impl ClientBuilder {
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         todo!("this is not implemented");
         Ok(Self {
-            node_details: IdentityPublicKey::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
+            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         })
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: [u8; PUBLIC_KEY_LEN]) -> Result<&mut Self> {
-        self.node_details.ek = xwing::EncapsulationKey::try_from(&pubkey[..])?;
+        self.node_details.ek = IdentityPub::try_from_bytes(&pubkey[..])?;
         Ok(self)
     }
 
-    pub(crate) fn with_node(&mut self, pubkey: IdentityPublicKey) -> &mut Self {
+    pub(crate) fn with_node(&mut self, pubkey: IdentityPub) -> &mut Self {
         self.node_details = pubkey;
         self
     }
@@ -121,7 +121,7 @@ impl fmt::Display for ClientBuilder {
 
 /// Client implementing the obfs4 protocol.
 pub struct Client {
-    station_pubkey: IdentityPublicKey,
+    station_pubkey: IdentityPub,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 
