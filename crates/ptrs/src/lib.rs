@@ -237,6 +237,3 @@ pub(crate) type F<T, E> = FutureResult<T, E>;
 pub type TcpStreamFut = Pin<FutureResult<tokio::net::TcpStream, std::io::Error>>;
 
 pub type UdpSocketFut = Pin<FutureResult<tokio::net::UdpSocket, std::io::Error>>;
-
-#[cfg(test)]
-mod passthrough;
