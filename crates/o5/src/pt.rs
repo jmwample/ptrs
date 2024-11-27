@@ -1,7 +1,4 @@
-use crate::{
-    common::xwing, constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error,
-    TRANSPORT_NAME,
-};
+use crate::{constants::*, handshake::IdentityPublicKey, proto::O5Stream, Error, TRANSPORT_NAME};
 use ptrs::{args::Args, FutureResult as F};
 
 use std::{
@@ -13,8 +10,8 @@ use std::{
 };
 
 use hex::FromHex;
-use ptrs::trace;
 use kemeleon::{Encode, MlKem768};
+use ptrs::trace;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,

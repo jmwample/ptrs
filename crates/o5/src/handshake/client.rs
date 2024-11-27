@@ -9,6 +9,7 @@ use crate::{
     },
     constants::*,
     framing::handshake::ClientHandshakeMessage,
+    handshake::keys::*,
     handshake::*,
     Error, Result,
 };
@@ -17,8 +18,7 @@ use bytes::BytesMut;
 use digest::CtOutput;
 use hmac::{Hmac, Mac};
 use kem::{Decapsulate, Encapsulate};
-use kemeleon::OKemCore;
-use keys::NtorV3KeyGenerator;
+use kemeleon::{Encode, OKemCore};
 // use cipher::KeyIvInit;
 use rand::{CryptoRng, Rng, RngCore};
 use rand_core::CryptoRngCore;
@@ -50,7 +50,7 @@ pub(crate) struct HandshakeState<K: OKemCore> {
     epoch_hr: String,
 
     /// The shared secret generated as F2(node_id, encapsulation_key)
-    ephemeral_secret: Zeroizing<[u8;ENC_KEY_LEN]>,
+    ephemeral_secret: Zeroizing<[u8; ENC_KEY_LEN]>,
 }
 
 impl<K: OKemCore> HandshakeState<K> {
@@ -65,22 +65,14 @@ impl<K: OKemCore> HandshakeState<K> {
 
 /// Materials required to initiate a handshake from the client role.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct HandshakeMaterials<K>
-where
-    K: OKemCore,
-    <K as OKemCore>::EncapsulationKey: Clone,
-{
+pub(crate) struct HandshakeMaterials<K: OKemCore> {
     pub(crate) node_pubkey: IdentityPublicKey<K>,
     pub(crate) pad_len: usize,
     pub(crate) session_id: String,
     pub(crate) aux_data: Vec<NtorV3Extension>,
 }
 
-impl<K> HandshakeMaterials<K>
-where
-    K: OKemCore,
-    <K as OKemCore>::EncapsulationKey: Clone,
-{
+impl<K: OKemCore> HandshakeMaterials<K> {
     pub(crate) fn new(node_pubkey: &IdentityPublicKey<K>, session_id: String) -> Self {
         HandshakeMaterials {
             node_pubkey: node_pubkey.clone(),
@@ -96,7 +88,7 @@ where
     }
 }
 
-impl<K:OKemCore> ClientHandshakeMaterials for HandshakeMaterials<K> {
+impl<K: OKemCore> ClientHandshakeMaterials for HandshakeMaterials<K> {
     type IdentityKeyType = IdentityPublicKey<K>;
     type ClientAuxData = Vec<NtorV3Extension>;
 
@@ -180,14 +172,11 @@ impl<K: OKemCore> ClientHandshake for NtorV3Client<K> {
 /// Given a secure `rng`, a relay's public key, a secret message to send,
 /// and a shared verification string, generate a new handshake state
 /// and a message to send to the relay.
-pub(crate) fn client_handshake_ntor_v3<K>(
+pub(crate) fn client_handshake_ntor_v3<K: OKemCore>(
     rng: &mut impl CryptoRngCore,
     materials: HandshakeMaterials<K>,
     verification: &[u8],
-) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
-where
-    K: OKemCore,
-{
+) -> EncodeResult<(HandshakeState<K>, Vec<u8>)> {
     let keys = K::generate(rng);
     client_handshake_ntor_v3_no_keygen::<K>(rng, keys, materials, verification)
 }
@@ -196,17 +185,14 @@ where
 /// key: instead take that key an arguments `my_sk`.
 ///
 /// (DK, EK , EK1) <-- OKEM.KGen()
-pub(crate) fn client_handshake_ntor_v3_no_keygen<K>(
+pub(crate) fn client_handshake_ntor_v3_no_keygen<K: OKemCore>(
     rng: &mut impl CryptoRngCore,
     keys: (K::DecapsulationKey, K::EncapsulationKey),
     materials: HandshakeMaterials<K>,
     verification: &[u8],
-) -> EncodeResult<(HandshakeState<K>, Vec<u8>)>
-where
-    K: OKemCore,
-    <K as OKemCore>::EncapsulationKey: Clone,
-{
-    let mut client_msg = ClientHandshakeMessage::<K>::new(keys.1, materials.clone());
+) -> EncodeResult<(HandshakeState<K>, Vec<u8>)> {
+    let ephemeral_ek = EphemeralPub::new(keys.1);
+    let mut client_msg = ClientHandshakeMessage::<K>::new(ephemeral_ek, materials.clone());
 
     // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 
@@ -215,7 +201,7 @@ where
 
     let state = HandshakeState {
         materials,
-        my_sk: keys.0,
+        my_sk: keys::EphemeralKey::new(keys.0),
         ephemeral_secret,
         epoch_hr: client_msg.get_epoch_hr(),
     };
@@ -230,7 +216,7 @@ where
 ///
 /// On success, return the server's reply to our original encrypted message,
 /// and an `XofReader` to use in generating circuit keys.
-pub(crate) fn client_handshake_ntor_v3_part2<K:OKemCore>(
+pub(crate) fn client_handshake_ntor_v3_part2<K: OKemCore>(
     state: &HandshakeState<K>,
     relay_handshake: &[u8],
     verification: &[u8],

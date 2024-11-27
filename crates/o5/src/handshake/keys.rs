@@ -13,27 +13,82 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine,
 };
-use kem::Encapsulate;
-use kemeleon::{MlKem768, OKemCore, Encode};
+use kem::{Decapsulate, Encapsulate};
+use kemeleon::{Encode, MlKem768, OKemCore};
 use subtle::{Choice, ConstantTimeEq};
-use tor_bytes::{Readable, SecretBuf, Writeable, Writer, EncodeResult};
-use tor_llcrypto::{d::Shake256Reader, pk::ed25519::Ed25519Identity};
+use tor_bytes::{EncodeResult, Readable, SecretBuf, Writeable, Writer};
+use tor_llcrypto::{
+    d::Shake256Reader,
+    pk::ed25519::{Ed25519Identity, ED25519_ID_LEN},
+};
+use typenum::Unsigned;
 
 use rand::{CryptoRng, RngCore};
 
 /// Ephemeral single use session secret key type
-pub type EphemeralKey<K> = <K as OKemCore>::DecapsulationKey;
+pub struct EphemeralKey<K: OKemCore>(<K as OKemCore>::DecapsulationKey);
+
+impl<K: OKemCore> EphemeralKey<K> {
+    pub fn new(inner: K::DecapsulationKey) -> Self {
+        Self(inner)
+    }
+}
+
+impl<K: OKemCore> Decapsulate<K::Ciphertext, K::SharedKey> for EphemeralKey<K> {
+    type Error = <K::DecapsulationKey as Decapsulate<K::Ciphertext, K::SharedKey>>::Error;
+
+    fn decapsulate(
+        &self,
+        encapsulated_key: &K::Ciphertext,
+    ) -> std::result::Result<K::SharedKey, Self::Error> {
+        self.0.decapsulate(encapsulated_key)
+    }
+}
 
 /// Public key type associated with EphemeralKey.
-pub type EphemeralPub<K> = <K as OKemCore>::EncapsulationKey;
+#[derive(Clone)]
+pub struct EphemeralPub<K: OKemCore>(<K as OKemCore>::EncapsulationKey);
 
-impl<K:OKemCore> Readable for EphemeralPub<K> {
+impl<K: OKemCore> EphemeralPub<K> {
+    pub fn new(inner: K::EncapsulationKey) -> Self {
+        Self(inner)
+    }
+}
+
+impl<K: OKemCore> Encapsulate<K::Ciphertext, K::SharedKey> for EphemeralPub<K> {
+    type Error = <K::EncapsulationKey as Encapsulate<K::Ciphertext, K::SharedKey>>::Error;
+
+    fn encapsulate(
+        &self,
+        rng: &mut impl rand_core::CryptoRngCore,
+    ) -> std::result::Result<(K::Ciphertext, K::SharedKey), Self::Error> {
+        self.0.encapsulate(rng)
+    }
+}
+
+impl<K: OKemCore> Encode for EphemeralPub<K> {
+    type Error = <K::EncapsulationKey as Encode>::Error;
+    type EncodedSize = <K::EncapsulationKey as Encode>::EncodedSize;
+
+    fn as_bytes(&self) -> ml_kem::array::Array<u8, Self::EncodedSize> {
+        self.0.as_bytes()
+    }
+
+    fn try_from_bytes<B: AsRef<[u8]>>(buf: B) -> std::result::Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Self(<K::EncapsulationKey as Encode>::try_from_bytes(buf)?))
+    }
+}
+
+impl<K: OKemCore> Readable for EphemeralPub<K> {
     fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
         todo!("Session Public Key `EphemeralPub<K>` Reader needs implemented");
     }
 }
 
-impl<K:OKemCore> Writeable for EphemeralPub<K> {
+impl<K: OKemCore> Writeable for EphemeralPub<K> {
     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
         todo!("Session Public Key `EphemeralPub<K>` Writer needs implemented");
     }
@@ -46,35 +101,67 @@ pub type IdentityPub = IdentityPublicKey<MlKem768>;
 ///
 /// Contains a single curve25519 ntor onion key, and the relay's ed25519
 /// identity.
-#[derive(Clone, Debug, PartialEq)]
-pub struct IdentityPublicKey<K:OKemCore> {
+#[derive(PartialEq)]
+pub struct IdentityPublicKey<K: OKemCore> {
     /// The relay's identity.
     pub(crate) id: Ed25519Identity,
     /// The relay's onion key.
     pub(crate) ek: <K as OKemCore>::EncapsulationKey,
 }
 
-impl<K:OKemCore> From<&IdentitySecretKey<K>> for IdentityPublicKey<K> {
+impl<K: OKemCore> Clone for IdentityPublicKey<K> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            ek: <K as OKemCore>::EncapsulationKey::from(&self.ek),
+        }
+    }
+}
+
+impl<K: OKemCore> core::fmt::Debug for IdentityPublicKey<K> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("IdentityPublicKey")
+            .field("id", &self.id)
+            .field("pk", &hex::encode(&self.ek.as_bytes()[0..16]))
+            .finish()
+    }
+}
+
+impl<K: OKemCore> From<&IdentitySecretKey<K>> for IdentityPublicKey<K> {
     fn from(value: &IdentitySecretKey<K>) -> Self {
         value.pk.clone()
     }
 }
 
-impl<K:OKemCore> IdentityPublicKey<K> {
-    const CERT_LENGTH: usize = xwing::PUBKEY_LEN;
+impl<K: OKemCore> IdentityPublicKey<K> {
+    const CERT_LENGTH: usize = <K::EncapsulationKey as Encode>::EncodedSize::USIZE + ED25519_ID_LEN;
     const CERT_SUFFIX: &'static str = "==";
+
     /// Construct a new IdentityPublicKey from its components.
     #[allow(unused)]
     pub(crate) fn new(ek_bytes: impl AsRef<[u8]>, id: [u8; NODE_ID_LENGTH]) -> Result<Self> {
-        let ek =  K::EncapsulationKey::try_from_bytes(ek_bytes).map_err(|e| Error::other(Box::new(e)))?;
-        Ok(Self {
-            ek,
-            id: id.into(),
-        })
+        let ek = K::EncapsulationKey::try_from_bytes(ek_bytes)
+            .map_err(|_| Error::other("failed to parse Identity Key"))?;
+        Ok(Self { ek, id: id.into() })
+    }
+
+    pub fn try_from_bytes(buf: impl AsRef<[u8]>) -> std::result::Result<Self, Error> {
+        let arr = buf.as_ref();
+        if arr.len() < Self::CERT_LENGTH {
+            return Err(Error::other(
+                "provided identity key is improperly formatted -- too short",
+            ));
+        }
+        let id: [u8; NODE_ID_LENGTH] = arr[..ED25519_ID_LEN].try_into()?;
+        let ek =
+            Array::<u8, <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize>::from_fn(|i| {
+                arr[ED25519_ID_LEN + i]
+            });
+        IdentityPublicKey::new(ek, id)
     }
 }
 
-impl<K:OKemCore> std::str::FromStr for IdentityPublicKey<K> {
+impl<K: OKemCore> std::str::FromStr for IdentityPublicKey<K> {
     type Err = Error;
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         let mut cert = String::from(s);
@@ -92,7 +179,7 @@ impl<K:OKemCore> std::str::FromStr for IdentityPublicKey<K> {
 }
 
 #[allow(clippy::to_string_trait_impl)]
-impl<K:OKemCore> std::string::ToString for IdentityPublicKey<K> {
+impl<K: OKemCore> std::string::ToString for IdentityPublicKey<K> {
     fn to_string(&self) -> String {
         let mut s = Vec::from(self.id.as_bytes());
         s.extend(self.ek.as_bytes());
@@ -100,28 +187,28 @@ impl<K:OKemCore> std::string::ToString for IdentityPublicKey<K> {
     }
 }
 
-impl<K:OKemCore> Readable for IdentityPublicKey<K> {
+impl<K: OKemCore> Readable for IdentityPublicKey<K> {
     fn take_from(_b: &mut tor_bytes::Reader<'_>) -> tor_bytes::Result<Self> {
         todo!("IdentityPublicKey Reader needs implemented");
     }
 }
 
 /// Secret key information used by a relay for the ntor v3 handshake.
-pub struct IdentitySecretKey<K: OKemCore>{
+pub struct IdentitySecretKey<K: OKemCore> {
     /// The relay's public key information
     pub(crate) pk: IdentityPublicKey<K>,
     /// The secret onion key.
     pub(super) sk: <K as OKemCore>::DecapsulationKey,
 }
 
-impl<K:OKemCore> IdentitySecretKey<K> {
+impl<K: OKemCore> IdentitySecretKey<K> {
     /// Construct a new IdentitySecretKey from its components.
     #[allow(unused)]
     pub(crate) fn new(sk: <K as OKemCore>::DecapsulationKey, id: Ed25519Identity) -> Self {
         Self {
             pk: IdentityPublicKey {
                 id,
-                ek: sk.encapsulation_key(),
+                ek: K::encapsulation_key(&sk),
             },
             sk,
         }
@@ -135,7 +222,8 @@ impl<K:OKemCore> IdentitySecretKey<K> {
 
         let mut id = [0u8; NODE_ID_LENGTH];
         id.copy_from_slice(&buf[..NODE_ID_LENGTH]);
-        let sk = K::DecapsulationKey::try_from_bytes(&buf[NODE_ID_LENGTH..])?;
+        let sk = K::DecapsulationKey::try_from_bytes(&buf[NODE_ID_LENGTH..])
+            .map_err(|_| Error::other("failed to parse decapsulation key"))?;
         Ok(Self::new(sk, id.into()))
     }
 
@@ -152,12 +240,16 @@ impl<K:OKemCore> IdentitySecretKey<K> {
     /// Checks whether `id` and `pk` match this secret key.
     ///
     /// Used to perform a constant-time secret key lookup.
-    pub(crate) fn matches(&self, id: Ed25519Identity, ek: <K as OKemCore>::EncapsulationKey) -> Choice {
+    pub(crate) fn matches(
+        &self,
+        id: Ed25519Identity,
+        ek: <K as OKemCore>::EncapsulationKey,
+    ) -> Choice {
         id.as_bytes().ct_eq(self.pk.id.as_bytes()) & ek.as_bytes().ct_eq(&self.pk.ek.as_bytes()[..])
     }
 }
 
-impl<K:OKemCore> TryFrom<&[u8]> for IdentitySecretKey<K> {
+impl<K: OKemCore> TryFrom<&[u8]> for IdentitySecretKey<K> {
     type Error = Error;
     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
         Self::try_from_bytes(value)

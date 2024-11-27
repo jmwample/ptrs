@@ -17,15 +17,14 @@ use crate::{Error, Result};
 
 pub(crate) use kemeleon::EncodeError;
 
-pub struct OKem {
-}
+pub struct OKem {}
 
 pub(crate) const X25519_PUBKEY_LEN: usize = 32;
 pub(crate) const X25519_PRIVKEY_LEN: usize = 32;
-pub(crate) const CIPHERTEXT_LEN: usize =
-    <MlKem768 as KemeleonByteArraySize>::ENCODED_CT_SIZE::USIZE + X25519_PUBKEY_LEN;
-pub(crate) const PUBKEY_LEN: usize =
-    <MlKem768 as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE + X25519_PUBKEY_LEN;
+// pub(crate) const CIPHERTEXT_LEN: usize =
+//     <MlKem768 as KemeleonByteArraySize>::ENCODED_CT_SIZE::USIZE + X25519_PUBKEY_LEN;
+// pub(crate) const PUBKEY_LEN: usize =
+//     <MlKem768 as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE + X25519_PUBKEY_LEN;
 pub(crate) const PRIVKEY_LEN: usize = x_wing::DECAPSULATION_KEY_SIZE;
 pub(crate) const CANONICAL_PUBKEY_LEN: usize = x_wing::ENCAPSULATION_KEY_SIZE;
 pub(crate) const CANONICAL_PRIVKEY_LEN: usize = x_wing::DECAPSULATION_KEY_SIZE;
@@ -196,29 +195,29 @@ impl TryFrom<&[u8]> for DecapsulationKey {
     }
 }
 
-impl TryFrom<&[u8]> for EncapsulationKey {
-    type Error = Error;
-    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
-        if value.len() < PUBKEY_LEN {
-            return Err(Error::Crypto("bad publickey".into()));
-        }
-
-        let mlkem =
-            kemeleon::EncapsulationKey::<MlKem768>::try_from_bytes(&value[X25519_PUBKEY_LEN..])
-                .map_err(|e| Error::EncodeError(e.into()))?;
-
-        let mut pub_key = [0u8; x_wing::ENCAPSULATION_KEY_SIZE];
-        pub_key[..X25519_PUBKEY_LEN].copy_from_slice(&value[..X25519_PUBKEY_LEN]);
-        pub_key[X25519_PUBKEY_LEN..].copy_from_slice(&mlkem.as_fips().as_bytes()[..]);
-
-        let ek = x_wing::EncapsulationKey::from(&pub_key);
-
-        Ok(Self {
-            ek,
-            pub_key_obfs: [0u8; PUBKEY_LEN], // TODO
-        })
-    }
-}
+// impl TryFrom<&[u8]> for EncapsulationKey {
+//     type Error = Error;
+//     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
+//         if value.len() < PUBKEY_LEN {
+//             return Err(Error::Crypto("bad publickey".into()));
+//         }
+//
+//         let mlkem =
+//             kemeleon::EncapsulationKey::<MlKem768>::try_from_bytes(&value[X25519_PUBKEY_LEN..])
+//                 .map_err(|e| Error::EncodeError(e.into()))?;
+//
+//         let mut pub_key = [0u8; x_wing::ENCAPSULATION_KEY_SIZE];
+//         pub_key[..X25519_PUBKEY_LEN].copy_from_slice(&value[..X25519_PUBKEY_LEN]);
+//         pub_key[X25519_PUBKEY_LEN..].copy_from_slice(&mlkem.as_fips().as_bytes()[..]);
+//
+//         let ek = x_wing::EncapsulationKey::from(&pub_key);
+//
+//         Ok(Self {
+//             ek,
+//             pub_key_obfs: [0u8; PUBKEY_LEN], // TODO
+//         })
+//     }
+// }
 
 impl TryFrom<[u8; PUBKEY_LEN]> for EncapsulationKey {
     type Error = Error;

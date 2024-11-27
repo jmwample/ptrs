@@ -1,17 +1,21 @@
 #![allow(unused)]
 
+use kemeleon::{Encode, MlKem768};
 use tor_llcrypto::pk::ed25519::ED25519_ID_LEN;
+use typenum::Unsigned;
 
 pub use crate::common::ntor_arti::SESSION_ID_LEN;
 use crate::{
-    common::{drbg, x25519_elligator2::REPRESENTATIVE_LENGTH, xwing},
+    common::{drbg, x25519_elligator2::REPRESENTATIVE_LENGTH},
     framing,
     handshake::AUTHCODE_LENGTH,
 };
 
 use std::time::Duration;
 
-pub const PUBLIC_KEY_LEN: usize = xwing::PUBKEY_LEN;
+// TODO: these two should not be necessary
+pub const PUBLIC_KEY_LEN: usize = <MlKem768::EncapsulationKey as Encode>::EncodedSize::USIZE;
+pub const NODE_PUBKEY_LENGTH: usize = PUBLIC_KEY_LEN + ED25519_ID_LEN;
 
 //=========================[Framing/Msgs]=====================================//
 
@@ -82,4 +86,3 @@ pub const SEED_LENGTH: usize = drbg::SEED_LENGTH;
 pub const HEADER_LENGTH: usize = framing::FRAME_OVERHEAD + framing::MESSAGE_OVERHEAD;
 
 pub const NODE_ID_LENGTH: usize = ED25519_ID_LEN;
-pub const NODE_PUBKEY_LENGTH: usize = xwing::PUBKEY_LEN;

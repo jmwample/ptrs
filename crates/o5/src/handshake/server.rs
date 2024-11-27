@@ -83,7 +83,7 @@ impl ServerHandshake for Server {
 ///
 /// On success, return the server handshake message to send, and an XofReader
 /// to use in generating circuit keys.
-pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply, K:OKemCore>(
+pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply, K: OKemCore>(
     rng: &mut R,
     reply_fn: &mut REPLY,
     message: &[u8],
@@ -91,11 +91,16 @@ pub(crate) fn server_handshake_ntor_v3<R: CryptoRng + RngCore, REPLY: MsgReply, 
     verification: &[u8],
 ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
     let (dk_session, _ek_session) = K::generate(rng);
-    server_handshake_ntor_v3_no_keygen(rng, reply_fn, &dk_session, message, keys, verification)
+    let ephemeral_dk = EphemeralKey::new(dk_session);
+    server_handshake_ntor_v3_no_keygen(rng, reply_fn, &ephemeral_dk, message, keys, verification)
 }
 
 /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.
-pub(crate) fn server_handshake_ntor_v3_no_keygen<R: CryptoRng + RngCore, REPLY: MsgReply, K:OKemCore>(
+pub(crate) fn server_handshake_ntor_v3_no_keygen<
+    R: CryptoRng + RngCore,
+    REPLY: MsgReply,
+    K: OKemCore,
+>(
     rng: &mut R,
     reply_fn: &mut REPLY,
     secret_key_y: &EphemeralKey<K>,

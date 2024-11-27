@@ -65,10 +65,11 @@ thiserror = "1.0.56"
 curve25519-elligator2 = { version="0.1.0-alpha.1", features=["elligator2"] }
 
 # o5 pqc
-ml-kem = "0.2.1"
+ml-kem = { git="https://github.com/jmwample/KEMs", branch="params" }
 kem = "0.3.0-pre.0"
+# kemeleon = { version="0.1.0-rc.1" }
 # kemeleon = { version="0.1.0-rc.1", path="../../../../elligantt/kemeleon"}
-kemeleon = { version="0.1.0-rc.1", git="https://github.com/jmwample/kemeleon", branch="cleanup"}
+kemeleon = { git="https://github.com/jmwample/kemeleon", branch="uncooking"}
 
 [dev-dependencies]
 anyhow = "1.0"

@@ -15,7 +15,7 @@ pub fn get_epoch_hour() -> u64 {
         / 3600
 }
 
-pub fn make_pad(rng: &mut impl CryptoRngCore, pad_len: usize) -> Vec<u8>{
+pub fn make_pad(rng: &mut impl CryptoRngCore, pad_len: usize) -> Vec<u8> {
     trace!("[make_hs_pad] generating {pad_len}B");
     let mut pad = vec![u8::default(); pad_len];
     rng.fill_bytes(&mut pad);

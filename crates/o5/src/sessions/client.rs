@@ -138,7 +138,11 @@ impl ClientSession<Initialized> {
     /// - response fails server auth check
     ///
     /// TODO: make sure failure modes are understood (FIN/RST w/ and w/out buffered data, etc.)
-    pub async fn handshake<T, K>(self, mut stream: T, deadline: Option<Instant>) -> Result<O5Stream<T>>
+    pub async fn handshake<T, K>(
+        self,
+        mut stream: T,
+        deadline: Option<Instant>,
+    ) -> Result<O5Stream<T>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
         K: OKemCore,

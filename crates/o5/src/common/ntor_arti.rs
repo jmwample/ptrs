@@ -12,10 +12,7 @@
 //! for circuits on today's Tor.
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use crate::{
-    common::{colorize, xwing},
-    Error, Result,
-};
+use crate::{common::colorize, Error, Result};
 
 use tor_bytes::SecretBuf;
 
@@ -203,10 +200,6 @@ pub enum RelayHandshakeError {
     /// An error in parsing  a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
-
-    /// Error happened during cryptographic handshake
-    #[error("")]
-    CryptoError(xwing::EncodeError),
 
     /// The client asked for a key we didn't have.
     #[error("Client asked for a key or ID that we don't have")]

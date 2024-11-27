@@ -10,7 +10,7 @@ use crate::{
     },
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
-    handshake::{IdentityPub, IdentityKey},
+    handshake::{IdentityKey, IdentityPub},
     proto::{MaybeTimeout, O5Stream},
     sessions::Session,
     Error, Result,

@@ -50,8 +50,6 @@ pub(crate) use client::{
 mod server;
 pub(crate) use server::HandshakeMaterials as SHSMaterials;
 
-use crate::common::xwing;
-
 /// The verification string to be used for circuit extension.
 pub const NTOR3_CIRC_VERIFICATION: &[u8] = b"circuit extend";
 
@@ -213,10 +211,10 @@ fn kdf_msgkdf<K: OKemCore>(
     // (ENC_K1, MAC_K1) = PARTITION(phase1_keys, ENC_KEY_LEN, MAC_KEY_LEN
     let mut msg_kdf = DigestWriter(Shake256::default());
     msg_kdf.write(&T_MSGKDF)?;
-    msg_kdf.write(&xb.as_bytes())?;
+    msg_kdf.write(&xb.as_bytes()[..])?;
     msg_kdf.write(&relay_public.id)?;
-    msg_kdf.write(&client_public.as_bytes())?;
-    msg_kdf.write(&relay_public.ek.as_bytes())?;
+    msg_kdf.write(&client_public.as_bytes()[..])?;
+    msg_kdf.write(&relay_public.ek.as_bytes()[..])?;
     msg_kdf.write(PROTOID)?;
     msg_kdf.write(&Encap(verification))?;
     let mut r = msg_kdf.take().finalize_xof();
@@ -230,8 +228,8 @@ fn kdf_msgkdf<K: OKemCore>(
         mac.write(&T_MSGMAC)?;
         mac.write(&Encap(&mac_key[..]))?;
         mac.write(&relay_public.id)?;
-        mac.write(&relay_public.ek.as_bytes())?;
-        mac.write(&client_public.as_bytes())?;
+        mac.write(&relay_public.ek.as_bytes()[..])?;
+        mac.write(&client_public.as_bytes()[..])?;
     }
 
     Ok((enc_key, mac))
@@ -282,8 +280,8 @@ mod test {
     use crate::Server;
 
     use super::*;
+    use crate::handshake::IdentitySecretKey;
     use crate::test_utils::test_keys::KEYS;
-    use crate::{handshake::IdentitySecretKey};
 
     use hex::FromHex;
     use hex_literal::hex;
@@ -475,35 +473,5 @@ mod test {
         };
         assert_eq!(c_keys, s_keys);
         assert_eq!(c_keys[..], hex!("9c19b631fd94ed86a817e01f6c80b0743a43f5faebd39cfaa8b00fa8bcc65c3bfeaa403d91acbd68a821bf6ee8504602b094a254392a07737d5662768c7a9fb1b2814bb34780eaee6e867c773e28c212ead563e98a1cd5d5b4576f5ee61c59bde025ff2851bb19b721421694f263818e3531e43a9e4e3e2c661e2ad547d8984caa28ebecd3e4525452299be26b9185a20a90ce1eac20a91f2832d731b54502b09749b5a2a2949292f8cfcbeffb790c7790ed935a9d251e7e336148ea83b063a5618fcff674a44581585fd22077ca0e52c59a24347a38d1a1ceebddbf238541f226b8f88d0fb9c07a1bcd2ea764bbbb5dacdaf5312a14c0b9e4f06309b0333b4a")[..]);
-    }
-
-    #[test]
-    fn xwing_3way_handshake_flow() {
-        let mut rng = rand::thread_rng();
-        // long-term server id and keys
-        let (dk_si, ek_si) = K::generate(&mut rng);
-        // let server_id = ID::new();
-
-        // client open session, generating the associated ephemeral keys
-        // and sends xwing session pubkey using an obfuscated encoding
-        // along with an obfuscated ciphertext containing an initial shared secret
-        let (dk_cs, ek_cs) = K::generate(&mut rng);
-
-        // server computes xwing combined shared secret
-        let (dk_ss, ek_ss) = K::generate(&mut rng);
-        // let server_hs_res = server_handshake(&server_session, &cpk, &server_id_keys, &server_id);
-
-        // server sends mlkemx25519 session pubkey(s)
-
-        // // client computes xwing combined shared secret
-        // let client_hs_res = client_handshake(&client_session, &spk, &server_id_pub, &server_id);
-
-        // assert_ne!(client_hs_res.is_some().unwrap_u8(), 0);
-        // assert_ne!(server_hs_res.is_some().unwrap_u8(), 0);
-
-        // let chsres = client_hs_res.unwrap();
-        // let shsres = server_hs_res.unwrap();
-        // assert_eq!(chsres.key_seed, shsres.key_seed);
-        // assert_eq!(&chsres.auth, &shsres.auth);
     }
 }

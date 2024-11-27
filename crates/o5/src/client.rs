@@ -11,7 +11,7 @@ use crate::{
 
 use bytes::{Buf, BufMut, BytesMut};
 use hmac::{Hmac, Mac};
-use kemeleon::{MlKem768, OKemCore, Encode};
+use kemeleon::{Encode, MlKem768, OKemCore};
 use ptrs::{debug, info, trace, warn};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -65,7 +65,7 @@ impl ClientBuilder {
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: [u8; PUBLIC_KEY_LEN]) -> Result<&mut Self> {
-        self.node_details.ek = IdentityPub::try_from_bytes(&pubkey[..])?;
+        self.node_details = IdentityPub::try_from_bytes(&pubkey[..])?;
         Ok(self)
     }
 

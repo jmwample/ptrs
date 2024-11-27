@@ -33,7 +33,7 @@ use core::borrow::Borrow;
 
 // -----------------------------[ Server ]-----------------------------
 
-pub struct ServerHandshakeMessage<K:OKemCore> {
+pub struct ServerHandshakeMessage<K: OKemCore> {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
     session_pubkey: EphemeralPub<K>,
@@ -41,7 +41,7 @@ pub struct ServerHandshakeMessage<K:OKemCore> {
     aux_data: Vec<NtorV3Extension>,
 }
 
-impl<K:OKemCore> ServerHandshakeMessage<K> {
+impl<K: OKemCore> ServerHandshakeMessage<K> {
     pub fn new(_client_pubkey: EphemeralPub<K>, _session_pubkey: EphemeralPub<K>) -> Self {
         todo!("SHS MSG - this should probably be built directly from the client HS MSG");
         // Self {
@@ -136,7 +136,7 @@ where
         }
     }
 
-    pub fn get_public(&mut self) -> K::EncapsulationKey {
+    pub fn get_public(&mut self) -> EphemeralPub<K> {
         // trace!("repr: {}", hex::encode(self.client_session_pubkey.id);
         self.client_session_pubkey.clone()
     }
@@ -197,7 +197,7 @@ where
         // compute our ephemeral secret
         let mut h =
             Hmac::<D>::new_from_slice(node_id.as_bytes()).expect("keying hmac should never fail");
-        h.update(shared_secret.as_bytes());
+        h.update(&shared_secret.as_bytes()[..]);
         let mut ephemeral_secret = Zeroizing::new([0u8; ENC_KEY_LEN]);
         ephemeral_secret.copy_from_slice(&h.finalize_reset().into_bytes()[..ENC_KEY_LEN]);
 
