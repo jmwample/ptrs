@@ -14,8 +14,8 @@
   </a>
 </p>
 
-This repository contains multiple related crates implementing the lyrebird (obfs4) library,
-lyrebird binary, and Pluggable Transports in Rust (PTRS) library.
+This repository contains multiple related crates implementing the `obfs4` transport, a successor `o5`
+transport, the lyrebird binary, and a unifying Pluggable Transports in Rust (PTRS) library.
 
 
 |                 Crate                    |   Description  | Crates.io | Docs | MSRV |
