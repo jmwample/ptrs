@@ -1,6 +1,7 @@
 #![allow(unused)]
 
-use kemeleon::{Encode, MlKem768};
+use kemeleon::{Encode, KemeleonByteArraySize};
+use ml_kem::MlKem768Params;
 use tor_llcrypto::pk::ed25519::ED25519_ID_LEN;
 use typenum::Unsigned;
 
@@ -14,7 +15,7 @@ use crate::{
 use std::time::Duration;
 
 // TODO: these two should not be necessary
-pub const PUBLIC_KEY_LEN: usize = <MlKem768::EncapsulationKey as Encode>::EncodedSize::USIZE;
+pub const PUBLIC_KEY_LEN: usize = <MlKem768Params as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE;
 pub const NODE_PUBKEY_LENGTH: usize = PUBLIC_KEY_LEN + ED25519_ID_LEN;
 
 //=========================[Framing/Msgs]=====================================//

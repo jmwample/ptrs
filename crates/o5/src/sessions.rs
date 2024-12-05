@@ -4,7 +4,7 @@
 /// steady state transfer.
 use crate::common::drbg;
 
-use kemeleon::OKemCore;
+use kemeleon::{MlKem768, OKemCore};
 use tor_bytes::Readable;
 
 mod client;
@@ -22,12 +22,12 @@ pub(crate) struct Established;
 /// The session broke due to something like a timeout, reset, lost connection, etc.
 trait Fault {}
 
-pub enum Session {
-    Client(ClientSession<Established>),
+pub enum Session<K: OKemCore> {
+    Client(ClientSession<Established, K>),
     Server(ServerSession<Established>),
 }
 
-impl Session {
+impl<K: OKemCore> Session<K> {
     #[allow(unused)]
     pub fn id(&self) -> String {
         match self {

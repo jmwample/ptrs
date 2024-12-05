@@ -64,8 +64,8 @@ impl ClientBuilder {
         })
     }
 
-    pub fn with_node_pubkey(&mut self, pubkey: [u8; PUBLIC_KEY_LEN]) -> Result<&mut Self> {
-        self.node_details = IdentityPub::try_from_bytes(&pubkey[..])?;
+    pub fn with_node_pubkey(&mut self, pubkey: impl AsRef<[u8]>) -> Result<&mut Self> {
+        self.node_details = IdentityPub::try_from_bytes(pubkey)?;
         Ok(self)
     }
 
@@ -131,7 +131,7 @@ impl Client {
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T, MlKem768>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
@@ -139,7 +139,7 @@ impl Client {
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake::<T, MlKem768>(stream, deadline).await
+        session.handshake::<T>(stream, deadline).await
     }
 
     /// On a failed handshake the client will read for the remainder of the
@@ -147,7 +147,7 @@ impl Client {
     pub async fn establish<'a, T, E>(
         self,
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
-    ) -> Result<O5Stream<T>>
+    ) -> Result<O5Stream<T, MlKem768>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,
@@ -158,7 +158,7 @@ impl Client {
 
         let deadline = self.handshake_timeout.map(|d| Instant::now() + d);
 
-        session.handshake::<T, MlKem768>(stream, deadline).await
+        session.handshake::<T>(stream, deadline).await
     }
 }
 

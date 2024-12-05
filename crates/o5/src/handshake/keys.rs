@@ -13,8 +13,10 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine,
 };
+use hybrid_array::Array;
 use kem::{Decapsulate, Encapsulate};
 use kemeleon::{Encode, MlKem768, OKemCore};
+use rand::{CryptoRng, RngCore};
 use subtle::{Choice, ConstantTimeEq};
 use tor_bytes::{EncodeResult, Readable, SecretBuf, Writeable, Writer};
 use tor_llcrypto::{
@@ -22,8 +24,6 @@ use tor_llcrypto::{
     pk::ed25519::{Ed25519Identity, ED25519_ID_LEN},
 };
 use typenum::Unsigned;
-
-use rand::{CryptoRng, RngCore};
 
 /// Ephemeral single use session secret key type
 pub struct EphemeralKey<K: OKemCore>(<K as OKemCore>::DecapsulationKey);
@@ -113,7 +113,7 @@ impl<K: OKemCore> Clone for IdentityPublicKey<K> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
-            ek: <K as OKemCore>::EncapsulationKey::from(&self.ek),
+            ek: <K as OKemCore>::EncapsulationKey::from(self.ek.clone()),
         }
     }
 }

@@ -25,6 +25,7 @@ use std::{
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
 use hmac::{Hmac, Mac};
+use kemeleon::MlKem768;
 use ptrs::{debug, info};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -258,7 +259,7 @@ impl Server {
         Self::new_from_key(identity_keys)
     }
 
-    pub async fn wrap<T>(self, stream: T) -> Result<O5Stream<T>>
+    pub async fn wrap<T>(self, stream: T) -> Result<O5Stream<T, MlKem768>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {

@@ -16,6 +16,7 @@ use crate::{
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
+use kemeleon::MlKem768;
 use ptrs::{debug, info, trace};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
@@ -121,7 +122,7 @@ impl ServerSession<Initialized> {
         mut stream: T,
         extensions_handler: &mut REPLY,
         deadline: Option<Instant>,
-    ) -> Result<O5Stream<T>>
+    ) -> Result<O5Stream<T, MlKem768>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
