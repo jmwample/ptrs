@@ -13,8 +13,7 @@ date elements without worrying about being backward compatible.
 ## Differences from obfs4
 
 - Frame / Packet / Message construction
-  - In obfs4 a "frame" consists of a signle "packet", encoded using xsalsa20Poly1305.
-  we use the same frame construction, but change a few key elements:
+  - In obfs4 a "frame" consists of a signle "packet", encoded using xsalsa20Poly1305. We use the same frame construction, but change a few key elements:
     - the concept of "packets" is now called "messages"
     - a frame can contain multiple messages
     - update from xsalsa20poly1305 -> chacha20poly1305
@@ -26,8 +25,7 @@ date elements without worrying about being backward compatible.
 
 - Handshake
   - x25519 key-exchange -> [X-Wing](https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem#name-with-hpke-x25519kyber768dra) (ML-KEM + X25519) Hybrid Public Key Exchange
-    - the overhead padding of the current obfs4 handshake (resulting in paket length in [4096:8192]) is mostly unused
-    we exchange some of this unused padding for a kyber key to provide post-quantum security to the handshake.
+    - the overhead padding of the current obfs4 handshake (resulting in paket length in [4096:8192]) is mostly unused we exchange some of this unused padding for a kyber key to provide post-quantum security to the handshake.
     - [Kemeleon Encoding](https://docs.rs/kemeleon/latest/kemeleon/) for obfuscating ML-KEM public keys and ciphertext on the wire.
     - [Elligator2](https://docs.rs/curve25519-elligator2/latest/curve25519_elligator2/) for obfuscating X25519 public keys.
   - [PQ-Obfs handshake](https://eprint.iacr.org/2024/1086.pdf)

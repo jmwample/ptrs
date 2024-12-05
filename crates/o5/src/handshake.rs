@@ -80,7 +80,7 @@ pub(crate) type SessionSharedSecret = Zeroizing<[u8; ENC_KEY_LEN]>;
 /// This corresponds to the ENCAP() function in proposal 332.
 struct Encap<'a>(&'a [u8]);
 
-impl<'a> Writeable for Encap<'a> {
+impl Writeable for Encap<'_> {
     fn write_onto<B: Writer + ?Sized>(&self, b: &mut B) -> EncodeResult<()> {
         b.write_u64(self.0.len() as u64);
         b.write(self.0)
@@ -412,11 +412,11 @@ mod test {
         let id = <[u8; NODE_ID_LENGTH]>::from_hex(KEYS[0].id).unwrap();
         let x = hex::decode(KEYS[0].x).expect("failed to unhex x");
         let y = hex::decode(KEYS[0].y).expect("failed to unhex y");
-        let b = Decap::<K>::from_fips_bytes(&b[..]).expect("failed to parse b");
+        let b = Decap::<K>::try_from_bytes(&b[..]).expect("failed to parse b");
         let B = b.encapsulation_key(); // K::EncapsulationKey::from(&b);
-        let x = EphemeralKey::<K>::from_fips_bytes(&x[..]).expect("failed_to parse x");
+        let x = Decap::<K>::try_from_bytes(&x[..]).expect("failed_to parse x");
         let X = x.encapsulation_key();
-        let y = Decap::<K>::from_fips_bytes(&y[..]).expect("failed to parse y");
+        let y = Decap::<K>::try_from_bytes(&y[..]).expect("failed to parse y");
 
         let client_message = hex!("68656c6c6f20776f726c64");
         let verification = hex!("78797a7a79");
@@ -449,7 +449,7 @@ mod test {
         let (server_handshake, mut server_keygen) = server::server_handshake_ntor_v3_no_keygen(
             &mut rng,
             &mut rep,
-            &y,
+            &EphemeralKey::new(y),
             &client_handshake,
             &relay_private,
             &verification,

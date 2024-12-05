@@ -247,7 +247,7 @@ mod test {
         for m in cases {
             let actual = find_mac_mark(
                 m.mark,
-                &Bytes::from(m.buf),
+                Bytes::from(m.buf),
                 m.start_pos,
                 m.max_pos,
                 m.from_tail,

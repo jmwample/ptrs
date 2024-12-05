@@ -29,11 +29,8 @@ pub(crate) struct HandshakeMaterials {
     pub(crate) len_seed: [u8; SEED_LENGTH],
 }
 
-impl<'a> HandshakeMaterials {
-    pub fn new<'b>(session_id: String, len_seed: [u8; SEED_LENGTH]) -> Self
-    where
-        'b: 'a,
-    {
+impl HandshakeMaterials {
+    pub fn new(session_id: String, len_seed: [u8; SEED_LENGTH]) -> Self {
         HandshakeMaterials {
             session_id,
             len_seed,

@@ -22,7 +22,7 @@ pub struct SessionID([u8; SESSION_ID_LEN]);
 
 impl core::fmt::Display for SessionID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}]", colorize(hex::encode(&self.0)))
+        write!(f, "[{}]", colorize(hex::encode(self.0)))
     }
 }
 

@@ -153,7 +153,7 @@ impl<K: OKemCore> ClientHandshake for NtorV3Client<K> {
     /// client onionskin that the server is replying to.
     fn client2<T: AsRef<[u8]>>(state: &mut Self::StateType, msg: T) -> Result<Self::HsOutput> {
         let (message, xof_reader) =
-            client_handshake_ntor_v3_part2::<K>(&state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
+            client_handshake_ntor_v3_part2::<K>(state, msg.as_ref(), NTOR3_CIRC_VERIFICATION)?;
         let extensions = NtorV3Extension::decode(&message).map_err(|err| Error::CellDecodeErr {
             object: "ntor v3 extensions",
             err,

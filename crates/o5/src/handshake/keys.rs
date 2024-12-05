@@ -112,7 +112,7 @@ pub struct IdentityPublicKey<K: OKemCore> {
 impl<K: OKemCore> Clone for IdentityPublicKey<K> {
     fn clone(&self) -> Self {
         Self {
-            id: self.id.clone(),
+            id: self.id,
             ek: <K as OKemCore>::EncapsulationKey::from(self.ek.clone()),
         }
     }
@@ -302,10 +302,16 @@ impl KeyGenerator for NtorV3KeyGenerator {
     }
 }
 
+impl From<NtorV3KeyGenerator> for O5Codec {
+    fn from(val: NtorV3KeyGenerator) -> Self {
+        val.codec
+    }
+}
+
 impl NtorV3KeyGen for NtorV3KeyGenerator {}
 
 impl NtorV3KeyGenerator {
-    pub fn new<R: Role>(mut reader: NtorV3XofReader) -> Self {
+    pub(crate) fn new<R: Role>(mut reader: NtorV3XofReader) -> Self {
         // let okm = Self::kdf(&seed[..], KEY_MATERIAL_LENGTH * 2 + SESSION_ID_LEN)
         //     .expect("bug: failed to derive key material from seed");
 
@@ -347,12 +353,6 @@ impl KeyGenerator for NtorV3XofReader {
         let mut ret: SecretBuf = vec![0; keylen].into();
         self.0.read(ret.as_mut());
         Ok(ret)
-    }
-}
-
-impl<K: NtorV3KeyGen> From<K> for O5Codec {
-    fn from(value: K) -> Self {
-        value.into()
     }
 }
 

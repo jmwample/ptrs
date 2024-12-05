@@ -7,7 +7,7 @@ use crate::{
         },
     },
     constants::*,
-    framing,
+    framing::{Messages, O5Codec},
     handshake::{
         CHSMaterials, ClientHsComplete, IdentityPublicKey, NtorV3Client, NtorV3KeyGen,
         NtorV3KeyGenerator,
@@ -155,8 +155,7 @@ impl<K: OKemCore> ClientSession<Initialized, K> {
 
         // default deadline
         let d_def = Instant::now() + CLIENT_HANDSHAKE_TIMEOUT;
-        let handshake_fut =
-            Self::complete_handshake::<T, ClientHsComplete>(stream, materials, deadline);
+        let handshake_fut = Self::complete_handshake::<T>(stream, materials, deadline);
         let (mut hs_complete, mut stream) =
             match tokio::time::timeout_at(deadline.unwrap_or(d_def), handshake_fut).await {
                 Ok(result) => match result {
@@ -182,7 +181,7 @@ impl<K: OKemCore> ClientSession<Initialized, K> {
         // post-handshake state updates
         let mut keygen: NtorV3KeyGenerator = hs_complete.keygen();
         session.set_session_id(keygen.session_id());
-        let mut codec = framing::O5Codec::from(keygen);
+        let mut codec: O5Codec = keygen.into();
 
         // // TODO: handle server response extensions here
         // for ext in hs_complete.extensions() {
@@ -190,7 +189,7 @@ impl<K: OKemCore> ClientSession<Initialized, K> {
         // }
 
         let res = codec.decode(&mut hs_complete.remainder());
-        if let Ok(Some(framing::Messages::PrngSeed(seed))) = res {
+        if let Ok(Some(Messages::PrngSeed(seed))) = res {
             // try to parse the remainder of the server hello packet as a
             // PrngSeed since it should be there.
             let len_seed = drbg::Seed::from(seed);
@@ -209,7 +208,7 @@ impl<K: OKemCore> ClientSession<Initialized, K> {
         Ok(O5Stream::from_o4(o4))
     }
 
-    async fn complete_handshake<T, O>(
+    async fn complete_handshake<T>(
         mut stream: T,
         materials: CHSMaterials<K>,
         deadline: Option<Instant>,
