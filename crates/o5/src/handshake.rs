@@ -289,6 +289,7 @@ mod test {
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
 
     type K = MlKem768;
     type Decap<T> = <T as OKemCore>::DecapsulationKey;
@@ -315,11 +316,11 @@ mod test {
         }
         let mut rep = Rep(Vec::new(), relay_message.to_vec());
 
-        let (s_handshake, mut s_keygen) = server::server_handshake_ntor_v3(
+        let server = Server::<MlKem768>::new(relay_private);
+        let (s_handshake, mut s_keygen) = server.server_handshake_ntor_v3(
             &mut rng,
             &mut rep,
             &c_handshake,
-            &relay_private,
             verification,
         )
         .unwrap();
@@ -350,7 +351,7 @@ mod test {
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-        let server = Server::new_from_random(&mut thread_rng());
+        let server = Server::<MlKem768>::new_from_random(&mut thread_rng());
         let shs_materials = SHSMaterials {
             len_seed: [0u8; SEED_LENGTH],
             session_id: "roundtrip_test_serverside".into(),
@@ -390,7 +391,7 @@ mod test {
             len_seed: [0u8; SEED_LENGTH],
             session_id: "roundtrip_test_serverside".into(),
         };
-        let server = Server::new_from_random(&mut thread_rng());
+        let server = Server::<MlKem768>::new_from_random(&mut thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
@@ -446,12 +447,12 @@ mod test {
         }
         let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
 
-        let (server_handshake, mut server_keygen) = server::server_handshake_ntor_v3_no_keygen(
+        let server = Server::<MlKem768>::new(IdentitySecretKey::new(b, Ed25519Identity(id)));
+        let (server_handshake, mut server_keygen) = server.server_handshake_ntor_v3_no_keygen(
             &mut rng,
             &mut rep,
             &EphemeralKey::new(y),
             &client_handshake,
-            &relay_private,
             &verification,
         )
         .unwrap();
