@@ -31,9 +31,9 @@ impl<T, K> Transport<T, K> {
 impl<T, K> ptrs::PluggableTransport<T> for Transport<T, K>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    K: OKemCore,
+    K: OKemCore + Send + Sync,
 {
-    type ClientBuilder = crate::ClientBuilder;
+    type ClientBuilder = crate::ClientBuilder<K>;
     type ServerBuilder = crate::ServerBuilder<T, K>;
 
     fn name() -> String {
@@ -41,7 +41,7 @@ where
     }
 
     fn client_builder() -> <Self as ptrs::PluggableTransport<T>>::ClientBuilder {
-        crate::ClientBuilder::default()
+        crate::ClientBuilder::<K>::default()
     }
 
     fn server_builder() -> <Self as ptrs::PluggableTransport<T>>::ServerBuilder {
@@ -102,12 +102,12 @@ where
     }
 }
 
-impl<T, K> ptrs::ClientBuilder<T> for crate::ClientBuilder
+impl<T, K> ptrs::ClientBuilder<T> for crate::ClientBuilder<K>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     K: OKemCore + Send + Sync,
 {
-    type ClientPT = crate::Client;
+    type ClientPT = crate::Client<K>;
     type Error = Error;
     type Transport = Transport<T, K>;
 
@@ -120,7 +120,7 @@ where
     /// **Errors**
     /// If a required field has not been initialized.
     fn build(&self) -> Self::ClientPT {
-        crate::ClientBuilder::build(self)
+        crate::ClientBuilder::<K>::build(self)
     }
 
     /// Pluggable transport attempts to parse and validate options from a string,
@@ -188,14 +188,15 @@ where
 
 /// Example wrapping transport that just passes the incoming connection future through
 /// unmodified as a proof of concept.
-impl<InRW, InErr> ptrs::ClientTransport<InRW, InErr> for crate::Client
+impl<InRW, InErr, K> ptrs::ClientTransport<InRW, InErr> for crate::Client<K>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
+    K: OKemCore + Send + Sync,
 {
-    type OutRW = O5Stream<InRW, MlKem768>;
+    type OutRW = O5Stream<InRW, K>;
     type OutErr = Error;
-    type Builder = crate::ClientBuilder;
+    type Builder = crate::ClientBuilder<K>;
 
     fn establish(self, input: Pin<F<InRW, InErr>>) -> Pin<F<Self::OutRW, Self::OutErr>> {
         Box::pin(Self::establish::<InRW, InErr>(self, input))
@@ -215,7 +216,7 @@ where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     K: OKemCore + Send + Sync,
 {
-    type OutRW = O5Stream<InRW, MlKem768>;
+    type OutRW = O5Stream<InRW, K>;
     type OutErr = Error;
     type Builder = crate::ServerBuilder<InRW, K>;
 
@@ -242,15 +243,17 @@ mod test {
         let pt_name = <O5PT as ptrs::PluggableTransport<TcpStream>>::name();
         assert_eq!(pt_name, O5PT::NAME);
 
-        let cb_name = <crate::ClientBuilder<MlKem768> as ptrs::ClientBuilder<TcpStream>>::method_name();
+        let cb_name =
+            <crate::ClientBuilder<MlKem768> as ptrs::ClientBuilder<TcpStream>>::method_name();
         assert_eq!(cb_name, O5PT::NAME);
 
-        let sb_name =
-            <crate::ServerBuilder<TcpStream, MlKem768> as ptrs::ServerBuilder<TcpStream>>::method_name();
+        let sb_name = <crate::ServerBuilder<TcpStream, MlKem768> as ptrs::ServerBuilder<
+            TcpStream,
+        >>::method_name();
         assert_eq!(sb_name, O5PT::NAME);
 
         let ct_name =
-            <crate::Client as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
+            <crate::Client<MlKem768> as ptrs::ClientTransport<TcpStream, crate::Error>>::method_name();
         assert_eq!(ct_name, O5PT::NAME);
 
         let st_name = <crate::Server<MlKem768> as ptrs::ServerTransport<TcpStream>>::method_name();

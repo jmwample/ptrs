@@ -5,7 +5,8 @@ use crate::{
     },
     constants::*,
     handshake::{
-        decrypt, encrypt, Authcode, CHSMaterials, EphemeralKey, EphemeralPub, SessionSharedSecret, AUTHCODE_LENGTH, ENC_KEY_LEN
+        decrypt, encrypt, Authcode, CHSMaterials, EphemeralKey, EphemeralPub, SessionSharedSecret,
+        AUTHCODE_LENGTH, ENC_KEY_LEN,
     },
     Error, Result,
 };
@@ -25,7 +26,9 @@ use rand_core::CryptoRngCore;
 use sha3::Sha3_256;
 use tor_bytes::{EncodeError, EncodeResult};
 use tor_cell::relaycell::extend::NtorV3Extension;
-use typenum::{consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess, Unsigned};
+use typenum::{
+    consts::U256, marker_traits::NonZero, operator_aliases::Le, type_operators::IsLess, Unsigned,
+};
 use zeroize::{Zeroize, Zeroizing};
 
 use core::borrow::Borrow;
@@ -111,8 +114,6 @@ impl<K: OKemCore, S: ChsState> ServerHandshakeMessage<K, S> {
         // Security Theoretic, Post-Quantum safe, Obfuscated Key exchange
 
         // let (ciphertext, shared_secret) = node_encap_key.encapsulate(rng).map_err(to_tor_err)?;
-
-
 
         // h.update(self.session_pubkey.as_bytes().as_ref());
         // let mark: &[u8] = &h.finalize_reset().into_bytes()[..MARK_LENGTH];
@@ -206,13 +207,12 @@ pub struct ClientHandshakeMessage<K: OKemCore, S: ChsState> {
 pub(crate) trait ChsState {}
 
 pub(crate) struct ClientStateOutgoing<K: OKemCore> {
-    hs_materials: CHSMaterials<K>,
+    pub(crate) hs_materials: CHSMaterials<K>,
 }
-impl<K:OKemCore> ChsState for ClientStateOutgoing<K> {}
+impl<K: OKemCore> ChsState for ClientStateOutgoing<K> {}
 
 pub(crate) struct ClientStateIncoming {}
 impl ChsState for ClientStateIncoming {}
-
 
 impl<K> ClientHandshakeMessage<K, ClientStateIncoming>
 where
@@ -222,17 +222,17 @@ where
     pub(crate) fn new(
         client_session_pubkey: EphemeralPub<K>,
         state: ClientStateIncoming,
-        epoch_hour: Option<String>
+        epoch_hour: Option<String>,
     ) -> Self {
         Self {
             client_session_pubkey,
             state,
-            epoch_hour:  epoch_hour.unwrap_or(get_epoch_hour().to_string()),
+            epoch_hour: epoch_hour.unwrap_or(get_epoch_hour().to_string()),
         }
     }
 }
 
-impl<K:OKemCore,S:ChsState> ClientHandshakeMessage<K, S>
+impl<K: OKemCore, S: ChsState> ClientHandshakeMessage<K, S>
 where
     K: OKemCore,
 {
@@ -245,7 +245,6 @@ where
     pub fn get_epoch_hr(&self) -> String {
         self.epoch_hour.clone()
     }
-
 }
 
 impl<K> ClientHandshakeMessage<K, ClientStateOutgoing<K>>
@@ -256,7 +255,6 @@ where
     pub(crate) fn new(
         client_session_pubkey: EphemeralPub<K>,
         state: ClientStateOutgoing<K>,
-        hour: Option<String>
     ) -> Self {
         Self {
             client_session_pubkey,

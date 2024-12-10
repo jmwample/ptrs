@@ -4,8 +4,11 @@ use crate::{
         drbg::SEED_LENGTH,
         ntor_arti::{AuxDataReply, RelayHandshakeError, RelayHandshakeResult, ServerHandshake},
         utils::{find_mac_mark, get_epoch_hour},
-    }, constants::*, framing::{ClientHandshakeMessage, ClientStateIncoming, ClientStateOutgoing}, handshake::*, Error, Server,
-    Result,
+    },
+    constants::*,
+    framing::{ClientHandshakeMessage, ClientStateIncoming, ClientStateOutgoing},
+    handshake::*,
+    Error, Result, Server,
 };
 
 use std::time::Instant;
@@ -15,6 +18,7 @@ use digest::{Digest, ExtendableOutput, XofReader};
 use hmac::{Hmac, Mac};
 use kemeleon::OKemCore;
 use keys::NtorV3KeyGenerator;
+use ptrs::{debug, trace};
 use rand_core::{CryptoRng, CryptoRngCore, RngCore};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -23,7 +27,6 @@ use tor_cell::relaycell::extend::NtorV3Extension;
 use tor_error::into_internal;
 use tor_llcrypto::d::{Sha3_256, Shake256};
 use tor_llcrypto::pk::ed25519::Ed25519Identity;
-use ptrs::{debug, trace};
 use typenum::Unsigned;
 use zeroize::Zeroizing;
 
@@ -51,7 +54,7 @@ impl<K: OKemCore> ServerHandshake for Server<K> {
     fn server<REPLY: AuxDataReply<Self>, T: AsRef<[u8]>>(
         &self,
         reply_fn: &mut REPLY,
-        _materials: &Self::HandshakeParams, // TODO: do we need materials during server handshake?
+        materials: &Self::HandshakeParams, // TODO: do we need materials during server handshake?
         msg: T,
     ) -> RelayHandshakeResult<(Self::KeyGen, Vec<u8>)> {
         let mut bytes_reply_fn = |bytes: &[u8]| -> Option<Vec<u8>> {
@@ -67,13 +70,14 @@ impl<K: OKemCore> ServerHandshake for Server<K> {
             &mut rng,
             &mut bytes_reply_fn,
             msg.as_ref(),
+            &materials,
             NTOR3_CIRC_VERIFICATION,
         )?;
         Ok((NtorV3KeyGenerator::new::<ServerRole>(reader), res))
     }
 }
 
-impl<K:OKemCore> Server<K> {
+impl<K: OKemCore> Server<K> {
     const CLIENT_CT_SIZE: usize = <<K as OKemCore>::Ciphertext as Encode>::EncodedSize::USIZE;
     const CLIENT_EK_SIZE: usize = <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize::USIZE;
 
@@ -92,11 +96,19 @@ impl<K:OKemCore> Server<K> {
         rng: &mut impl CryptoRngCore,
         reply_fn: &mut impl MsgReply,
         message: impl AsRef<[u8]>,
+        materials: HandshakeMaterials,
         verification: &[u8],
     ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
         let (dk_session, _ek_session) = K::generate(rng);
         let ephemeral_dk = EphemeralKey::new(dk_session);
-        self.server_handshake_ntor_v3_no_keygen(rng, reply_fn, &ephemeral_dk, message, verification)
+        self.server_handshake_ntor_v3_no_keygen(
+            rng,
+            reply_fn,
+            &ephemeral_dk,
+            message,
+            materials,
+            verification,
+        )
     }
 
     /// As `server_handshake_ntor_v3`, but take a secret key instead of an RNG.
@@ -106,6 +118,7 @@ impl<K:OKemCore> Server<K> {
         reply_fn: &mut impl MsgReply,
         secret_key_y: &EphemeralKey<K>,
         message: impl AsRef<[u8]>,
+        materials: HandshakeMaterials,
         verification: &[u8],
     ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
         let msg = message.as_ref();
@@ -113,7 +126,7 @@ impl<K:OKemCore> Server<K> {
             Err(RelayHandshakeError::EAgain)?;
         }
 
-        let mut client_hs = match self.try_parse_client_handshake(msg, &mut self.materials) {
+        let mut client_hs = match self.try_parse_client_handshake(msg, &mut materials) {
             Ok(chs) => chs,
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
                 return Err(RelayHandshakeError::EAgain);
@@ -121,7 +134,7 @@ impl<K:OKemCore> Server<K> {
             Err(_e) => {
                 debug!(
                     "{} failed to parse client handshake: {_e}",
-                    self.materials.session_id
+                    materials.session_id
                 );
                 return Err(RelayHandshakeError::BadClientHandshake);
             }
@@ -129,7 +142,7 @@ impl<K:OKemCore> Server<K> {
 
         debug!(
             "{} successfully parsed client handshake",
-            self.materials.session_id
+            materials.session_id
         );
         let their_pk = client_hs.get_public();
 
@@ -202,19 +215,21 @@ impl<K:OKemCore> Server<K> {
 
         // chunk off the ciphertext
         let mut client_ct_obfs = [0u8; Self::CLIENT_CT_SIZE];
-        client_ct_obfs.copy_from_slice(&buf[Self::CLIENT_EK_SIZE..Self::CLIENT_EK_SIZE + Self::CLIENT_CT_SIZE]);
+        client_ct_obfs.copy_from_slice(
+            &buf[Self::CLIENT_EK_SIZE..Self::CLIENT_EK_SIZE + Self::CLIENT_CT_SIZE],
+        );
 
         // decapsulate the secret encoded by the client
         let shared_secret_1 = self.identity_keys.sk.decapsulate(&client_ct_obfs);
 
         // Compute the Ephemeral Secret
-        let mut f2 = Hmac::<Sha3_256>::new_from_slice(self.materials.node_id.as_bytes())
+        let mut f2 = Hmac::<Sha3_256>::new_from_slice(materials.node_id.as_bytes())
             .expect("keying server f2 hmac should never fail");
         f2.update(&shared_secret_1.as_bytes()[..]);
         let mut ephemeral_secret = Zeroizing::new([0u8; ENC_KEY_LEN]);
         ephemeral_secret.copy_from_slice(&f2.finalize_reset().into_bytes()[..ENC_KEY_LEN]);
 
-        // derive the mark from the Ephemeral Secret 
+        // derive the mark from the Ephemeral Secret
         let mut f1_es = Hmac::<Sha3_256>::new_from_slice(ephemeral_secret.as_ref())
             .expect("Keying server f1_es hmac should never fail");
         f1_es.update(&client_ek_obfs);
@@ -301,8 +316,8 @@ impl<K:OKemCore> Server<K> {
         // state: ClientStateIncoming {},
         Ok(ClientHandshakeMessage::<K, ClientStateIncoming>::new(
             client_ek_obfs,
-            ClientStateIncoming {  },
-            Some(epoch_hour), 
+            ClientStateIncoming {},
+            Some(epoch_hour),
         ))
 
         // -----------------------------------[NTor V3]-------------------------------

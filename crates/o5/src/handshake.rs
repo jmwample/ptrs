@@ -18,10 +18,7 @@ use zeroize::Zeroizing;
 mod keys;
 use keys::NtorV3XofReader;
 pub(crate) use keys::{Authcode, NtorV3KeyGenerator, AUTHCODE_LENGTH};
-pub use keys::{
-    EphemeralKey, EphemeralPub, IdentityKey, IdentityPub, IdentityPublicKey, IdentitySecretKey,
-    NtorV3KeyGen,
-};
+pub use keys::{EphemeralKey, EphemeralPub, IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
 
 /// Super trait to be used where we require a distinction between client and server roles.
 pub trait Role {
@@ -317,13 +314,9 @@ mod test {
         let mut rep = Rep(Vec::new(), relay_message.to_vec());
 
         let server = Server::<MlKem768>::new(relay_private);
-        let (s_handshake, mut s_keygen) = server.server_handshake_ntor_v3(
-            &mut rng,
-            &mut rep,
-            &c_handshake,
-            verification,
-        )
-        .unwrap();
+        let (s_handshake, mut s_keygen) = server
+            .server_handshake_ntor_v3(&mut rng, &mut rep, &c_handshake, verification)
+            .unwrap();
 
         let (s_msg, mut c_keygen) = client::client_handshake_ntor_v3_part2::<MlKem768>(
             &c_state,
@@ -423,8 +416,8 @@ mod test {
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_private = IdentityKey::new(b, id.into());
-        let relay_public = IdentityPub::from(&relay_private); // { pk: B, id };
+        let relay_private = IdentitySecretKey::<MlKem768>::new(b, id.into());
+        let relay_public = IdentityPublicKey::<MlKem768>::from(&relay_private); // { pk: B, id };
 
         let mut chs_materials = CHSMaterials::new(&relay_public, "0000000000000000".into());
         let (state, client_handshake) = client::client_handshake_ntor_v3_no_keygen::<K>(
@@ -447,15 +440,16 @@ mod test {
         }
         let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
 
-        let server = Server::<MlKem768>::new(IdentitySecretKey::new(b, Ed25519Identity(id)));
-        let (server_handshake, mut server_keygen) = server.server_handshake_ntor_v3_no_keygen(
-            &mut rng,
-            &mut rep,
-            &EphemeralKey::new(y),
-            &client_handshake,
-            &verification,
-        )
-        .unwrap();
+        let server = Server::<MlKem768>::new(IdentitySecretKey::new(b, Ed25519Identity::new(id)));
+        let (server_handshake, mut server_keygen) = server
+            .server_handshake_ntor_v3_no_keygen(
+                &mut rng,
+                &mut rep,
+                &EphemeralKey::new(y),
+                &client_handshake,
+                &verification,
+            )
+            .unwrap();
         assert!(rep.2);
 
         assert_eq!(server_handshake[..], hex!("4bf4814326fdab45ad5184f5518bd7fae25dc59374062698201a50a22954246d2fc5f8773ca824542bc6cf6f57c7c29bbf4e5476461ab130c5b18ab0a91276651202c3e1e87c0d32054c")[..]);

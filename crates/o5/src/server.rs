@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused)] // TODO: Remove this
 
 use super::*;
 use crate::{
@@ -10,12 +10,11 @@ use crate::{
     },
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH},
-    handshake::{IdentityKey, IdentityPub},
     proto::{MaybeTimeout, O5Stream},
     sessions::Session,
     Error, Result,
 };
-use handshake::IdentitySecretKey;
+use handshake::{IdentityPublicKey, IdentitySecretKey};
 use ptrs::args::Args;
 use tor_cell::relaycell::extend::NtorV3Extension;
 
@@ -26,7 +25,7 @@ use std::{
 use bytes::{Buf, BufMut, Bytes};
 use hex::FromHex;
 use hmac::{Hmac, Mac};
-use kemeleon::{MlKem768, OKemCore};
+use kemeleon::OKemCore;
 use ptrs::{debug, info};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -108,7 +107,7 @@ impl<T, K: OKemCore> ServerBuilder<T, K> {
     }
 
     pub fn validate_args(args: &Args) -> Result<()> {
-        let _ = RequiredServerState::try_from(args)?;
+        let _ = RequiredServerState::<K>::try_from(args)?;
 
         Ok(())
     }
@@ -116,20 +115,20 @@ impl<T, K: OKemCore> ServerBuilder<T, K> {
     pub(crate) fn parse_state(
         statedir: Option<impl AsRef<str>>,
         args: &Args,
-    ) -> Result<RequiredServerState> {
+    ) -> Result<RequiredServerState<K>> {
         if statedir.is_none() {
-            return RequiredServerState::try_from(args);
+            return RequiredServerState::<K>::try_from(args);
         }
 
         // if the provided arguments do not satisfy all required arguments, we
         // attempt to parse the server state from json IFF a statedir path was
         // provided. Otherwise this method just fails.
         let mut required_args = args.clone();
-        match RequiredServerState::try_from(args) {
+        match RequiredServerState::<K>::try_from(args) {
             Ok(state) => Ok(state),
             Err(e) => {
                 Self::server_state_from_file(statedir.unwrap(), &mut required_args)?;
-                RequiredServerState::try_from(&required_args)
+                RequiredServerState::<K>::try_from(&required_args)
             }
         }
     }
@@ -181,12 +180,12 @@ impl JsonServerState {
     }
 }
 
-pub(crate) struct RequiredServerState<K> {
+pub(crate) struct RequiredServerState<K: OKemCore> {
     pub(crate) private_key: IdentitySecretKey<K>,
     pub(crate) drbg_seed: drbg::Drbg,
 }
 
-impl TryFrom<&Args> for RequiredServerState {
+impl<K: OKemCore> TryFrom<&Args> for RequiredServerState<K> {
     type Error = Error;
     fn try_from(value: &Args) -> std::prelude::v1::Result<Self, Self::Error> {
         let privkey_str = value
@@ -204,9 +203,9 @@ impl TryFrom<&Args> for RequiredServerState {
             .ok_or("missing argument {NODE_ID_ARG}")?;
         let node_id = <[u8; NODE_ID_LENGTH]>::from_hex(node_id_str)?;
 
-        let private_key = IdentityKey::try_from_bytes(sk)?;
+        let private_key = IdentitySecretKey::<K>::try_from_bytes(sk)?;
 
-        Ok(RequiredServerState {
+        Ok(RequiredServerState::<K> {
             private_key,
             drbg_seed: drbg::Drbg::new(Some(drbg_seed))?,
         })
@@ -224,19 +223,19 @@ pub struct ServerInner<K: OKemCore> {
     pub(crate) replay_filter: ReplayFilter,
 }
 
-impl<K:OKemCore> Deref for Server<K> {
+impl<K: OKemCore> Deref for Server<K> {
     type Target = ServerInner<K>;
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
     }
 }
 
-impl<K:OKemCore> Server<K> {
-    pub fn new(identity: IdentityKey) -> Self {
+impl<K: OKemCore> Server<K> {
+    pub fn new(identity: IdentitySecretKey<K>) -> Self {
         Self::new_from_key(identity)
     }
 
-    pub(crate) fn new_from_key(identity_keys: IdentityKey) -> Self {
+    pub(crate) fn new_from_key(identity_keys: IdentitySecretKey<K>) -> Self {
         Self(Arc::new(ServerInner {
             handshake_timeout: Some(SERVER_HANDSHAKE_TIMEOUT),
             identity_keys,
@@ -252,14 +251,14 @@ impl<K:OKemCore> Server<K> {
 
         // Generated identity secret key does not need to be elligator2 representable
         // so we can use the regular dalek_x25519 key generation.
-        let identity_keys = IdentityKey::random_from_rng(rng);
+        let identity_keys = IdentitySecretKey::<K>::random_from_rng(rng);
 
-        let pk = IdentityPub::from(&identity_keys);
+        let pk = IdentityPublicKey::<K>::from(&identity_keys);
 
         Self::new_from_key(identity_keys)
     }
 
-    pub async fn wrap<T>(self, stream: T) -> Result<O5Stream<T, MlKem768>>
+    pub async fn wrap<T>(self, stream: T) -> Result<O5Stream<T, K>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
     {
@@ -284,8 +283,8 @@ impl<K:OKemCore> Server<K> {
         Err(Error::NotImplemented)
     }
 
-    pub fn client_params(&self) -> ClientBuilder {
-        ClientBuilder {
+    pub fn client_params(&self) -> ClientBuilder<K> {
+        ClientBuilder::<K> {
             node_details: self.identity_keys.pk.clone(),
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
@@ -317,6 +316,7 @@ mod tests {
 
     use super::*;
 
+    use kemeleon::MlKem768;
     use ptrs::trace;
     use tokio::net::TcpStream;
 
@@ -330,7 +330,10 @@ mod tests {
         let test_state = format!(
             r#"{{"{NODE_ID_ARG}": "00112233445566778899", "{PRIVATE_KEY_ARG}":"0123456789abcdeffedcba9876543210", "{SEED_ARG}": "abcdefabcdefabcdefabcdef"}}"#
         );
-        ServerBuilder::<TcpStream, MlKem768>::server_state_from_json(test_state.as_bytes(), &mut args)?;
+        ServerBuilder::<TcpStream, MlKem768>::server_state_from_json(
+            test_state.as_bytes(),
+            &mut args,
+        )?;
         debug!("{:?}\n{}", args.encode_smethod_args(), test_state);
 
         Ok(())
