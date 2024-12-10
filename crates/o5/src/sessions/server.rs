@@ -16,7 +16,7 @@ use crate::{
 
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
-use kemeleon::MlKem768;
+use kemeleon::OKemCore;
 use ptrs::{debug, info, trace};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
@@ -116,15 +116,16 @@ impl<S: ServerSessionState> ServerSession<S> {
 
 impl ServerSession<Initialized> {
     /// Attempt to complete the handshake with a new client connection.
-    pub async fn handshake<REPLY: AuxDataReply<Server>, T>(
+    pub async fn handshake<T, K>(
         self,
-        server: &Server,
+        server: &Server<K>,
         mut stream: T,
-        extensions_handler: &mut REPLY,
+        extensions_handler: &mut impl AuxDataReply<Server<K>>,
         deadline: Option<Instant>,
-    ) -> Result<O5Stream<T, MlKem768>>
+    ) -> Result<O5Stream<T, K>>
     where
         T: AsyncRead + AsyncWrite + Unpin,
+        K: OKemCore,
     {
         // set up for handshake
         let mut session = self.transition(ServerHandshaking {});
@@ -172,7 +173,7 @@ impl ServerSession<Initialized> {
     }
 }
 
-impl Server {
+impl<K: OKemCore> Server<K> {
     /// Complete the handshake with the client. This function assumes that the
     /// client has already sent a message and that we do not know yet if the
     /// message is valid.

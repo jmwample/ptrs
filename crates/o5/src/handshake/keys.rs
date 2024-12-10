@@ -94,9 +94,6 @@ impl<K: OKemCore> Writeable for EphemeralPub<K> {
     }
 }
 
-pub type IdentityKey = IdentitySecretKey<MlKem768>;
-pub type IdentityPub = IdentityPublicKey<MlKem768>;
-
 /// Key information about a relay used for the ntor v3 handshake.
 ///
 /// Contains a single curve25519 ntor onion key, and the relay's ed25519
