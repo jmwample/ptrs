@@ -53,13 +53,13 @@ tokio-util = { version = "0.7.10", features = ["codec", "io"]}
 bytes = "1.5.0"
 
 ## ntor_arti
-tor-cell = "0.24.0"
-tor-llcrypto = "0.24.0"
-tor-error = "0.24.0"
-tor-bytes = "0.24.0"
+tor-cell = "0.25.0"
+tor-llcrypto = "0.25.0"
+tor-error = "0.25.0"
+tor-bytes = "0.25.0"
 cipher = "0.4.4"
 zeroize = "1.7.0"
-thiserror = "1.0.56"
+thiserror = "2.0.6"
 
 ## transitive dependencies that break things when versions are too low
 ## i.e. any lower than the exact versions here.
@@ -80,7 +80,7 @@ filetime = {version="0.2.25", optional=true}
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
 hex-literal = "0.4.1"
-tor-basic-utils = "0.24.0"
+tor-basic-utils = "0.25.0"
 
 # benches
 # criterion = "0.5"
