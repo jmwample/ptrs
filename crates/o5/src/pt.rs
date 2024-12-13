@@ -31,7 +31,9 @@ impl<T, K> Transport<T, K> {
 impl<T, K> ptrs::PluggableTransport<T> for Transport<T, K>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    K: OKemCore + Send + Sync,
+    K: OKemCore + Send + Sync + 'static,
+    <K as OKemCore>::EncapsulationKey: Send + Sync,
+    <K as OKemCore>::DecapsulationKey: Send + Sync,
 {
     type ClientBuilder = crate::ClientBuilder<K>;
     type ServerBuilder = crate::ServerBuilder<T, K>;
@@ -52,7 +54,9 @@ where
 impl<T, K> ptrs::ServerBuilder<T> for crate::ServerBuilder<T, K>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    K: OKemCore + Send + Sync,
+    K: OKemCore + Send + Sync + 'static,
+    <K as OKemCore>::EncapsulationKey: Send + Sync,
+    <K as OKemCore>::DecapsulationKey: Send + Sync,
 {
     type ServerPT = crate::Server<K>;
     type Error = Error;
@@ -105,7 +109,9 @@ where
 impl<T, K> ptrs::ClientBuilder<T> for crate::ClientBuilder<K>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    K: OKemCore + Send + Sync,
+    K: OKemCore + Send + Sync + 'static,
+    <K as OKemCore>::EncapsulationKey: Send + Sync,
+    <K as OKemCore>::DecapsulationKey: Send + Sync,
 {
     type ClientPT = crate::Client<K>;
     type Error = Error;
@@ -192,7 +198,9 @@ impl<InRW, InErr, K> ptrs::ClientTransport<InRW, InErr> for crate::Client<K>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     InErr: std::error::Error + Send + Sync + 'static,
-    K: OKemCore + Send + Sync,
+    K: OKemCore + Send + Sync + 'static,
+    <K as OKemCore>::EncapsulationKey: Send + Sync,
+    <K as OKemCore>::DecapsulationKey: Send + Sync,
 {
     type OutRW = O5Stream<InRW, K>;
     type OutErr = Error;
@@ -214,7 +222,9 @@ where
 impl<InRW, K> ptrs::ServerTransport<InRW> for crate::Server<K>
 where
     InRW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    K: OKemCore + Send + Sync,
+    K: OKemCore + Send + Sync + 'static,
+    <K as OKemCore>::EncapsulationKey: Send + Sync,
+    <K as OKemCore>::DecapsulationKey: Send + Sync,
 {
     type OutRW = O5Stream<InRW, K>;
     type OutErr = Error;

@@ -27,7 +27,7 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct ClientBuilder<K: OKemCore> {
-    pub node_details: IdentityPublicKey<K>,
+    pub node_details: Option<IdentityPublicKey<K>>,
     pub statefile_path: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
@@ -35,8 +35,7 @@ pub struct ClientBuilder<K: OKemCore> {
 impl<K: OKemCore> Default for ClientBuilder<K> {
     fn default() -> Self {
         Self {
-            node_details: IdentityPublicKey::<K>::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])
-                .expect("default identitykey is broken - shouldn't be used anyways"),
+            node_details: None,
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
@@ -44,14 +43,19 @@ impl<K: OKemCore> Default for ClientBuilder<K> {
 }
 
 impl<K: OKemCore> ClientBuilder<K> {
+    pub fn new(pubkey: impl AsRef<[u8]>) -> Result<Self> {
+        Ok(Self {
+            node_details: Some(IdentityPublicKey::<K>::try_from_bytes(pubkey)?),
+            statefile_path: None,
+            handshake_timeout: MaybeTimeout::Default_,
+        })
+    }
+
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
         todo!("this is not implemented");
         Ok(Self {
-            node_details: IdentityPublicKey::<K>::new(
-                [0u8; PUBLIC_KEY_LEN],
-                [0u8; NODE_ID_LENGTH],
-            )?,
+            node_details: None,
             statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -60,23 +64,20 @@ impl<K: OKemCore> ClientBuilder<K> {
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         todo!("this is not implemented");
-        Ok(Self {
-            node_details: IdentityPublicKey::<K>::new(
-                [0u8; PUBLIC_KEY_LEN],
-                [0u8; NODE_ID_LENGTH],
-            )?,
-            statefile_path: None,
-            handshake_timeout: MaybeTimeout::Default_,
-        })
+        // Ok(Self {
+        //     node_details: IdentityPublicKey::<K>::new(__)?,
+        //     statefile_path: None,
+        //     handshake_timeout: MaybeTimeout::Default_,
+        // })
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: impl AsRef<[u8]>) -> Result<&mut Self> {
-        self.node_details = IdentityPublicKey::<K>::try_from_bytes(pubkey)?;
+        self.node_details = Some(IdentityPublicKey::<K>::try_from_bytes(pubkey)?);
         Ok(self)
     }
 
     pub(crate) fn with_node(&mut self, pubkey: IdentityPublicKey<K>) -> &mut Self {
-        self.node_details = pubkey;
+        self.node_details = Some(pubkey);
         self
     }
 
@@ -86,7 +87,9 @@ impl<K: OKemCore> ClientBuilder<K> {
     }
 
     pub fn with_node_id(&mut self, id: [u8; NODE_ID_LENGTH]) -> &mut Self {
-        self.node_details.id = id.into();
+        if let Some(d) = self.node_details.as_mut() {
+            d.id = id.into();
+        }
         self
     }
 
@@ -106,8 +109,11 @@ impl<K: OKemCore> ClientBuilder<K> {
     }
 
     pub fn build(&self) -> Client<K> {
+        if self.node_details.is_none() {
+            panic!("tried to build client from details missing server identity");
+        }
         Client {
-            station_pubkey: self.node_details.clone(),
+            station_pubkey: self.node_details.clone().unwrap(),
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }

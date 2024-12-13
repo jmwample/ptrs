@@ -285,7 +285,7 @@ impl<K: OKemCore> Server<K> {
 
     pub fn client_params(&self) -> ClientBuilder<K> {
         ClientBuilder::<K> {
-            node_details: self.identity_keys.pk.clone(),
+            node_details: Some(self.identity_keys.pk.clone()),
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
@@ -307,6 +307,10 @@ impl<K: OKemCore> Server<K> {
 
             _state: sessions::Initialized {},
         })
+    }
+
+    pub(crate) fn get_identity(&self) -> IdentityPublicKey<K> {
+        self.identity_keys.pk.clone()
     }
 }
 

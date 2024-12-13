@@ -1,7 +1,7 @@
-#![allow(unused)]
+#![allow(unused)] // TODO: Remove this. nothing unused should stay
 
-use kemeleon::{Encode, KemeleonByteArraySize};
-use ml_kem::MlKem768Params;
+use kemeleon::{Encode, EncodingSize, KemeleonByteArraySize, OKemCore};
+use ml_kem::{Ciphertext, MlKem768Params};
 use tor_llcrypto::pk::ed25519::ED25519_ID_LEN;
 use typenum::Unsigned;
 
@@ -12,32 +12,42 @@ use crate::{
     handshake::AUTHCODE_LENGTH,
 };
 
-use std::time::Duration;
+use std::{marker::PhantomData, time::Duration};
 
-// TODO: these two should not be necessary
-pub const PUBLIC_KEY_LEN: usize = <MlKem768Params as KemeleonByteArraySize>::ENCODED_EK_SIZE::USIZE;
-pub const NODE_PUBKEY_LENGTH: usize = PUBLIC_KEY_LEN + ED25519_ID_LEN;
+//=========================[Packets / Messages]=================================//
 
-//=========================[Framing/Msgs]=====================================//
-
-/// Maximum handshake size including padding
-pub const MAX_HANDSHAKE_LENGTH: usize = 8192;
+pub(crate) type EkSize<K: OKemCore> = <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize;
+pub(crate) type CtSize<K: OKemCore> = <<K as OKemCore>::Ciphertext as Encode>::EncodedSize;
 
 pub const SHA256_SIZE: usize = 32;
 pub const MARK_LENGTH: usize = SHA256_SIZE;
 pub const MAC_LENGTH: usize = SHA256_SIZE;
 
+/// Maximum handshake size including padding
+pub const MAX_HANDSHAKE_LENGTH: usize = 16_384;
+const MAX_HANDSHAKE_PAD_LENGTH: usize = 8192;
+const MIN_HANDSHAKE_PAD_LENGTH: usize = 0;
+
 /// Minimum padding allowed in a client handshake message
-pub const CLIENT_MIN_PAD_LENGTH: usize =
-    (SERVER_MIN_HANDSHAKE_LENGTH + INLINE_SEED_FRAME_LENGTH) - CLIENT_MIN_HANDSHAKE_LENGTH;
-pub const CLIENT_MAX_PAD_LENGTH: usize = MAX_HANDSHAKE_LENGTH - CLIENT_MIN_HANDSHAKE_LENGTH;
+pub const CLIENT_MIN_PAD_LENGTH: usize = MIN_HANDSHAKE_PAD_LENGTH + CLIENT_MIN_HANDSHAKE_LENGTH;
+/// Maximum padding included in a client handshake message
+pub const CLIENT_MAX_PAD_LENGTH: usize = MAX_HANDSHAKE_PAD_LENGTH - CLIENT_MIN_HANDSHAKE_LENGTH;
+
+/// Minimum possible valid client handshake length.
+// pub const CLIENT_MIN_HANDSHAKE_LENGTH: usize = REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
 pub const CLIENT_MIN_HANDSHAKE_LENGTH: usize = REPRESENTATIVE_LENGTH + MARK_LENGTH + MAC_LENGTH;
 
+/// Minimum padding allowed in a server handshake message
 pub const SERVER_MIN_PAD_LENGTH: usize = 0;
+/// Maximum padding included in a server handshake message
 pub const SERVER_MAX_PAD_LENGTH: usize =
     MAX_HANDSHAKE_LENGTH - (SERVER_MIN_HANDSHAKE_LENGTH + INLINE_SEED_FRAME_LENGTH);
+
+/// Minimum possible sever handshake length
 pub const SERVER_MIN_HANDSHAKE_LENGTH: usize =
     REPRESENTATIVE_LENGTH + AUTHCODE_LENGTH + MARK_LENGTH + MAC_LENGTH;
+
+//===============================[Framing]=====================================//
 
 pub const INLINE_SEED_FRAME_LENGTH: usize =
     framing::FRAME_OVERHEAD + MESSAGE_OVERHEAD + SEED_MESSAGE_PAYLOAD_LENGTH;
@@ -51,7 +61,7 @@ pub const SEED_MESSAGE_LENGTH: usize =
 
 pub const CONSUME_READ_SIZE: usize = framing::MAX_SEGMENT_LENGTH * 16;
 
-//===============================[Proto]======================================//
+//===============================[Transport]===================================//
 
 pub const TRANSPORT_NAME: &str = "o5";
 

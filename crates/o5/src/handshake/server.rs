@@ -16,6 +16,7 @@ use std::time::Instant;
 // use cipher::KeyIvInit;
 use digest::{Digest, ExtendableOutput, XofReader};
 use hmac::{Hmac, Mac};
+use kem::{Decapsulate, Encapsulate};
 use kemeleon::OKemCore;
 use keys::NtorV3KeyGenerator;
 use ptrs::{debug, trace};
@@ -70,7 +71,7 @@ impl<K: OKemCore> ServerHandshake for Server<K> {
             &mut rng,
             &mut bytes_reply_fn,
             msg.as_ref(),
-            &materials,
+            materials,
             NTOR3_CIRC_VERIFICATION,
         )?;
         Ok((NtorV3KeyGenerator::new::<ServerRole>(reader), res))
@@ -78,8 +79,8 @@ impl<K: OKemCore> ServerHandshake for Server<K> {
 }
 
 impl<K: OKemCore> Server<K> {
-    const CLIENT_CT_SIZE: usize = <<K as OKemCore>::Ciphertext as Encode>::EncodedSize::USIZE;
-    const CLIENT_EK_SIZE: usize = <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize::USIZE;
+    const CLIENT_CT_SIZE: usize = CtSize::<K>::USIZE;
+    const CLIENT_EK_SIZE: usize = EkSize::<K>::USIZE;
 
     /// Complete an ntor v3 handshake as a server.
     ///
@@ -96,7 +97,7 @@ impl<K: OKemCore> Server<K> {
         rng: &mut impl CryptoRngCore,
         reply_fn: &mut impl MsgReply,
         message: impl AsRef<[u8]>,
-        materials: HandshakeMaterials,
+        materials: &HandshakeMaterials,
         verification: &[u8],
     ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
         let (dk_session, _ek_session) = K::generate(rng);
@@ -118,7 +119,7 @@ impl<K: OKemCore> Server<K> {
         reply_fn: &mut impl MsgReply,
         secret_key_y: &EphemeralKey<K>,
         message: impl AsRef<[u8]>,
-        materials: HandshakeMaterials,
+        materials: &HandshakeMaterials,
         verification: &[u8],
     ) -> RelayHandshakeResult<(Vec<u8>, NtorV3XofReader)> {
         let msg = message.as_ref();
@@ -126,7 +127,7 @@ impl<K: OKemCore> Server<K> {
             Err(RelayHandshakeError::EAgain)?;
         }
 
-        let mut client_hs = match self.try_parse_client_handshake(msg, &mut materials) {
+        let mut client_hs = match self.try_parse_client_handshake(msg, materials) {
             Ok(chs) => chs,
             Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
                 return Err(RelayHandshakeError::EAgain);
@@ -191,7 +192,7 @@ impl<K: OKemCore> Server<K> {
     pub(crate) fn complete_server_hs(
         &self,
         client_hs: &ClientHandshakeMessage<K, ClientStateIncoming>,
-        materials: HandshakeMaterials,
+        materials: &HandshakeMaterials,
         keygen: &mut NtorV3KeyGenerator,
         authcode: Authcode,
     ) -> RelayHandshakeResult<Vec<u8>> {
@@ -201,7 +202,7 @@ impl<K: OKemCore> Server<K> {
     fn try_parse_client_handshake(
         &self,
         b: impl AsRef<[u8]>,
-        materials: &mut HandshakeMaterials,
+        materials: &HandshakeMaterials,
     ) -> Result<ClientHandshakeMessage<K, ClientStateIncoming>> {
         let buf = b.as_ref();
 
@@ -210,20 +211,22 @@ impl<K: OKemCore> Server<K> {
         }
 
         // chunk off the clients encapsulation key
-        let mut client_ek_obfs = [0u8; Self::CLIENT_CT_SIZE];
+        let mut client_ek_obfs = vec![0u8; Self::CLIENT_CT_SIZE];
         client_ek_obfs.copy_from_slice(&buf[0..Self::CLIENT_EK_SIZE]);
 
         // chunk off the ciphertext
-        let mut client_ct_obfs = [0u8; Self::CLIENT_CT_SIZE];
+        let mut client_ct_obfs = vec![0u8; Self::CLIENT_CT_SIZE];
         client_ct_obfs.copy_from_slice(
             &buf[Self::CLIENT_EK_SIZE..Self::CLIENT_EK_SIZE + Self::CLIENT_CT_SIZE],
         );
 
-        // decapsulate the secret encoded by the client
-        let shared_secret_1 = self.identity_keys.sk.decapsulate(&client_ct_obfs);
+        // decode and decapsulate the secret encoded by the client
+        let client_ct = <K as OKemCore>::Ciphertext::try_from_bytes(&client_ct_obfs)?;
+        let shared_secret_1 = self.identity_keys.sk.decapsulate(&client_ct)?;
 
         // Compute the Ephemeral Secret
-        let mut f2 = Hmac::<Sha3_256>::new_from_slice(materials.node_id.as_bytes())
+        let node_id = self.get_identity().id;
+        let mut f2 = Hmac::<Sha3_256>::new_from_slice(node_id.as_bytes())
             .expect("keying server f2 hmac should never fail");
         f2.update(&shared_secret_1.as_bytes()[..]);
         let mut ephemeral_secret = Zeroizing::new([0u8; ENC_KEY_LEN]);
@@ -313,9 +316,9 @@ impl<K: OKemCore> Server<K> {
         }
 
         // // pad_len doesn't matter when we are reading client handshake msg
-        // state: ClientStateIncoming {},
+        let client_ephemeral_ek = EphemeralPub::<K>::try_from_bytes(client_ek_obfs)?;
         Ok(ClientHandshakeMessage::<K, ClientStateIncoming>::new(
-            client_ek_obfs,
+            client_ephemeral_ek,
             ClientStateIncoming {},
             Some(epoch_hour),
         ))

@@ -447,6 +447,7 @@ mod test {
                 &mut rep,
                 &EphemeralKey::new(y),
                 &client_handshake,
+                materials,
                 &verification,
             )
             .unwrap();
