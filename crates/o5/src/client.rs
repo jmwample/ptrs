@@ -64,11 +64,6 @@ impl<K: OKemCore> ClientBuilder<K> {
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         todo!("this is not implemented");
-        // Ok(Self {
-        //     node_details: IdentityPublicKey::<K>::new(__)?,
-        //     statefile_path: None,
-        //     handshake_timeout: MaybeTimeout::Default_,
-        // })
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: impl AsRef<[u8]>) -> Result<&mut Self> {

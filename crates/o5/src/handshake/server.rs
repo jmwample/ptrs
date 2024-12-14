@@ -211,7 +211,7 @@ impl<K: OKemCore> Server<K> {
         }
 
         // chunk off the clients encapsulation key
-        let mut client_ek_obfs = vec![0u8; Self::CLIENT_CT_SIZE];
+        let mut client_ek_obfs = vec![0u8; Self::CLIENT_EK_SIZE];
         client_ek_obfs.copy_from_slice(&buf[0..Self::CLIENT_EK_SIZE]);
 
         // chunk off the ciphertext
@@ -328,6 +328,11 @@ impl<K: OKemCore> Server<K> {
             ClientStateIncoming {},
             Some(epoch_hour),
         ))
+
+        // Is it important that the context for the auth HMAC uses the non obfuscated encoding of the
+        // ciphertext sent by the client (ciphertext created using the server's identity encapsulaation
+        // key) as opposed to the obfuscated encoding?
+
 
         // -----------------------------------[NTor V3]-------------------------------
         // // TODO: Maybe use the Reader / Ntor interface, it is nice and clean.

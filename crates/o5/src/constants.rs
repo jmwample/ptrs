@@ -16,8 +16,8 @@ use std::{marker::PhantomData, time::Duration};
 
 //=========================[Packets / Messages]=================================//
 
-pub(crate) type EkSize<K: OKemCore> = <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize;
-pub(crate) type CtSize<K: OKemCore> = <<K as OKemCore>::Ciphertext as Encode>::EncodedSize;
+pub(crate) type EkSize<K> = <<K as OKemCore>::EncapsulationKey as Encode>::EncodedSize;
+pub(crate) type CtSize<K> = <<K as OKemCore>::Ciphertext as Encode>::EncodedSize;
 
 pub const SHA256_SIZE: usize = 32;
 pub const MARK_LENGTH: usize = SHA256_SIZE;

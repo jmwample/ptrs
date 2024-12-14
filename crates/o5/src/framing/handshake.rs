@@ -36,27 +36,16 @@ use core::borrow::Borrow;
 // -----------------------------[ Server ]-----------------------------
 
 /// Used by the client when parsing the handshake sent by the server.
-pub struct ServerHandshakeMessage<K: OKemCore, S: ChsState> {
+pub struct ServerHandshakeMessage<K: OKemCore> {
     server_auth: [u8; AUTHCODE_LENGTH],
     pad_len: usize,
     session_pubkey: EphemeralPub<K>,
     epoch_hour: String,
     aux_data: Vec<NtorV3Extension>,
-    client_hadshake_msg: ClientHandshakeMessage<K, S>,
+    client_hadshake_msg: ClientHandshakeMessage<K, ClientStateIncoming>,
 }
 
-impl<K: OKemCore, S: ChsState> ServerHandshakeMessage<K, S> {
-    // pub fn new(chs_msg: ClientHandshakeMessage<K>, session_pubkey: &EphemeralPub<K>) -> Self {
-    //     Self {
-    //         session_pubkey,
-    //         server_auth: [0u8; AUTHCODE_LENGTH],
-    //         pad_len: rand::thread_rng().gen_range(SERVER_MIN_PAD_LENGTH..SERVER_MAX_PAD_LENGTH),
-    //         epoch_hour: epoch_hr,
-    //         client_hadshake_msg: chs_msg,
-    //         aux_data: vec![],
-    //     }
-    // }
-
+impl<K: OKemCore> ServerHandshakeMessage<K> {
     pub fn with_pad_len(&mut self, pad_len: usize) -> &Self {
         self.pad_len = pad_len;
         self
@@ -74,10 +63,6 @@ impl<K: OKemCore, S: ChsState> ServerHandshakeMessage<K, S> {
     pub fn server_auth(self) -> Authcode {
         self.server_auth
     }
-
-    // Is it important that the context for the auth HMAC uses the non obfuscated encoding of the
-    // ciphertext sent by the client (ciphertext created using the server's identity encapsulaation
-    // key) as opposed to the obfuscated encoding?
 
     /// Serialize the Server Hello Message
     ///
@@ -204,14 +189,17 @@ pub struct ClientHandshakeMessage<K: OKemCore, S: ChsState> {
     pub(crate) epoch_hour: String,
 }
 
-pub(crate) trait ChsState {}
+/// Trait allowing for interchangeable client handshake state based on context
+pub trait ChsState {}
 
-pub(crate) struct ClientStateOutgoing<K: OKemCore> {
+/// State tracked when constructing and sending an outgoing client handshake
+pub struct ClientStateOutgoing<K: OKemCore> {
     pub(crate) hs_materials: CHSMaterials<K>,
 }
 impl<K: OKemCore> ChsState for ClientStateOutgoing<K> {}
 
-pub(crate) struct ClientStateIncoming {}
+/// State tracked when parsing and operating on an incoming client handshake
+pub struct ClientStateIncoming {}
 impl ChsState for ClientStateIncoming {}
 
 impl<K> ClientHandshakeMessage<K, ClientStateIncoming>
@@ -250,7 +238,6 @@ where
 impl<K> ClientHandshakeMessage<K, ClientStateOutgoing<K>>
 where
     K: OKemCore,
-    <K as OKemCore>::EncapsulationKey: Clone, // TODO: Is this necessary?
 {
     pub(crate) fn new(
         client_session_pubkey: EphemeralPub<K>,
