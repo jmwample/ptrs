@@ -314,8 +314,15 @@ mod test {
         let mut rep = Rep(Vec::new(), relay_message.to_vec());
 
         let server = Server::<MlKem768>::new(relay_private);
+        let shs_materials = SHSMaterials::new("test_seriver".into(), [0u8; SEED_LENGTH]);
         let (s_handshake, mut s_keygen) = server
-            .server_handshake_ntor_v3(&mut rng, &mut rep, &c_handshake, verification)
+            .server_handshake_ntor_v3(
+                &mut rng,
+                &mut rep,
+                &c_handshake,
+                &shs_materials,
+                verification,
+            )
             .unwrap();
 
         let (s_msg, mut c_keygen) = client::client_handshake_ntor_v3_part2::<MlKem768>(
@@ -439,8 +446,12 @@ mod test {
             }
         }
         let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
+        let materials = &SHSMaterials {
+            session_id: "testing".into(),
+            len_seed: [0u8; SEED_LENGTH],
+        };
 
-        let server = Server::<MlKem768>::new(IdentitySecretKey::new(b, Ed25519Identity::new(id)));
+        let server = Server::<MlKem768>::new(relay_private);
         let (server_handshake, mut server_keygen) = server
             .server_handshake_ntor_v3_no_keygen(
                 &mut rng,

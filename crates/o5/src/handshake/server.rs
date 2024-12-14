@@ -129,7 +129,7 @@ impl<K: OKemCore> Server<K> {
 
         let mut client_hs = match self.try_parse_client_handshake(msg, materials) {
             Ok(chs) => chs,
-            Err(Error::HandshakeErr(RelayHandshakeError::EAgain)) => {
+            Err(RelayHandshakeError::EAgain) => {
                 return Err(RelayHandshakeError::EAgain);
             }
             Err(_e) => {
@@ -203,11 +203,11 @@ impl<K: OKemCore> Server<K> {
         &self,
         b: impl AsRef<[u8]>,
         materials: &HandshakeMaterials,
-    ) -> Result<ClientHandshakeMessage<K, ClientStateIncoming>> {
+    ) -> RelayHandshakeResult<ClientHandshakeMessage<K, ClientStateIncoming>> {
         let buf = b.as_ref();
 
         if CLIENT_MIN_HANDSHAKE_LENGTH > buf.len() {
-            Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?;
+            Err(RelayHandshakeError::EAgain)?;
         }
 
         // chunk off the clients encapsulation key
@@ -221,8 +221,13 @@ impl<K: OKemCore> Server<K> {
         );
 
         // decode and decapsulate the secret encoded by the client
-        let client_ct = <K as OKemCore>::Ciphertext::try_from_bytes(&client_ct_obfs)?;
-        let shared_secret_1 = self.identity_keys.sk.decapsulate(&client_ct)?;
+        let client_ct = <K as OKemCore>::Ciphertext::try_from_bytes(&client_ct_obfs)
+            .map_err(|e| RelayHandshakeError::FailedParse)?;
+        let shared_secret_1 = self
+            .identity_keys
+            .sk
+            .decapsulate(&client_ct)
+            .map_err(|e| RelayHandshakeError::FailedDecapsulation)?;
 
         // Compute the Ephemeral Secret
         let node_id = self.get_identity().id;
@@ -260,9 +265,9 @@ impl<K: OKemCore> Server<K> {
             None => {
                 trace!("{} didn't find mark", materials.session_id);
                 if buf.len() > MAX_HANDSHAKE_LENGTH {
-                    Err(Error::HandshakeErr(RelayHandshakeError::BadClientHandshake))?
+                    Err(RelayHandshakeError::BadClientHandshake)?
                 }
-                Err(Error::HandshakeErr(RelayHandshakeError::EAgain))?
+                Err(RelayHandshakeError::EAgain)?
             }
         };
 
@@ -295,7 +300,7 @@ impl<K: OKemCore> Server<K> {
                     // The client either happened to generate exactly the same
                     // session key and padding, or someone is replaying a previous
                     // handshake.  In either case, fuck them.
-                    Err(Error::HandshakeErr(RelayHandshakeError::ReplayedHandshake))?
+                    Err(RelayHandshakeError::ReplayedHandshake)?
                 }
 
                 epoch_hour = eh;
@@ -307,16 +312,17 @@ impl<K: OKemCore> Server<K> {
 
         if !mac_found {
             // This could be a [`RelayHandshakeError::TagMismatch`] :shrug:
-            Err(Error::HandshakeErr(RelayHandshakeError::BadClientHandshake))?
+            Err(RelayHandshakeError::BadClientHandshake)?
         }
 
         // client should never send any appended padding at the end.
         if buf.len() != pos + MARK_LENGTH + MAC_LENGTH {
-            Err(Error::HandshakeErr(RelayHandshakeError::BadClientHandshake))?
+            Err(RelayHandshakeError::BadClientHandshake)?
         }
 
         // // pad_len doesn't matter when we are reading client handshake msg
-        let client_ephemeral_ek = EphemeralPub::<K>::try_from_bytes(client_ek_obfs)?;
+        let client_ephemeral_ek = EphemeralPub::<K>::try_from_bytes(client_ek_obfs)
+            .map_err(|_| RelayHandshakeError::FailedParse)?;
         Ok(ClientHandshakeMessage::<K, ClientStateIncoming>::new(
             client_ephemeral_ek,
             ClientStateIncoming {},
