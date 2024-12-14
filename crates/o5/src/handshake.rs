@@ -18,10 +18,7 @@ use zeroize::Zeroizing;
 mod keys;
 use keys::NtorV3XofReader;
 pub(crate) use keys::{Authcode, NtorV3KeyGenerator, AUTHCODE_LENGTH};
-pub use keys::{
-    EphemeralKey, EphemeralPub, IdentityKey, IdentityPub, IdentityPublicKey, IdentitySecretKey,
-    NtorV3KeyGen,
-};
+pub use keys::{EphemeralKey, EphemeralPub, IdentityPublicKey, IdentitySecretKey, NtorV3KeyGen};
 
 /// Super trait to be used where we require a distinction between client and server roles.
 pub trait Role {
@@ -289,6 +286,7 @@ mod test {
     use rand::thread_rng;
     use tor_basic_utils::test_rng::testing_rng;
     use tor_cell::relaycell::extend::NtorV3Extension;
+    use tor_llcrypto::pk::ed25519::Ed25519Identity;
 
     type K = MlKem768;
     type Decap<T> = <T as OKemCore>::DecapsulationKey;
@@ -315,14 +313,17 @@ mod test {
         }
         let mut rep = Rep(Vec::new(), relay_message.to_vec());
 
-        let (s_handshake, mut s_keygen) = server::server_handshake_ntor_v3(
-            &mut rng,
-            &mut rep,
-            &c_handshake,
-            &relay_private,
-            verification,
-        )
-        .unwrap();
+        let server = Server::<MlKem768>::new(relay_private);
+        let shs_materials = SHSMaterials::new("test_seriver".into(), [0u8; SEED_LENGTH]);
+        let (s_handshake, mut s_keygen) = server
+            .server_handshake_ntor_v3(
+                &mut rng,
+                &mut rep,
+                &c_handshake,
+                &shs_materials,
+                verification,
+            )
+            .unwrap();
 
         let (s_msg, mut c_keygen) = client::client_handshake_ntor_v3_part2::<MlKem768>(
             &c_state,
@@ -350,7 +351,7 @@ mod test {
 
         let mut rep = |_: &[NtorV3Extension]| Some(vec![]);
 
-        let server = Server::new_from_random(&mut thread_rng());
+        let server = Server::<MlKem768>::new_from_random(&mut thread_rng());
         let shs_materials = SHSMaterials {
             len_seed: [0u8; SEED_LENGTH],
             session_id: "roundtrip_test_serverside".into(),
@@ -390,7 +391,7 @@ mod test {
             len_seed: [0u8; SEED_LENGTH],
             session_id: "roundtrip_test_serverside".into(),
         };
-        let server = Server::new_from_random(&mut thread_rng());
+        let server = Server::<MlKem768>::new_from_random(&mut thread_rng());
         let (s_keygen, s_handshake) = server
             .server(&mut rep, &shs_materials, &c_handshake)
             .unwrap();
@@ -422,8 +423,8 @@ mod test {
         let verification = hex!("78797a7a79");
         let server_message = hex!("486f6c61204d756e646f");
 
-        let relay_private = IdentityKey::new(b, id.into());
-        let relay_public = IdentityPub::from(&relay_private); // { pk: B, id };
+        let relay_private = IdentitySecretKey::<MlKem768>::new(b, id.into());
+        let relay_public = IdentityPublicKey::<MlKem768>::from(&relay_private); // { pk: B, id };
 
         let mut chs_materials = CHSMaterials::new(&relay_public, "0000000000000000".into());
         let (state, client_handshake) = client::client_handshake_ntor_v3_no_keygen::<K>(
@@ -445,16 +446,22 @@ mod test {
             }
         }
         let mut rep = Replier(client_message.to_vec(), server_message.to_vec(), false);
+        let materials = &SHSMaterials {
+            session_id: "testing".into(),
+            len_seed: [0u8; SEED_LENGTH],
+        };
 
-        let (server_handshake, mut server_keygen) = server::server_handshake_ntor_v3_no_keygen(
-            &mut rng,
-            &mut rep,
-            &EphemeralKey::new(y),
-            &client_handshake,
-            &relay_private,
-            &verification,
-        )
-        .unwrap();
+        let server = Server::<MlKem768>::new(relay_private);
+        let (server_handshake, mut server_keygen) = server
+            .server_handshake_ntor_v3_no_keygen(
+                &mut rng,
+                &mut rep,
+                &EphemeralKey::new(y),
+                &client_handshake,
+                materials,
+                &verification,
+            )
+            .unwrap();
         assert!(rep.2);
 
         assert_eq!(server_handshake[..], hex!("4bf4814326fdab45ad5184f5518bd7fae25dc59374062698201a50a22954246d2fc5f8773ca824542bc6cf6f57c7c29bbf4e5476461ab130c5b18ab0a91276651202c3e1e87c0d32054c")[..]);

@@ -4,14 +4,14 @@ use crate::{
     common::colorize,
     constants::*,
     framing::{FrameError, Marshall, O5Codec, TryParse, KEY_LENGTH, KEY_MATERIAL_LENGTH},
-    handshake::IdentityPub,
+    handshake::IdentityPublicKey,
     proto::{MaybeTimeout, O5Stream},
     sessions, Error, Result,
 };
 
 use bytes::{Buf, BufMut, BytesMut};
 use hmac::{Hmac, Mac};
-use kemeleon::{Encode, MlKem768, OKemCore};
+use kemeleon::{Encode, OKemCore};
 use ptrs::{debug, info, trace, warn};
 use rand::prelude::*;
 use subtle::ConstantTimeEq;
@@ -26,29 +26,36 @@ use std::{
 };
 
 #[derive(Clone, Debug)]
-pub struct ClientBuilder {
-    pub node_details: IdentityPub,
+pub struct ClientBuilder<K: OKemCore> {
+    pub node_details: Option<IdentityPublicKey<K>>,
     pub statefile_path: Option<String>,
     pub(crate) handshake_timeout: MaybeTimeout,
 }
 
-impl Default for ClientBuilder {
+impl<K: OKemCore> Default for ClientBuilder<K> {
     fn default() -> Self {
         Self {
-            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])
-                .expect("default identitykey is broken - shouldn't be used anyways"),
+            node_details: None,
             statefile_path: None,
             handshake_timeout: MaybeTimeout::Default_,
         }
     }
 }
 
-impl ClientBuilder {
+impl<K: OKemCore> ClientBuilder<K> {
+    pub fn new(pubkey: impl AsRef<[u8]>) -> Result<Self> {
+        Ok(Self {
+            node_details: Some(IdentityPublicKey::<K>::try_from_bytes(pubkey)?),
+            statefile_path: None,
+            handshake_timeout: MaybeTimeout::Default_,
+        })
+    }
+
     /// TODO: implement client builder from statefile
     pub fn from_statefile(location: &str) -> Result<Self> {
         todo!("this is not implemented");
         Ok(Self {
-            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
+            node_details: None,
             statefile_path: Some(location.into()),
             handshake_timeout: MaybeTimeout::Default_,
         })
@@ -57,20 +64,15 @@ impl ClientBuilder {
     /// TODO: implement client builder from string args
     pub fn from_params(param_strs: Vec<impl AsRef<[u8]>>) -> Result<Self> {
         todo!("this is not implemented");
-        Ok(Self {
-            node_details: IdentityPub::new([0u8; PUBLIC_KEY_LEN], [0u8; NODE_ID_LENGTH])?,
-            statefile_path: None,
-            handshake_timeout: MaybeTimeout::Default_,
-        })
     }
 
     pub fn with_node_pubkey(&mut self, pubkey: impl AsRef<[u8]>) -> Result<&mut Self> {
-        self.node_details = IdentityPub::try_from_bytes(pubkey)?;
+        self.node_details = Some(IdentityPublicKey::<K>::try_from_bytes(pubkey)?);
         Ok(self)
     }
 
-    pub(crate) fn with_node(&mut self, pubkey: IdentityPub) -> &mut Self {
-        self.node_details = pubkey;
+    pub(crate) fn with_node(&mut self, pubkey: IdentityPublicKey<K>) -> &mut Self {
+        self.node_details = Some(pubkey);
         self
     }
 
@@ -80,7 +82,9 @@ impl ClientBuilder {
     }
 
     pub fn with_node_id(&mut self, id: [u8; NODE_ID_LENGTH]) -> &mut Self {
-        self.node_details.id = id.into();
+        if let Some(d) = self.node_details.as_mut() {
+            d.id = id.into();
+        }
         self
     }
 
@@ -99,9 +103,12 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build(&self) -> Client {
+    pub fn build(&self) -> Client<K> {
+        if self.node_details.is_none() {
+            panic!("tried to build client from details missing server identity");
+        }
         Client {
-            station_pubkey: self.node_details.clone(),
+            station_pubkey: self.node_details.clone().unwrap(),
             handshake_timeout: self.handshake_timeout.duration(),
         }
     }
@@ -112,7 +119,7 @@ impl ClientBuilder {
     }
 }
 
-impl fmt::Display for ClientBuilder {
+impl<K: OKemCore> fmt::Display for ClientBuilder<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         //TODO: string self
         write!(f, "")
@@ -120,18 +127,18 @@ impl fmt::Display for ClientBuilder {
 }
 
 /// Client implementing the obfs4 protocol.
-pub struct Client {
-    station_pubkey: IdentityPub,
+pub struct Client<K: OKemCore> {
+    station_pubkey: IdentityPublicKey<K>,
     handshake_timeout: Option<tokio::time::Duration>,
 }
 
-impl Client {
+impl<K: OKemCore> Client<K> {
     /// TODO: extract args to create new builder
     pub fn get_args(&mut self, _args: &dyn std::any::Any) {}
 
     /// On a failed handshake the client will read for the remainder of the
     /// handshake timeout and then close the connection.
-    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T, MlKem768>>
+    pub async fn wrap<'a, T>(self, mut stream: T) -> Result<O5Stream<T, K>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
     {
@@ -147,7 +154,7 @@ impl Client {
     pub async fn establish<'a, T, E>(
         self,
         mut stream_fut: Pin<ptrs::FutureResult<T, E>>,
-    ) -> Result<O5Stream<T, MlKem768>>
+    ) -> Result<O5Stream<T, K>>
     where
         T: AsyncRead + AsyncWrite + Unpin + 'a,
         E: std::error::Error + Send + Sync + 'static,
@@ -167,12 +174,14 @@ mod test {
     use super::*;
     use crate::Result;
 
+    use kemeleon::MlKem768;
+
     #[test]
     fn parse_params() -> Result<()> {
         let test_args = [["", "", ""]];
 
         for (i, test_case) in test_args.iter().enumerate() {
-            let cb = ClientBuilder::from_params(test_case.to_vec())?;
+            let cb = ClientBuilder::<MlKem768>::from_params(test_case.to_vec())?;
         }
         Ok(())
     }

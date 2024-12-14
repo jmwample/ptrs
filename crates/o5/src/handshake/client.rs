@@ -6,11 +6,11 @@ use crate::{
         ntor_arti::{
             ClientHandshake, ClientHandshakeComplete, ClientHandshakeMaterials, KeyGenerator,
         },
+        utils::get_epoch_hour,
     },
     constants::*,
-    framing::handshake::ClientHandshakeMessage,
-    handshake::keys::*,
-    handshake::*,
+    framing::{handshake::ClientHandshakeMessage, ClientStateOutgoing},
+    handshake::{keys::*, *},
     Error, Result,
 };
 
@@ -192,7 +192,11 @@ pub(crate) fn client_handshake_ntor_v3_no_keygen<K: OKemCore>(
     verification: &[u8],
 ) -> EncodeResult<(HandshakeState<K>, Vec<u8>)> {
     let ephemeral_ek = EphemeralPub::new(keys.1);
-    let mut client_msg = ClientHandshakeMessage::<K>::new(ephemeral_ek, materials.clone());
+    let hs_materials = ClientStateOutgoing {
+        hs_materials: materials.clone(),
+    };
+    let mut client_msg =
+        ClientHandshakeMessage::<K, ClientStateOutgoing<K>>::new(ephemeral_ek, hs_materials);
 
     // ------------ [ Perform Handshake and Serialize Packet ] ------------ //
 

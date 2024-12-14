@@ -197,7 +197,7 @@ pub enum RelayHandshakeError {
     #[error("try again with updated input")]
     EAgain,
 
-    /// An error in parsing  a handshake message.
+    /// An error in parsing a handshake message.
     #[error("Problem decoding onion handshake")]
     Fmt(#[from] tor_bytes::Error),
 
@@ -217,6 +217,17 @@ pub enum RelayHandshakeError {
     /// The client's handshake matched a previous handshake indicating a potential replay attack.
     #[error("Handshake from client was seen recently -- potentially replayed.")]
     ReplayedHandshake,
+
+    /// Cyptography error occurred while performing the handshake
+    // I think this could happen when someone tries to connect with a valid client, but invalid
+    // indentity key. I am not sure about that though. TODO: add test
+    #[error("Failed to decapsulate a message despite finding the mark and validating the MAC")]
+    FailedDecapsulation,
+
+    /// Encountered an Error while attempting to parse a cryptographic value (key / ciphertext)
+    // TODO: add test
+    #[error("Failed to parse cryptographic value")]
+    FailedParse,
 
     /// Error occured while creating a frame.
     #[error("Problem occured while building handshake")]

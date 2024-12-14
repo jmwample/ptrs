@@ -68,7 +68,7 @@ impl<K: OKemCore> Encapsulate<K::Ciphertext, K::SharedKey> for EphemeralPub<K> {
 
 impl<K: OKemCore> Encode for EphemeralPub<K> {
     type Error = <K::EncapsulationKey as Encode>::Error;
-    type EncodedSize = <K::EncapsulationKey as Encode>::EncodedSize;
+    type EncodedSize = EkSize<K>;
 
     fn as_bytes(&self) -> ml_kem::array::Array<u8, Self::EncodedSize> {
         self.0.as_bytes()
@@ -93,9 +93,6 @@ impl<K: OKemCore> Writeable for EphemeralPub<K> {
         todo!("Session Public Key `EphemeralPub<K>` Writer needs implemented");
     }
 }
-
-pub type IdentityKey = IdentitySecretKey<MlKem768>;
-pub type IdentityPub = IdentityPublicKey<MlKem768>;
 
 /// Key information about a relay used for the ntor v3 handshake.
 ///
@@ -134,7 +131,7 @@ impl<K: OKemCore> From<&IdentitySecretKey<K>> for IdentityPublicKey<K> {
 }
 
 impl<K: OKemCore> IdentityPublicKey<K> {
-    const CERT_LENGTH: usize = <K::EncapsulationKey as Encode>::EncodedSize::USIZE + ED25519_ID_LEN;
+    const CERT_LENGTH: usize = EkSize::<K>::USIZE + ED25519_ID_LEN;
     const CERT_SUFFIX: &'static str = "==";
 
     /// Construct a new IdentityPublicKey from its components.
@@ -173,8 +170,7 @@ impl<K: OKemCore> std::str::FromStr for IdentityPublicKey<K> {
             return Err(format!("cert length {} is invalid", decoded.len()).into());
         }
         let id: [u8; NODE_ID_LENGTH] = decoded[..NODE_ID_LENGTH].try_into()?;
-        let ek: [u8; NODE_PUBKEY_LENGTH] = decoded[NODE_ID_LENGTH..].try_into()?;
-        IdentityPublicKey::new(ek, id)
+        IdentityPublicKey::new(&decoded[NODE_ID_LENGTH..], id)
     }
 }
 
