@@ -1,0 +1,20 @@
+[package]
+name = "webtunnel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ptrs = { path = "../ptrs" }
+tokio = { version = "1", features = ["net", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+webpki-roots = "0.26"
+httparse = "1"
+thiserror = "2"
+tracing = "0.1"
+getrandom = "0.2"
+base64 = "0.22"
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "io-util", "net"] }
