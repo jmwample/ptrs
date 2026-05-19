@@ -7,6 +7,7 @@ members = [
     "crates/o7",
     "crates/obfs4",
     "crates/ptrs",
+    "crates/webtunnel",
 ]
 
 resolver = "2"
